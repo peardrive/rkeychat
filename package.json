@@ -1,0 +1,25 @@
+{
+  "name": "rkeychat",
+  "version": "0.0.1",
+  "description": "A room for humans and their agents, on pearcore, with rKey membership.",
+  "type": "module",
+  "bin": {
+    "rkeychat": "bin/rkeychat.js"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "hyperdht": "^6.34.0",
+    "pearcore": "github:peardrive/pearcore#c8633de",
+    "qrcode": "^1.5.4",
+    "rkey": "file:../rKey",
+    "sherpa-onnx-node": "^1.13.8",
+    "ws": "^8.22.0"
+  }
+}

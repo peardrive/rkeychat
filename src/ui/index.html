@@ -1,0 +1,1431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#09090b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="rkeychat">
+<title>rkeychat</title>
+<style>
+/* rkeychat — pearcast's room: dark, quiet, depth from light: soft top highlights, long shadows, one green accent, one red. */
+:root {
+  --bg: #09090b; --bg-glow: #15161b; --surface: #17181d; --surface-2: #1e1f26; --surface-3: #282a33;
+  --line: rgba(255, 255, 255, 0.07); --line-strong: rgba(255, 255, 255, 0.12);
+  --text: #ececf1; --text-2: #a3a5b0; --text-3: #6d6f7b;
+  --accent: #a8ce38; --accent-2: #63b35a; --accent-ink: #12200a;
+  --rec: #ff453a; --good: #8fd460; --warn: #f2b84b; --bad: #ff6b61; --select: #ffd60a;
+  --radius: 14px; --panel-w: 330px; --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --shadow-float: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 2px 6px rgba(0, 0, 0, 0.18), 0 12px 28px -6px rgba(0, 0, 0, 0.32), 0 36px 72px -18px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.2), 0 14px 36px -8px rgba(0, 0, 0, 0.45), 0 40px 90px -20px rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+h2, h3, p { margin: 0; }
+body {
+  margin: 0; overflow: hidden; display: flex; flex-direction: column;
+  background: radial-gradient(120% 80% at 50% -10%, var(--bg-glow) 0%, var(--bg) 60%);
+  color: var(--text); font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased; user-select: none; cursor: default;
+}
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: default; }
+input, textarea { font: inherit; color: var(--text); user-select: text; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+.ico { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- title bar: wordmark · room switcher */
+.titlebar { height: 52px; flex: none; display: flex; align-items: center; justify-content: center; gap: 10px; -webkit-app-region: drag; }
+.wordmark { font-weight: 650; letter-spacing: 0.2px; }
+.titlebar-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
+.room-switch { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 12px; border-radius: 999px; color: var(--text-2); font-weight: 600; transition: background 0.15s, color 0.15s; }
+.room-switch:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+.titlebar { position: relative; }
+.title-gear { position: absolute; right: 24px; top: 11px; -webkit-app-region: no-drag; }
+.caret { width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.6px 1.6px 0; transform: translateY(-2px) rotate(45deg); }
+
+/* ---------- the room: conversation + panel */
+.room { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 0 24px; }
+.column { flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(180deg, rgba(26, 27, 33, 0.96), rgba(14, 15, 18, 0.98)); border: 1px solid var(--line); box-shadow: var(--shadow-float); }
+.feed { flex: 1; overflow-y: auto; padding: 18px 22px 10px; display: flex; flex-direction: column; gap: 2px; }
+.feed::-webkit-scrollbar, .panel-body::-webkit-scrollbar, .composer textarea::-webkit-scrollbar { width: 8px; }
+.feed::-webkit-scrollbar-thumb, .panel-body::-webkit-scrollbar-thumb, .composer textarea::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* messages: them on the left, you on the right */
+.msg { position: relative; display: flex; gap: 10px; align-items: flex-end; max-width: 78%; margin-top: 10px; }
+.msg.is-cont { margin-top: 2px; }
+.msg.is-cont .avatar { visibility: hidden; }
+.msg.is-cont .msg-head { display: none; }
+.msg.is-mine { align-self: flex-end; flex-direction: row-reverse; }
+.msg.is-mine .avatar, .msg.is-mine .msg-head { display: none; }
+.avatar { flex: none; width: 28px; height: 28px; border-radius: 9px; display: grid; place-items: center; font-weight: 650; font-size: 12px; color: var(--text-2);
+  background: linear-gradient(180deg, var(--surface-3), var(--surface-2)); box-shadow: 0 1px 0 rgba(255,255,255,0.08) inset, 0 2px 6px rgba(0,0,0,0.3); text-transform: uppercase; }
+.avatar.is-human { color: var(--accent-ink); background: linear-gradient(135deg, #b9db45, #7cc05a); box-shadow: 0 1px 0 rgba(255,255,255,0.35) inset; }
+.msg-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.msg.is-mine .msg-main { align-items: flex-end; }
+.msg-head { display: flex; align-items: center; gap: 7px; padding-left: 4px; }
+.msg-name { font-weight: 650; font-size: 12.5px; }
+.msg-time { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.bubble { position: relative; padding: 8px 12px; border-radius: 16px 16px 16px 6px; font-size: 13.5px; line-height: 1.5; color: #d6d7de; white-space: pre-wrap; word-break: break-word; user-select: text; cursor: text;
+  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.035)); border: 1px solid var(--line); box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset; transition: border-color 0.15s; }
+.msg.is-cont .bubble { border-radius: 6px 16px 16px 6px; }
+.msg.is-mine .bubble { color: var(--text); border-radius: 16px 16px 6px 16px; background: linear-gradient(180deg, rgba(168,206,56,0.2), rgba(168,206,56,0.11)); border-color: rgba(168,206,56,0.28); }
+.msg.is-mine.is-cont .bubble { border-radius: 16px 6px 6px 16px; }
+.msg.is-selected .bubble { border-color: var(--select); }
+.mine-time { font-size: 10.5px; color: var(--text-3); font-variant-numeric: tabular-nums; padding-right: 4px; opacity: 0; transition: opacity 0.15s; }
+.msg:hover .mine-time { opacity: 1; }
+.mention { color: var(--accent); font-weight: 600; }
+.mention.is-me { color: var(--select); }
+.msg.is-mine .mention { color: #d7f28a; }
+
+/* hover actions: a small floating bar beside the bubble */
+.msg-actions { position: absolute; bottom: -13px; right: -8px; z-index: 3; display: flex; gap: 2px; padding: 3px; border-radius: 10px; opacity: 0; transform: translateY(3px); pointer-events: none;
+  background: rgba(40, 42, 51, 0.97); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); transition: opacity 0.15s, transform 0.15s var(--ease); }
+.msg:hover .msg-actions { opacity: 1; transform: none; pointer-events: auto; }
+/* room/agent tools live up on the name line, right side; social actions stay on the bottom edge */
+.head-tools { margin-left: auto; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
+.msg:hover .head-tools { opacity: 1; }
+.head-tools .act { height: 20px; padding: 0 6px; font-size: 11px; color: var(--text-3); }
+.head-tools .act:hover { color: var(--text); }
+.act { height: 24px; min-width: 24px; padding: 0 7px; border-radius: 7px; display: flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 11.5px; font-weight: 600; }
+.act:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+.act.is-stop:hover { color: #fff; background: var(--bad); }
+.act .ico { width: 13px; height: 13px; }
+
+.ctl-line { align-self: center; margin: 10px 0 4px; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.day-line { align-self: center; margin: 16px 0 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-3); }
+.pill { padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600; background: color-mix(in srgb, currentColor 14%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent) inset; white-space: nowrap; }
+.tone-good { color: var(--good); } .tone-warn { color: var(--warn); } .tone-bad { color: var(--bad); } .tone-dim { color: var(--text-3); } .tone-select { color: var(--select); } .tone-accent { color: var(--accent); }
+
+/* agent strip: only there while agents are doing something */
+.agent-strip { flex: none; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 14px 8px; padding: 6px 8px 6px 12px; border-radius: 12px; font-size: 12px; color: var(--text-2);
+  background: rgba(0,0,0,0.25); box-shadow: 0 0 0 1px var(--line) inset; }
+.agent-strip .grow { flex: 1; }
+.agent-strip .btn-sm { padding: 3px 10px; }
+
+/* composer: grows with what you type, scrolls only past ~7 lines */
+.composer { flex: none; display: flex; gap: 10px; align-items: flex-end; padding: 12px 14px; border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.22); }
+.composer textarea { flex: 1; min-width: 0; display: block; resize: none; height: 40px; max-height: 176px; overflow-y: hidden; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line-strong);
+  background: rgba(0, 0, 0, 0.35); font-size: 13.5px; line-height: 20px; }
+.composer textarea.is-overflow { overflow-y: auto; -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), rgba(0,0,0,0.35)); mask-image: linear-gradient(180deg, #000 calc(100% - 22px), rgba(0,0,0,0.35)); }
+.composer textarea.is-overflow.at-end { -webkit-mask-image: none; mask-image: none; }
+.composer textarea::placeholder { color: var(--text-3); }
+.composer .btn { height: 40px; width: 44px; padding: 0; }
+
+/* voice: dictation mic + voice memo, living inside the input */
+.input-shell { flex: 1; min-width: 0; display: flex; align-items: flex-end; gap: 2px; padding: 0 4px 0 0; border-radius: 12px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.35); }
+.input-shell:focus-within { border-color: rgba(168,206,56,0.35); }
+.input-shell textarea { border: 0 !important; background: none !important; }
+.input-shell textarea:focus-visible { outline: none; }
+.in-btn { flex: none; height: 32px; width: 32px; margin-bottom: 4px; border-radius: 9px; display: grid; place-items: center; color: var(--text-3); transition: background 0.15s, color 0.15s; }
+.in-btn:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+.in-btn .ico { width: 17px; height: 17px; }
+.in-btn.is-live { color: #ff8a80; background: rgba(255,69,58,0.16); animation: live 1.6s ease-in-out infinite; }
+.in-btn.is-busy { color: var(--warn); animation: blink 1.2s ease-in-out infinite; }
+@keyframes live { 50% { box-shadow: 0 0 0 1px rgba(255,69,58,0.5) inset, 0 0 14px rgba(255,69,58,0.4); } }
+.recorder { flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 6px 0 5px; border-radius: 12px; border: 1px solid rgba(255,69,58,0.4); background: rgba(40,10,10,0.35); }
+.rec-stop { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, #ff7a70, var(--rec) 45%, #d92b3a); box-shadow: 0 0 14px -2px rgba(255,69,58,0.6); }
+.rec-stop i { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
+.rec-wave { flex: 1; min-width: 0; height: 30px; }
+.rec-time { font-variant-numeric: tabular-nums; font-size: 12.5px; color: #ffb3ac; min-width: 36px; text-align: right; }
+.pending { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; }
+/* the memo block inside a message */
+.memo { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 6px 10px 6px 6px; border-radius: 12px; background: rgba(0,0,0,0.22); box-shadow: 0 0 0 1px var(--line) inset; min-width: 220px; user-select: none; cursor: default; }
+.bubble > .memo:first-child { margin-top: 0; }
+.memo-play { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--accent-ink); background: linear-gradient(135deg, #b9db45, #7cc05a); box-shadow: 0 1px 0 rgba(255,255,255,0.35) inset; }
+.memo-play .ico { width: 13px; height: 13px; fill: currentColor; stroke-width: 0; }
+.memo-bars { flex: 1; min-width: 0; height: 26px; display: flex; align-items: center; gap: 2px; }
+.memo-bars i { flex: 1; min-width: 2px; border-radius: 2px; background: rgba(255,255,255,0.28); }
+.memo-bars i.on { background: var(--accent); }
+.memo-time { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.memo.is-missing { opacity: 0.6; }
+.gloss { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+.gloss-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 7px; font-size: 12px; }
+.gloss-row:hover { background: rgba(255,255,255,0.05); }
+.gloss-row .from { color: var(--text-3); text-decoration: line-through; text-decoration-color: rgba(255,107,97,0.5); }
+.gloss-row .to { color: var(--text); font-weight: 600; }
+
+/* @-mention picker: floats above the composer */
+.composer { position: relative; }
+.mention-menu { position: absolute; left: 14px; bottom: calc(100% - 4px); z-index: 20; min-width: 200px; padding: 5px; border-radius: 12px;
+  background: rgba(34, 35, 43, 0.97); backdrop-filter: blur(20px); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop), 0 1px 0 rgba(255,255,255,0.06) inset; animation: tip-in 0.12s var(--ease); }
+.mention-item { width: 100%; display: flex; align-items: center; gap: 9px; padding: 6px 10px 6px 6px; border-radius: 8px; text-align: left; font-size: 13px; }
+.mention-item .avatar { width: 22px; height: 22px; border-radius: 7px; font-size: 10.5px; }
+.mention-item .sub { margin-left: auto; font-size: 11px; color: var(--text-3); }
+.mention-item.is-active { background: var(--accent); color: var(--accent-ink); }
+.mention-item.is-active .sub { color: var(--accent-ink); opacity: 0.7; }
+@keyframes tip-in { from { opacity: 0; transform: translateY(3px); } }
+
+/* ---------- left sidebar: rooms, and the open room's people under it */
+.side { width: var(--side-w, 272px); flex: none; position: relative; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden;
+  background: linear-gradient(180deg, rgba(34, 35, 43, 0.96) 0%, rgba(20, 21, 26, 0.98) 38%, rgba(16, 17, 21, 0.98) 100%);
+  border: 1px solid var(--line); box-shadow: var(--shadow-float); transition: width 0.25s var(--ease); }
+.side.is-collapsed { width: 72px; }
+.side-top { flex: none; padding: 12px; border-bottom: 1px solid var(--line); }
+.side-add { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(0,0,0,0.35); color: var(--text-3); }
+.side-add .ico { width: 15px; height: 15px; flex: none; }
+.side-add input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12.5px; }
+.side-add input::placeholder { color: var(--text-3); }
+.side-body { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.side-body::-webkit-scrollbar { width: 8px; } .side-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+.room-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; text-align: left; width: 100%; transition: background 0.15s; }
+.room-row:hover { background: rgba(255,255,255,0.05); }
+.room-row.is-open { background: rgba(168, 206, 56, 0.12); box-shadow: 0 0 0 1px rgba(168,206,56,0.3) inset; }
+.stack { position: relative; flex: none; width: 38px; height: 38px; }
+.stack .avatar { position: absolute; width: 24px; height: 24px; border-radius: 8px; font-size: 10.5px; box-shadow: 0 0 0 2px #1a1b21; }
+.stack .avatar:nth-child(1) { left: 0; top: 0; } .stack .avatar:nth-child(2) { right: 0; bottom: 0; }
+.stack.three .avatar:nth-child(1) { left: 0; top: 1px; } .stack.three .avatar:nth-child(2) { right: 0; top: 1px; bottom: auto; } .stack.three .avatar:nth-child(3) { left: 7px; bottom: 0; }
+.stack.one .avatar { width: 34px; height: 34px; border-radius: 11px; font-size: 13px; left: 2px; top: 2px; }
+.room-main { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.room-name { display: flex; align-items: baseline; gap: 6px; font-weight: 650; font-size: 13px; }
+.room-name .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-name .count { font-weight: 550; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.room-last { font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-people { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 8px 22px; margin-left: 18px; border-left: 1px solid var(--line-strong); }
+.person-row { text-align: left; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 12.5px; }
+.person-row:hover { background: rgba(255,255,255,0.05); }
+.person-row .avatar { width: 22px; height: 22px; border-radius: 7px; font-size: 10px; }
+.person-row .nm { flex: 1; min-width: 0; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-grip { position: absolute; right: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; }
+.side-grip:hover { background: linear-gradient(90deg, transparent, var(--line-strong)); }
+.side.is-collapsed .side-top, .side.is-collapsed .room-main, .side.is-collapsed .room-people, .side.is-collapsed .side-grip { display: none; }
+.side.is-collapsed .room-row { justify-content: center; padding: 8px 0; }
+
+/* ---------- room header above the chat */
+.room-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 16px; border-bottom: 1px solid var(--line); }
+.room-head h2 { font-size: 15px; font-weight: 650; letter-spacing: -0.1px; }
+.room-head .meta { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.room-head .grow { flex: 1; }
+.room-head .faces { display: flex; }
+.room-head .faces .avatar { width: 24px; height: 24px; border-radius: 8px; font-size: 10.5px; margin-left: -6px; box-shadow: 0 0 0 2px #1a1b21; }
+.room-head .faces .avatar:first-child { margin-left: 0; }
+
+/* ---------- panel (opened from the dock) */
+.panel { width: var(--panel-w); flex: none; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden;
+  background: linear-gradient(180deg, rgba(34, 35, 43, 0.96) 0%, rgba(20, 21, 26, 0.98) 38%, rgba(16, 17, 21, 0.98) 100%);
+  border: 1px solid var(--line); box-shadow: var(--shadow-float), -30px 0 80px -40px rgba(0, 0, 0, 0.6); }
+.panel-head { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; border-bottom: 1px solid var(--line); flex: none; }
+.panel-head > .ico { color: var(--accent); width: 16px; height: 16px; }
+.panel-head h2 { font-size: 13.5px; font-weight: 650; letter-spacing: -0.1px; }
+.panel-head .icon-btn { position: absolute; right: 8px; top: 7px; }
+.panel-body { flex: 1; overflow-y: auto; padding: 16px 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.section { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02)); border: 1px solid var(--line); box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset; }
+.section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); }
+.section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.note { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+.icon-btn { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: var(--text-2); transition: background 0.15s, color 0.15s; }
+.icon-btn .ico { width: 14px; height: 14px; }
+.icon-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+
+.row-item { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 4px; border-radius: 9px; text-align: left; width: 100%; }
+.row-item:hover { background: rgba(255, 255, 255, 0.05); }
+.row-item.is-current { background: rgba(168, 206, 56, 0.14); box-shadow: 0 0 0 1px rgba(168,206,56,0.35) inset; }
+.row-item .avatar { width: 26px; height: 26px; border-radius: 8px; font-size: 11.5px; }
+.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.row-title { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-sub { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+.status.tone-good::before { background: var(--good); box-shadow: 0 0 8px rgba(143, 212, 96, 0.6); }
+.status.tone-warn { color: var(--warn); }
+.status.tone-warn::before { background: var(--warn); box-shadow: 0 0 8px rgba(242, 184, 75, 0.7); animation: blink 1.6s ease-in-out infinite; }
+.status.tone-bad { color: var(--bad); }
+.status.tone-bad::before { background: var(--bad); box-shadow: 0 0 8px rgba(255, 107, 97, 0.7); }
+.status.tone-select::before { background: var(--select); box-shadow: 0 0 8px rgba(255, 214, 10, 0.7); }
+.status.dot-only { font-size: 0; gap: 0; }
+@keyframes blink { 50% { opacity: 0.35; } }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border-radius: 10px; font-weight: 600; transition: transform 0.15s var(--ease), filter 0.15s; white-space: nowrap; }
+.btn .ico { width: 15px; height: 15px; }
+.btn:hover { filter: brightness(1.12); } .btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.45; filter: none; transform: none; }
+.btn-soft { color: var(--text); background: linear-gradient(180deg, var(--surface-3), var(--surface-2)); border: 1px solid var(--line-strong); box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 2px 6px rgba(0,0,0,0.3); }
+.btn-primary { color: var(--accent-ink); background: linear-gradient(135deg, #b9db45, #7cc05a); box-shadow: 0 1px 0 rgba(255,255,255,0.35) inset, 0 6px 18px -4px rgba(140,200,70,0.45); }
+.btn-danger { color: var(--bad); background: rgba(255,107,97,0.08); box-shadow: 0 0 0 1px rgba(255,107,97,0.3) inset; }
+.btn-danger:hover { filter: none; background: var(--bad); color: #fff; }
+.btn-sm { padding: 5px 11px; border-radius: 8px; font-size: 12px; }
+.btn-block { width: 100%; }
+.text-input { width: 100%; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(0, 0, 0, 0.35); }
+.text-input.mono { font: 11.5px ui-monospace, Menlo, monospace; }
+.code { font: 10.5px/1.5 ui-monospace, Menlo, monospace; color: var(--text-2); word-break: break-all; padding: 8px 10px; border-radius: 9px; background: rgba(0,0,0,0.35); box-shadow: 0 0 0 1px var(--line) inset; user-select: all; cursor: text; }
+.inline { display: flex; gap: 8px; }
+.inline .text-input { flex: 1; }
+.num { width: 52px; padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line-strong); background: rgba(0,0,0,0.35); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* switch */
+.switch { position: relative; width: 36px; height: 22px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; }
+.switch-track { position: absolute; inset: 0; border-radius: 11px; background: rgba(0,0,0,0.45); border: 1px solid var(--line-strong); box-shadow: 0 1px 3px rgba(0,0,0,0.5) inset; transition: background 0.22s, border-color 0.22s; pointer-events: none; }
+.switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(180deg, #fff, #d4d6dd); box-shadow: 0 2px 5px rgba(0,0,0,0.5); transition: transform 0.22s var(--ease); }
+.switch input:checked + .switch-track { background: linear-gradient(180deg, var(--accent), var(--accent-2)); border-color: transparent; }
+.switch input:checked + .switch-track::after { transform: translateX(14px); }
+
+.stat-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--text-2); }
+.stat-val { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.progress { height: 6px; border-radius: 3px; overflow: hidden; background: rgba(0,0,0,0.45); box-shadow: 0 1px 2px rgba(0,0,0,0.5) inset; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width 0.3s var(--ease); }
+.agent-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 11px; background: rgba(0,0,0,0.18); box-shadow: 0 0 0 1px var(--line) inset; }
+.agent-card .row-item { padding: 0; }
+.agent-card .row-item:hover { background: none; }
+.agent-opts { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-2); padding-left: 36px; }
+
+/* reactions sit on the message's bottom edge, overlapping it: attached, not a new comment */
+.reacts { position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: -13px; padding: 0 10px; }
+.reacts { justify-content: flex-end; }
+.react-chip { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; border-radius: 999px; font-size: 17px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--text-2);
+  background: linear-gradient(180deg, #2c2e37, #22232a); box-shadow: 0 0 0 1px var(--line-strong) inset, 0 3px 8px rgba(0,0,0,0.45); transition: transform 0.15s var(--ease), box-shadow 0.15s;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.react-chip:hover { transform: translateY(-1px) scale(1.04); }
+.react-chip.is-mine { color: var(--text); background: linear-gradient(180deg, #34401b, #26301a); box-shadow: 0 0 0 1px rgba(168,206,56,0.55) inset, 0 3px 8px rgba(0,0,0,0.45); }
+.react-chip b { font-weight: 700; font-size: 12.5px; }
+.react-add { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); background: linear-gradient(180deg, #2c2e37, #22232a); box-shadow: 0 0 0 1px var(--line-strong) inset, 0 3px 8px rgba(0,0,0,0.45); }
+.react-add:hover { color: var(--text); }
+.reacts .on-hover { opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+.msg:hover .reacts .on-hover { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .reacts .on-hover { opacity: 1; pointer-events: auto; } }
+.msg { margin-bottom: 6px; }
+.react-add .ico { width: 17px; height: 17px; stroke-width: 2.8; }
+.who { position: fixed; z-index: 75; min-width: 180px; max-width: 280px; padding: 6px; border-radius: 12px; background: rgba(34, 35, 43, 0.97); backdrop-filter: blur(20px);
+  border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); animation: tip-in 0.12s var(--ease); }
+.who-row { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 8px; font-size: 12.5px; }
+.who-row .e { font-size: 17px; width: 22px; text-align: center; }
+.who-row .n { color: var(--text-2); }
+.msg.has-reacts { margin-bottom: 4px; }
+.picker { position: fixed; z-index: 70; display: flex; gap: 2px; padding: 5px; border-radius: 14px; background: rgba(34, 35, 43, 0.97); backdrop-filter: blur(20px);
+  border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); animation: tip-in 0.12s var(--ease); }
+.picker button { width: 34px; height: 34px; border-radius: 9px; font-size: 19px; display: grid; place-items: center; transition: background 0.12s, transform 0.12s var(--ease); }
+.picker button:hover { background: rgba(255,255,255,0.1); transform: scale(1.15); }
+
+/* the thinking overlay: over the chat, which dims behind it */
+.overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 40px 24px; background: rgba(6, 6, 8, 0.72); backdrop-filter: blur(6px); animation: tip-in 0.16s var(--ease); }
+.overlay-card { width: min(920px, 100%); max-height: 100%; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(180deg, rgba(34, 35, 43, 0.98), rgba(18, 19, 24, 0.99)); border: 1px solid var(--line-strong); box-shadow: var(--shadow-float); }
+.overlay-head { display: flex; align-items: center; gap: 10px; padding: 12px 12px 12px 18px; border-bottom: 1px solid var(--line); }
+.overlay-head h2 { flex: 1; font-size: 13.5px; font-weight: 650; }
+.overlay-quote { margin: 14px 18px 4px; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; color: var(--text-2); background: rgba(0,0,0,0.25); box-shadow: 0 0 0 1px var(--line) inset; max-height: 120px; overflow-y: auto; user-select: text; white-space: pre-wrap; }
+.overlay-body { flex: 1; overflow-y: auto; padding: 10px 14px 18px; }
+.overlay-body .act-log { font-size: 12.5px; line-height: 1.65; }
+.overlay-body .act-row { padding: 4px 6px; }
+.overlay-body .act-text.is-said { color: var(--text); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; }
+
+/* at-a-glance trust */
+.trust { display: flex; align-items: center; gap: 10px; }
+.trust-lock { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; color: var(--good); background: rgba(143,212,96,0.12); box-shadow: 0 0 0 1px rgba(143,212,96,0.3) inset; }
+.trust-lock .ico { width: 17px; height: 17px; }
+.trust-text { flex: 1; display: flex; flex-direction: column; line-height: 1.3; }
+.trust-title { font-weight: 650; }
+.trust-sub { font-size: 11.5px; color: var(--text-3); }
+
+/* activity feed (pearcast's log drawer, in the panel) */
+.act-log { display: flex; flex-direction: column; font: 11.5px/1.6 ui-monospace, 'SF Mono', Menlo, monospace; user-select: text; cursor: text; }
+.act-row { display: flex; gap: 10px; padding: 2px 4px; border-radius: 6px; }
+.act-row:hover { background: rgba(255,255,255,0.035); }
+.act-time { color: var(--text-3); flex: none; }
+.act-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; color: #d6d7de; }
+.act-row.is-new .act-text { color: var(--text); }
+.clickable { cursor: pointer; }
+.clickable:hover { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+
+/* key tree */
+.tree { display: flex; flex-direction: column; }
+.tree-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 7px; font-size: 12px; color: var(--text-2); }
+.tree-row:hover { background: rgba(255,255,255,0.05); }
+.tree-row.is-hl { background: rgba(255, 214, 10, 0.12); box-shadow: 0 0 0 1px rgba(255,214,10,0.35) inset; }
+.tree-glyph { width: 16px; height: 16px; flex: none; color: var(--text-3); }
+.tree-label { font-weight: 550; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-ref { font: 10.5px ui-monospace, Menlo, monospace; color: var(--text-3); }
+.tree-row.is-revoked .tree-label, .tree-row.is-orphaned .tree-label { color: var(--text-3); text-decoration: line-through; }
+.tree-x { margin-left: auto; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; color: var(--text-3); opacity: 0; transition: opacity 0.15s; }
+.tree-row:hover .tree-x { opacity: 1; } .tree-x:hover { color: #fff; background: var(--bad); }
+.tree-x .ico { width: 11px; height: 11px; }
+.kv { display: grid; grid-template-columns: 76px 1fr; gap: 6px 10px; font-size: 12px; }
+.kv dt { color: var(--text-3); } .kv dd { margin: 0; min-width: 0; color: var(--text); word-break: break-all; }
+.kv .mono { font: 10.5px/1.5 ui-monospace, Menlo, monospace; color: var(--text-2); user-select: all; cursor: text; }
+
+/* ---------- the floor: status · dock (pages) · device */
+.floor { flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 12px 24px 18px; }
+.floor-left { justify-self: start; min-width: 0; }
+.floor-right { justify-self: end; font-size: 12px; color: var(--text-3); }
+.dock { display: flex; align-items: center; gap: 4px; padding: 7px 9px; border-radius: 22px;
+  background: linear-gradient(180deg, rgba(44, 46, 56, 0.92), rgba(24, 25, 31, 0.94)); backdrop-filter: blur(24px) saturate(140%); border: 1px solid var(--line); box-shadow: var(--shadow-float); }
+.dock-sep { width: 1px; height: 26px; margin: 0 5px; background: linear-gradient(180deg, transparent, var(--line-strong), transparent); }
+.dock-btn { position: relative; width: 50px; height: 44px; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2);
+  transition: transform 0.18s var(--ease), background 0.18s, color 0.18s; }
+.dock-btn .ico { width: 19px; height: 19px; }
+.dock-btn span { font-size: 9.5px; font-weight: 600; letter-spacing: 0.2px; }
+.dock-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); transform: translateY(-2px); }
+.dock-btn:active { transform: translateY(0) scale(0.95); }
+.dock-btn.is-open { color: var(--accent); background: linear-gradient(180deg, rgba(168, 206, 56, 0.16), rgba(168, 206, 56, 0.06)); box-shadow: 0 0 0 1px rgba(168, 206, 56, 0.22) inset; }
+.dock-btn.is-stop { color: #ff8a80; background: linear-gradient(180deg, rgba(255,69,58,0.22), rgba(255,69,58,0.1)); box-shadow: 0 0 0 1px rgba(255,69,58,0.35) inset; }
+.dock-badge { position: absolute; top: 5px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px rgba(242,184,75,0.7); animation: blink 1.6s ease-in-out infinite; }
+
+/* ---------- hero (no rooms / not admitted) */
+.hero { margin: auto; width: min(420px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 32px 18px; }
+.hero h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.2px; }
+.hero p { color: var(--text-2); font-size: 13.5px; }
+.hero-icon { width: 60px; height: 60px; border-radius: 18px; display: grid; place-items: center; color: var(--accent); background: linear-gradient(180deg, var(--surface-3), var(--surface)); box-shadow: var(--shadow-float); margin-bottom: 4px; }
+.hero-icon .ico { width: 26px; height: 26px; }
+.hero .inline { width: 100%; margin-top: 6px; }
+.hero .or { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); margin-top: 8px; }
+.hero .code { width: 100%; text-align: left; }
+
+.toast { position: fixed; left: 50%; bottom: 96px; z-index: 50; max-width: min(520px, calc(100% - 32px)); padding: 10px 16px; border-radius: 12px; text-align: center;
+  background: rgba(40, 42, 51, 0.97); border: 1px solid var(--line-strong); box-shadow: var(--shadow-float); color: var(--text);
+  transform: translate(-50%, 12px); opacity: 0; pointer-events: none; transition: transform 0.3s var(--ease), opacity 0.25s; }
+.toast.is-on { transform: translate(-50%, 0); opacity: 1; }
+.toast.tone-bad { border-color: rgba(255, 107, 97, 0.5); color: #ffb3ac; }
+
+@media (max-width: 900px) { :root { --panel-w: 280px; } .msg { max-width: 88%; } }
+/* ---------- phone: the chat owns the screen; rooms are their own screen; panels are sheets */
+.m-only { display: none !important; }
+@media (max-width: 720px) {
+  .m-only { display: grid !important; }
+  .d-only { display: none !important; }
+  html, body { height: 100dvh; }
+  .titlebar, .floor { display: none; }
+  .room { padding: 0; gap: 0; position: relative; }
+  .column { border-radius: 0; border: 0; box-shadow: none; background: var(--bg); }
+  .room-head { padding: calc(8px + env(safe-area-inset-top)) 10px 8px; gap: 10px; }
+  .room-head h2 { font-size: 15px; }
+  .room-head .faces .avatar { width: 22px; height: 22px; }
+  .feed { padding: 12px 10px 6px; }
+  .msg { max-width: 90%; gap: 6px; }
+  .msg > .avatar { width: 26px; height: 26px; border-radius: 8px; font-size: 11px; }
+  .bubble { font-size: 15px; }
+  .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .composer { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
+  .composer textarea { font-size: 16px; } /* 16px stops iOS zooming in on focus */
+  .agent-strip { margin: 0 8px 6px; }
+  .side { position: fixed; inset: 0; z-index: 30; width: 100% !important; border-radius: 0; border: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); background: var(--bg); box-shadow: none; }
+  .side.is-mobile-hidden { display: none; }
+  .side-grip { display: none; }
+  .panel { position: fixed; inset: 0; z-index: 40; width: 100%; border-radius: 0; border: 0; background: var(--bg); box-shadow: none; padding-top: env(safe-area-inset-top); }
+  .panel-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+  /* touch: no hover, so the add-emoji button only shows once a message has reactions; press and hold a bubble to react */
+  .reacts .on-hover { display: none; }
+  .bubble { -webkit-touch-callout: none; }
+}
+@media (hover: none) { .head-tools { opacity: 1; } }
+.menu { position: fixed; z-index: 60; min-width: 200px; padding: 5px; border-radius: 12px; background: rgba(34, 35, 43, 0.97); backdrop-filter: blur(20px); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); animation: tip-in 0.12s var(--ease); }
+.menu button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 14px; text-align: left; }
+.menu button:hover, .menu button:active { background: var(--accent); color: var(--accent-ink); }
+.menu .ico { width: 16px; height: 16px; }
+@media (prefers-reduced-motion: reduce) { * { transition-duration: 0.01ms !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-rooms" viewBox="0 0 24 24"><path d="M4 6.5h10v8H8l-4 3.5z"/><path d="M17 9.5h3v8l-3-2.5h-5.5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.8a3.3 3.3 0 0 1 0 6.4M18.5 14.8c1.5.8 2.6 2.5 3 5.2"/></symbol>
+  <symbol id="i-agents" viewBox="0 0 24 24"><rect x="5" y="7.5" width="14" height="11" rx="3"/><path d="M12 4v3.5M9.5 12v1.5M14.5 12v1.5M2.5 12v3M21.5 12v3"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5v14M15.5 5v14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8v.2"/></symbol>
+  <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9 8L4 12.5 9 17"/><path d="M4.5 12.5H14a6 6 0 0 1 6 6"/></symbol>
+  <symbol id="i-root" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/></symbol>
+  <symbol id="i-device" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="11" rx="2"/><path d="M8.5 19.5h7"/></symbol>
+  <symbol id="i-human" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c1-4 4-6 7.5-6s6.5 2 7.5 6"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12v0M7 8v8M11 5v14M15 9v6M19 7v10M22 11v2"/></symbol>
+  <symbol id="i-playf" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></symbol>
+  <symbol id="i-pausef" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/></symbol>
+  <symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c.9 1.3 2.1 2 3.5 2s2.6-.7 3.5-2M9 9.5v.5M15 9.5v.5"/></symbol>
+  <symbol id="i-brain" viewBox="0 0 24 24"><path d="M9 4.5a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3.5 3.5 0 0 0 3 5.5 2.5 2.5 0 0 0 5 .5V6.5a2 2 0 0 0-3-2z"/><path d="M15 4.5a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3.5 3.5 0 0 1-3 5.5 2.5 2.5 0 0 1-5 .5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><path d="M9.5 15.5l1.8 1.8 3.4-3.6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="10.5" rx="3"/><path d="M12 4.5V8M9.5 12.5v1.5M14.5 12.5v1.5"/></symbol>
+</svg>
+
+<header class="titlebar">
+  <span class="wordmark">rkeychat</span><span class="titlebar-sep"></span>
+  <button class="room-switch" id="roomSwitch" title="Rooms"><span id="roomTitle">connecting…</span><span class="caret"></span></button>
+  <button class="icon-btn title-gear" id="gearBtn" title="Settings"><svg class="ico"><use href="#i-gear"/></svg></button>
+</header>
+
+<div class="room">
+  <aside class="side" id="side">
+    <div class="side-top"><label class="side-add" title="Type a name to create a room, or paste an invite (rkc1…) to join one"><svg class="ico"><use href="#i-plus"/></svg><input id="sideAdd" placeholder="New room, or paste an invite" autocomplete="off"></label></div>
+    <div class="side-body" id="sideBody"></div>
+    <div class="side-grip" id="sideGrip" title="Drag to resize · double-click to collapse"></div>
+  </aside>
+  <main class="column">
+    <header class="room-head" id="roomHead"></header>
+    <div class="feed" id="feed"></div>
+    <div class="agent-strip" id="agentStrip" hidden></div>
+    <div class="pending" id="pending" hidden></div>
+    <form class="composer" id="composer">
+      <div class="mention-menu" id="mentionMenu" hidden></div>
+      <div class="input-shell" id="inputShell">
+        <textarea id="text" rows="1" placeholder="Message the room"></textarea>
+        <button type="button" class="in-btn" id="micBtn" title="Dictate: talk, then click again. Transcribed on this machine."><svg class="ico"><use href="#i-mic"/></svg></button>
+        <button type="button" class="in-btn" id="memoBtn" title="Record a voice memo"><svg class="ico"><use href="#i-wave"/></svg></button>
+      </div>
+      <div class="recorder" id="recorder" hidden>
+        <button type="button" class="rec-stop" id="recStop" title="Stop"><i></i></button>
+        <canvas class="rec-wave" id="recWave"></canvas>
+        <span class="rec-time" id="recTime">0:00</span>
+        <button type="button" class="in-btn" id="recCancel" title="Discard"><svg class="ico"><use href="#i-x"/></svg></button>
+      </div>
+      <button class="btn btn-primary" type="submit" title="Send (Enter · Shift-Enter for a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
+    </form>
+  </main>
+
+  <aside class="panel" id="panel">
+    <header class="panel-head"><svg class="ico" id="panelIcon"><use href="#i-people"/></svg><h2 id="panelTitle">People</h2>
+      <button class="icon-btn" id="panelClose" title="Close"><svg class="ico"><use href="#i-x"/></svg></button></header>
+    <div class="panel-body" id="panelBody"></div>
+  </aside>
+</div>
+
+<footer class="floor">
+  <div class="floor-left"><span class="status" id="connStatus">connecting</span></div>
+  <nav class="dock" aria-label="Pages">
+    <button class="dock-btn" id="sideToggle" title="Show or hide rooms"><svg class="ico"><use href="#i-rooms"/></svg><span>Rooms</span></button>
+    <button class="dock-btn" data-page="agents" title="Agent controls for this room"><svg class="ico"><use href="#i-agents"/></svg><span>Agents</span><i class="dock-badge" id="agentsBadge" hidden></i></button>
+    <button class="dock-btn" data-page="keys" title="Keys and devices"><svg class="ico"><use href="#i-key"/></svg><span>Keys</span></button>
+    <span class="dock-sep"></span>
+    <button class="dock-btn" id="pauseAll" title="Pause every agent in this room"><svg class="ico"><use href="#i-pause"/></svg><span>Pause</span></button>
+  </nav>
+  <div class="floor-right" id="floorRight"></div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+const day = (ts) => new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
+const icon = (id, cls = '') => `<svg class="ico ${cls}"><use href="#i-${id}"/></svg>`
+const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+
+let S = null // { device, rooms, current }
+let page = store.get('rk.page', '')
+if (page === 'people' || page === 'rooms') page = ''
+let selectedMsg = null
+let joinedRequest = null
+let glossary = {}
+let people = { local: [], known: [] }
+async function loadPeople () { try { people = await api('GET', '/api/people') } catch {} if (page === 'invite') renderPanel() }
+api('GET', '/api/glossary').then((g) => { glossary = g; if (page === 'agents') renderPanel() }).catch(() => {})
+const cur = () => S?.current
+const me = () => S?.device.participants.find((p) => p.role === 'human')?.name
+const isAgent = (name) => cur()?.participants.find((p) => p.name === name)?.role === 'agent'
+
+let toastTimer
+function toast (text, tone) {
+  const el = $('toast'); el.textContent = text; el.className = `toast is-on${tone ? ` tone-${tone}` : ''}`
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('is-on'), 3600)
+}
+async function api (method, path, body) {
+  const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
+  const out = await res.json()
+  if (!res.ok) { toast(out.error || `Something went wrong (${res.status})`, 'bad'); throw new Error(out.error) }
+  return out
+}
+const roomArg = () => cur()?.topic
+const control = (payload) => api('POST', '/api/control', { room: roomArg(), ...payload })
+
+async function load (topic) {
+  S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  if (S.current) store.set('rk.room', S.current.topic)
+  renderAll()
+  requestAnimationFrame(() => { const f = $('feed'); f.scrollTop = f.scrollHeight })
+}
+
+// ---------- feed
+function renderText (t) {
+  const mine = me()
+  return esc(t).replace(/@([a-z0-9][a-z0-9_-]*)/gi, (m, n) => `<span class="mention${n.toLowerCase() === mine ? ' is-me' : ''}">@${n}</span>`)
+}
+function ctlText (r) {
+  const who = r.name === me() ? 'You' : r.name
+  if (r.agent) return { pause: `${who} paused @${r.agent}`, resume: `${who} let @${r.agent} speak again`, limit: r.n ? `${who} limited @${r.agent} to ${r.n} post${r.n === 1 ? '' : 's'} per message` : `${who} lifted @${r.agent}'s limit` }[r.action] || `${who} · ${r.action} @${r.agent}`
+  return {
+    extend: `${who} added ${r.n} round${r.n === 1 ? '' : 's'}`, unlimited: `${who} lifted the round limit`,
+    until: `${who} let the agents run until ${time(r.until)}`, style: `${who} set this room to ${r.style}`, pause: `${who} paused all agents`, resume: `${who} resumed the agents`, reset: `${who} reset agent rounds`
+  }[r.action] || `${who} · ${r.action}`
+}
+function renderFeed () {
+  const feed = $('feed')
+  const c = cur()
+  if (!S) return
+  if (!S.rooms.length) return renderNoRooms()
+  if (!c.admitted) return renderWaiting()
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
+  if (!c.log.length) {
+    feed.innerHTML = `<div class="hero"><div class="hero-icon">${icon('rooms')}</div><h2>${esc(c.name)}</h2><p>Nothing said yet. Write to everyone, or @mention someone to hand them the floor.</p></div>`
+    return
+  }
+  const mine = me()
+  let html = ''; let prev = null; let lastDay = ''
+  for (const r of c.log) {
+    const d = day(r.ts)
+    if (d !== lastDay) { html += `<div class="day-line">${esc(d)}</div>`; lastDay = d; prev = null }
+    if (r.kind === 'control') { html += `<div class="ctl-line">${esc(ctlText(r))} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (r.redacted) { html += `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>`; prev = null; continue }
+    const isMine = r.name === mine
+    const cont = prev && prev.name === r.name && r.ts - prev.ts < 5 * 60_000
+    const agent = !r.human
+    const paused = agent && c.budget.agents?.paused.includes(r.name)
+    // room/agent tools: up on the name line
+    const tools = [
+      agent ? `<button class="act" data-thinking="${esc(r.id)}" title="What ${esc(r.name)} did before posting this">${icon('brain')}Thinking</button>` : '',
+      agent && !isMine ? (paused
+        ? `<button class="act" data-resume="${esc(r.name)}" title="Let ${esc(r.name)} speak again">${icon('play')}Resume</button>`
+        : `<button class="act is-stop" data-pause="${esc(r.name)}" title="Tell ${esc(r.name)} to hold on">${icon('pause')}Pause</button>`) : '',
+      `<button class="act" data-info="${esc(r.id)}" title="Verified · details">${icon('info')}</button>`,
+      c.owner ? `<button class="act is-stop" data-redact="${esc(r.id)}" title="Remove this message for everyone">${icon('x')}</button>` : ''
+    ].join('')
+    html += `<div class="msg${isMine ? ' is-mine' : ''}${cont ? ' is-cont' : ''}${selectedMsg === r.id ? ' is-selected' : ''}" data-id="${esc(r.id)}">
+      <div class="avatar${r.human ? ' is-human' : ''}">${esc(r.name.slice(0, 1))}</div>
+      <div class="msg-main">
+        <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
+        <div class="bubble">${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => memoHTML(a, r)).join('')}</div>
+        ${reactsHTML(r, isMine)}
+        ${isMine ? `<span class="mine-time">${time(r.ts)}</span>` : ''}
+      </div></div>`
+    prev = r
+  }
+  feed.innerHTML = html
+  if (atBottom) feed.scrollTop = feed.scrollHeight
+}
+// One row on the message's bottom edge, right side:
+//   [add emoji] [reaction chips] [reply]
+// Reply is always there. The add-emoji button shows on hover, and stays once
+// the message has reactions (it then sits with them).
+function reactsHTML (r, isMine) {
+  const id = r.id
+  const rs = cur()?.reactions?.[id]
+  const mine = me()
+  const chips = rs ? Object.entries(rs).map(([emoji, names]) => `<button class="react-chip${names.includes(mine) ? ' is-mine' : ''}" data-react-toggle="${esc(id)}" data-emoji="${esc(emoji)}" title="${esc(names.join(', '))}">${esc(emoji)}${names.length > 1 ? `<b>${names.length}</b>` : ''}</button>`).join('') : ''
+  const add = `<button class="react-add${rs ? '' : ' on-hover'}" data-react-open="${esc(id)}" title="Add a reaction">${icon('smile')}</button>`
+  const info = isMine ? `<button class="react-add on-hover" data-info="${esc(id)}" title="Verified · details">${icon('info')}</button>` : ''
+  const reply = `<button class="react-add" data-reply="${esc(r.name)}" title="Reply to ${esc(r.name)}">${icon('reply')}</button>`
+  return `<div class="reacts" data-reacts="${esc(id)}">${info}${add}${chips}${reply}</div>`
+}
+
+// who reacted: right-click on desktop, press-and-hold on touch
+function openWho (id, anchor) {
+  closeWho()
+  const rs = cur()?.reactions?.[id]; if (!rs) return
+  const r = anchor.getBoundingClientRect()
+  const el = document.createElement('div'); el.className = 'who'; el.id = 'who'
+  el.innerHTML = Object.entries(rs).map(([emoji, names]) => `<div class="who-row"><span class="e">${esc(emoji)}</span><span class="n">${names.map((n) => esc(n === me() ? 'you' : n)).join(', ')}</span></div>`).join('')
+  document.body.append(el)
+  el.style.left = Math.max(8, Math.min(window.innerWidth - el.offsetWidth - 8, r.left)) + 'px'
+  el.style.top = (r.top - el.offsetHeight - 8 > 8 ? r.top - el.offsetHeight - 8 : r.bottom + 8) + 'px'
+}
+function closeWho () { document.getElementById('who')?.remove() }
+document.addEventListener('contextmenu', (e) => {
+  const chip = e.target.closest('.react-chip'); if (!chip) return
+  e.preventDefault(); openWho(chip.dataset.reactToggle, chip)
+})
+let holdTimer = null; let held = false
+let bubbleHold = null
+document.addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('.bubble'); if (!b || e.pointerType === 'mouse' || e.target.closest('.memo')) return
+  const id = b.closest('.msg')?.dataset.id
+  bubbleHold = setTimeout(() => { held = true; setTimeout(() => { held = false }, 700); openPicker(id, b); navigator.vibrate?.(10) }, 450)
+})
+for (const ev of ['pointerup', 'pointercancel', 'pointermove']) document.addEventListener(ev, () => clearTimeout(bubbleHold))
+document.addEventListener('pointerdown', (e) => {
+  const chip = e.target.closest('.react-chip'); if (!chip || e.pointerType === 'mouse') return
+  held = false
+  holdTimer = setTimeout(() => { held = true; openWho(chip.dataset.reactToggle, chip); navigator.vibrate?.(10) }, 450)
+})
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) document.addEventListener(ev, () => clearTimeout(holdTimer))
+const QUICK = ['👍', '❤️', '😂', '🔥', '🎉', '👀', '🤔', '💯', '✅', '🙏']
+function openPicker (id, anchor) {
+  closePicker()
+  const r = anchor.getBoundingClientRect()
+  const el = document.createElement('div'); el.className = 'picker'; el.id = 'picker'
+  el.innerHTML = QUICK.map((e) => `<button data-react-pick="${esc(id)}" data-emoji="${e}">${e}</button>`).join('')
+  document.body.append(el)
+  const w = el.offsetWidth
+  el.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px'
+  el.style.top = Math.max(8, r.top - el.offsetHeight - 8) + 'px'
+}
+function closePicker () { document.getElementById('picker')?.remove() }
+async function toggleReaction (id, emoji) {
+  const mine = me(); const has = cur()?.reactions?.[id]?.[emoji]?.includes(mine)
+  await api('POST', '/api/react', { room: roomArg(), target: id, emoji, on: !has })
+}
+
+// ---------- the thinking overlay: what an agent did before a message
+async function openThinking (id) {
+  const c = cur(); const m = c?.log.find((r) => r.id === id); if (!m) return
+  const prev = [...c.log].filter((r) => r.kind === 'msg' && r.name === m.name && r.ts < m.ts).pop()
+  const since = prev ? prev.ts : m.ts - 30 * 60_000
+  let acts = []
+  try { acts = await api('GET', `/api/activity?room=${encodeURIComponent(roomArg())}&as=${encodeURIComponent(m.name)}&since=${since}&until=${m.ts + 2000}&limit=800`) } catch {}
+  const rows = acts.map((a) => {
+    const said = a.text.startsWith('wrote: ')
+    return `<div class="act-row"><span class="act-time">${new Date(a.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="act-text${said ? ' is-said' : ''}">${esc(said ? a.text.slice(7) : a.text)}</span></div>`
+  }).join('')
+  const el = document.createElement('div'); el.className = 'overlay'; el.id = 'overlay'
+  el.innerHTML = `<div class="overlay-card" role="dialog" aria-label="Thinking">
+    <div class="overlay-head">${icon('brain')}<h2>What ${esc(m.name)} did before this message</h2>
+      <button class="btn btn-soft btn-sm" id="copyThinking">${icon('copy')}Copy all</button>
+      <button class="icon-btn" id="closeOverlay" title="Close (Esc)">${icon('x')}</button></div>
+    <div class="overlay-quote">${esc(m.text)}</div>
+    <div class="overlay-body"><div class="act-log">${rows || `<p class="note" style="padding:12px 6px">No activity was recorded for this message. Activity started being recorded at ${time(c.log[0]?.ts ?? Date.now())} today, and only for agents that report it.</p>`}</div></div>
+  </div>`
+  document.body.append(el)
+  el.addEventListener('click', (e) => { if (e.target === el) closeOverlay() })
+  $('closeOverlay').onclick = closeOverlay
+  $('copyThinking').onclick = () => navigator.clipboard?.writeText(acts.map((a) => `[${new Date(a.ts).toLocaleTimeString()}] ${a.text}`).join('\n')).then(() => toast('Copied. Paste it wherever it helps.'))
+}
+function closeOverlay () { $('overlay')?.remove() }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeOverlay(); closePicker() } })
+
+function renderNoRooms () {
+  $('feed').innerHTML = `<div class="hero">
+    <div class="hero-icon">${icon('rooms')}</div>
+    <h2>Start a room</h2>
+    <p>A private room for you and your agents. You own it; you decide who's in.</p>
+    <form class="inline" id="heroCreate"><input class="text-input" name="name" placeholder="Room name, e.g. lab" autocomplete="off"><button class="btn btn-primary">Create</button></form>
+    <div class="or">or join one</div>
+    <form class="inline" id="heroJoin"><input class="text-input mono" name="invite" placeholder="Paste an invite (rkc1.…)" autocomplete="off"><button class="btn btn-soft">Join</button></form>
+  </div>`
+  bindRoomForms($('feed'))
+}
+function renderWaiting () {
+  const c = cur()
+  $('feed').innerHTML = `<div class="hero">
+    <div class="hero-icon">${icon('key')}</div>
+    <h2>Waiting to be let in</h2>
+    <p>You've joined "${esc(c.name)}", but its owner has to approve this device first. Send them this request; they paste it into Keys → Approve.</p>
+    <div class="code" id="reqCode">${esc(joinedRequest ?? 'loading…')}</div>
+    <button class="btn btn-soft btn-sm" id="copyReq">Copy request</button>
+  </div>`
+  if (!joinedRequest) api('GET', `/api/request?room=${encodeURIComponent(c.topic)}`).then(({ request }) => { joinedRequest = request; const el = $('reqCode'); if (el) el.textContent = request })
+  $('copyReq').onclick = () => navigator.clipboard?.writeText(joinedRequest ?? '').then(() => toast('Copied. Send it to the room\'s owner.'))
+}
+
+const isPhone = () => matchMedia('(max-width: 720px)').matches
+// ---------- the agent strip: visible only while agents are active or waiting on you
+function renderStrip () {
+  const c = cur(); const strip = $('agentStrip')
+  if (!c?.admitted) { strip.hidden = true; return }
+  const b = c.budget
+  const agents = c.participants.filter((p) => p.role === 'agent' && p.status === 'active')
+  const thinking = agents.filter((p) => p.online && p.state === 'thinking')
+  const open = b.unlimited || (b.until && b.until > Date.now())
+  const exhausted = !open && !b.paused && b.used > 0 && b.remaining === 0
+  const active = thinking.length || (b.used > 0 && !exhausted)
+  const parts = []
+  if (b.paused) parts.push(`<span class="status tone-bad">Agents are paused</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="resume">Resume</button>`)
+  else if (exhausted) parts.push(`<span class="status tone-select">The agents are waiting for you</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">Let them go 3 more</button>`)
+  else if (active || open) {
+    if (thinking.length) parts.push(`<span class="status tone-warn">${thinking.map((p) => `<span class="clickable" data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing">${esc(p.name)}</span>`).join(', ')} ${thinking.length === 1 ? 'is' : 'are'} thinking</span>`)
+    // phone: screen space is precious; the round counter stays in the ⋯ menu, Pause shows only while someone is thinking
+    if (isPhone()) { if (thinking.length) parts.push(`<span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause</button>`) } else parts.push(`<span class="pill tone-dim">${open ? (b.unlimited ? 'no round limit' : `open until ${time(b.until)}`) : `round ${b.used} of ${b.limit}`}</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause agents</button>`)
+  }
+  strip.hidden = !parts.length
+  strip.innerHTML = parts.join('')
+}
+
+// ---------- left sidebar: rooms (open one shows its people, like a folder)
+const faceHTML = (p) => `<div class="avatar${p.role === 'human' ? ' is-human' : ''}" title="${esc(p.name)}">${esc(p.name.slice(0, 1))}</div>`
+function stackHTML (people) {
+  const ps = (people ?? []).slice(0, 3)
+  return `<div class="stack${ps.length <= 1 ? ' one' : ps.length === 3 ? ' three' : ''}">${ps.map(faceHTML).join('') || '<div class="avatar">·</div>'}</div>`
+}
+function renderSide () {
+  const body = $('sideBody'); if (!body || !S) return
+  const c = cur()
+  body.innerHTML = (S.rooms ?? []).map((r) => {
+    const open = r.topic === c?.topic
+    const others = (r.people ?? []).filter((p) => p.name !== me())
+    const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
+    const peopleRows = open && c ? c.participants.filter((p) => p.status === 'active').map((p) => {
+      const [tone, label] = personStatus(p, c.budget)
+      return `<div class="person-row${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}>${faceHTML(p)}<span class="nm">${esc(p.name === me() ? `${p.name} (you)` : p.name)}</span><span class="status ${tone}">${esc(label)}</span></div>`
+    }).join('') : ''
+    return `<button class="room-row${open ? ' is-open' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${stackHTML(others.length ? others : r.people)}
+        <div class="room-main"><span class="room-name"><span class="n">${esc(r.name)}</span><span class="count">${r.members}</span></span><span class="room-last">${esc(last)}</span></div></button>
+      ${open ? `<div class="room-people">${peopleRows}${c?.owner ? `<button class="person-row" data-open-invite style="color:var(--text-3)"><div class="avatar" style="background:none;box-shadow:0 0 0 1px var(--line-strong) inset">${icon('plus')}</div><span class="nm">Invite</span></button>` : ''}</div>` : ''}`
+  }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>'
+}
+function renderHead () {
+  const h = $('roomHead'); const c = cur()
+  if (!c) { h.hidden = true; return }
+  h.hidden = false
+  const active = c.participants.filter((p) => p.status === 'active')
+  const online = active.filter((p) => p.online).length
+  h.innerHTML = `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
+    <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
+    <div><h2>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
+    <span class="grow"></span>
+    ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
+    <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
+}
+function openMenu (anchor) {
+  document.getElementById('menu')?.remove()
+  const c = cur(); const paused = !!c?.budget?.paused
+  const el = document.createElement('div'); el.className = 'menu'; el.id = 'menu'
+  el.innerHTML = [
+    c?.owner ? `<button data-go="invite">${icon('plus')}Invite</button>` : '',
+    `<button data-go="agents">${icon('agents')}Agents</button>`,
+    `<button data-go="keys">${icon('key')}Keys</button>`,
+    `<button data-go="settings">${icon('gear')}Settings</button>`,
+    `<button data-go="pause">${icon(paused ? 'play' : 'pause')}${paused ? 'Resume agents' : 'Pause agents'}</button>`
+  ].join('')
+  document.body.append(el)
+  const r = anchor.getBoundingClientRect()
+  el.style.top = (r.bottom + 6) + 'px'; el.style.right = Math.max(8, window.innerWidth - r.right) + 'px'
+}
+function renderInvitePage () {
+  const c = cur(); if (!c) return ''
+  const inRoom = new Set(c.participants.filter((p) => p.status === 'active').map((p) => p.name))
+  const addable = [...people.local, ...people.known].filter((p) => !inRoom.has(p.name))
+  return `${addable.length ? `<section class="section"><h3 class="section-title">Add people you've approved before</h3>
+      ${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}
+      <p class="note">One click. Their device gets the invite through a room you already share and joins by itself.</p></section>` : ''}
+    <section class="section"><h3 class="section-title">Invite someone new</h3>
+      <button class="btn btn-soft btn-block" id="inviteBtn">${icon('plus')}Copy an invite code</button>
+      <div class="code" id="inviteOut" hidden></div>
+      <p class="note">They paste it into the bar at the top of their room list (or run <b>rkeychat room join</b>). You approve their request under Keys.</p></section>`
+}
+
+// ---------- panel pages
+const PAGES = {
+  rooms: { title: 'Rooms', icon: 'rooms', render: renderRoomsPage },
+  people: { title: 'People', icon: 'people', render: renderPeoplePage },
+  agents: { title: 'Agents', icon: 'agents', render: renderAgentsPage },
+  keys: { title: 'Keys', icon: 'key', render: renderKeysPage },
+  activity: { title: 'Activity', icon: 'agents', render: renderActivityPage },
+  invite: { title: 'Invite', icon: 'plus', render: renderInvitePage },
+  settings: { title: 'Settings', icon: 'gear', render: renderSettingsPage }
+}
+let settings = null
+let remote = null
+let pairing = null
+async function loadSettings () {
+  try { settings = await api('GET', '/api/settings') } catch {}
+  try { remote = await (await fetch('/api/remote')).json() } catch {}
+  if (page === 'settings') renderPanel()
+}
+function phoneHTML () {
+  if (!remote || remote.error) return '<p class="note">Phone access is managed from the Mac.</p>'
+  const ts = remote.tailscale ?? {}
+  if (!ts.running) return '<p class="note">Phone access runs over Tailscale, which isn\'t running on this Mac. Start Tailscale, then come back here.</p>'
+  const r = remote.remote
+  const list = (remote.sessions ?? []).map((x) => `<div class="gloss-row"><span class="to">${esc(x.name)}</span><span class="from" style="text-decoration:none">paired ${new Date(x.created).toLocaleDateString()}</span><button class="tree-x" data-unpair="${esc(x.id)}" title="Unpair">${icon('x')}</button></div>`).join('')
+  return `${!r ? `<p class="note">Use this room from your phone, privately over your Tailscale network (${esc(ts.dns)}). Only devices you pair can get in.</p>
+      <div class="row"><button class="btn btn-primary btn-sm" data-remote-on="${ts.https ? 'https' : 'http'}">${icon('phone')}Turn on phone access</button></div>
+      ${ts.https ? '' : `<p class="note">For the mic and voice memos on the phone, turn on <b>HTTPS Certificates</b> in the Tailscale admin console (DNS page), then press this again. Until then, use your keyboard's dictation button on the phone.</p>`}`
+    : `<p class="note">On: <b>${esc(r.url)}</b>${r.secure ? ' (HTTPS: mic works)' : ' (no HTTPS yet: use keyboard dictation on the phone)'}</p>
+      ${!r.secure && !ts.https ? `<p class="note">For the mic and voice memos on the phone, turn on <b>HTTPS Certificates</b> in the Tailscale admin console (DNS page); a Switch to HTTPS button appears here. You'll pair the phone once more after switching.</p>` : ''}
+      ${pairing ? `<div style="display:grid;place-items:center;padding:8px;background:rgba(0,0,0,0.35);border-radius:12px">${pairing.qr}</div><p class="note">Scan with your phone's camera. The code works once and expires in 10 minutes.</p>` : `<div class="row"><button class="btn btn-primary btn-sm" data-pair>${icon('phone')}Pair a phone</button>${ts.https && !r.secure ? `<button class="btn btn-soft btn-sm" data-remote-on="https">Switch to HTTPS</button>` : ''}</div>`}`}
+    ${list ? `<div class="note" style="margin-top:6px">Paired devices</div><div class="gloss">${list}</div>` : ''}`
+}
+function renderSettingsPage () {
+  if (!settings) { loadSettings(); return '<p class="note">Loading…</p>' }
+  const entries = Object.entries(glossary).sort()
+  return `<section class="section">
+      <h3 class="section-title">Dictation</h3>
+      <div class="agent-opts" style="padding-left:0"><span>Fix misheard words automatically</span><label class="switch"><input type="checkbox" id="autofix" ${settings.autofix ? 'checked' : ''}><span class="switch-track"></span></label></div>
+      <p class="note">Like autocorrect for your voice. When you fix a word the transcriber got wrong before sending, it remembers. Agents that catch a mishearing can teach it too.</p>
+      <details><summary>${entries.length} fixes · manage</summary>
+        <div class="gloss" style="margin-top:8px">${entries.map(([k, v]) => `<div class="gloss-row"><span class="from">${esc(k)}</span>→<span class="to">${esc(v)}</span><button class="tree-x" data-gloss-rm="${esc(k)}" title="Remove">${icon('x')}</button></div>`).join('')}</div>
+        <form class="inline" id="glossAdd" style="margin-top:8px"><input class="text-input" name="from" placeholder="heard" autocomplete="off"><input class="text-input" name="to" placeholder="meant" autocomplete="off"><button class="btn btn-soft btn-sm">Add</button></form>
+      </details>
+    </section>
+    <section class="section" id="phoneSection">
+      <h3 class="section-title">Phone</h3>
+      ${phoneHTML()}
+    </section>
+    <section class="section">
+      <h3 class="section-title">Speech</h3>
+      <p class="note">${settings.speech ? `Transcribed on this machine with ${esc(settings.speech)}. Your voice never leaves your devices.` : 'No speech model on this device yet. Run <b>rkeychat models install</b>.'}</p>
+    </section>`
+}
+let activityAgent = null
+let activityLog = []
+async function openActivity (name) {
+  activityAgent = name; activityLog = []
+  openPage('activity')
+  try { activityLog = await api('GET', `/api/activity?room=${encodeURIComponent(roomArg())}&as=${encodeURIComponent(name)}&limit=400`) } catch {}
+  if (page === 'activity') { renderPanel(); scrollActivity() }
+}
+function scrollActivity () { const el = $('panelBody'); if (el) el.scrollTop = el.scrollHeight }
+function renderActivityPage () {
+  const c = cur(); const p = c?.participants.find((x) => x.name === activityAgent)
+  if (!p) return '<p class="note">Pick an agent: click its name or status.</p>'
+  const [tone, label] = personStatus(p, c.budget)
+  const rows = activityLog.map((r, i) => `<div class="act-row${i >= activityLog.length - 1 ? ' is-new' : ''}"><span class="act-time">${new Date(r.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="act-text">${esc(r.text)}</span></div>`).join('')
+  return `<section class="section"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div>
+      <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">what it's doing behind the scenes</span></div><span class="status ${tone}">${esc(label)}</span></div>
+      <p class="note">Only people see this. It never goes into any agent's prompt, so it costs no tokens.</p></section>
+    <div class="act-log">${rows || '<p class="note">Nothing yet. Activity shows up here as the agent works.</p>'}</div>`
+}
+function openPage (p) {
+  page = p; store.set('rk.page', p || '')
+  if (p === 'rooms' || p === 'people') loadPeople()
+  renderPanel()
+}
+function renderPanel () {
+  const panel = $('panel')
+  document.querySelectorAll('.dock-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
+  if (!page || !PAGES[page]) { panel.hidden = true; return }
+  panel.hidden = false
+  $('panelTitle').textContent = page === 'activity' && activityAgent ? `${activityAgent} · activity` : PAGES[page].title
+  $('panelIcon').innerHTML = `<use href="#i-${PAGES[page].icon}"/>`
+  $('panelBody').innerHTML = PAGES[page].render()
+  bindRoomForms($('panelBody'))
+}
+function personStatus (p, b) {
+  if (p.status !== 'active') return ['tone-bad', p.status]
+  if (!p.online) return ['', 'offline']
+  if (p.role === 'human') return ['tone-good', p.local ? 'you' : 'here']
+  if (b?.agents?.paused.includes(p.name)) return ['tone-bad', 'paused']
+  return { thinking: ['tone-warn', 'thinking'], waiting: ['tone-select', 'turn waiting'], error: ['tone-bad', 'error'], offline: ['', 'not listening'] }[p.state] || ['tone-good', 'listening']
+}
+function renderRoomsPage () {
+  const rooms = S?.rooms ?? []
+  return `<section class="section">
+      <div class="section-title-row"><h3 class="section-title">Your rooms</h3><span class="pill tone-dim">${rooms.length}</span></div>
+      <div>${rooms.map((r) => `<button class="row-item${r.topic === cur()?.topic ? ' is-current' : ''}" data-room="${esc(r.topic)}">
+        <div class="avatar">${esc(r.name.slice(0, 1))}</div>
+        <div class="row-main"><span class="row-title">${esc(r.name)}</span><span class="row-sub">${r.admitted ? (r.last ? esc(`${r.last.name}: ${r.last.text ?? r.last.action}`) : 'no messages yet') : 'waiting for approval'}</span></div>
+        <span class="pill ${r.owner ? 'tone-accent' : 'tone-dim'}">${r.owner ? 'owner' : `${r.members}`}</span></button>`).join('') || '<p class="note">No rooms yet.</p>'}</div>
+    </section>
+    <section class="section">
+      <h3 class="section-title">New room</h3>
+      <form id="panelCreate" style="display:flex;flex-direction:column;gap:10px">
+        <div class="inline"><input class="text-input" name="name" placeholder="Name" autocomplete="off"><button class="btn btn-primary btn-sm">${icon('plus')}Create</button></div>
+        ${[...people.local, ...people.known].length ? `<div class="note">Who else is in it? Just you unless you pick someone.</div>
+        ${[...people.local, ...people.known].map((p) => `<label class="agent-opts" style="padding-left:0"><span>@${esc(p.name)} <span class="note">${p.local ? 'on this device' : `from ${esc(p.from)}`}</span></span><input type="checkbox" name="m" value="${esc(p.name)}"></label>`).join('')}` : ''}
+      </form>
+    </section>
+    <section class="section">
+      <h3 class="section-title">Join with an invite</h3>
+      <form class="inline" id="panelJoin"><input class="text-input mono" name="invite" placeholder="rkc1.…" autocomplete="off"><button class="btn btn-soft btn-sm">Join</button></form>
+    </section>`
+}
+function renderPeoplePage () {
+  const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
+  const ppl = c.participants.filter((p) => p.status === 'active')
+  const row = (p) => {
+    const [tone, label] = personStatus(p, c.budget)
+    return `<div class="row-item${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}><div class="avatar${p.role === 'human' ? ' is-human' : ''}">${esc(p.name.slice(0, 1))}</div>
+      <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.role === 'human' ? 'person' : 'agent · click to see activity'}${p.local ? ' · this device' : ''}</span></div>
+      <span class="status ${tone}">${esc(label)}</span></div>`
+  }
+  const humans = ppl.filter((p) => p.role === 'human'); const agents = ppl.filter((p) => p.role === 'agent')
+  return `<section class="section"><h3 class="section-title">In ${esc(c.name)}</h3>
+      <div>${humans.map(row).join('')}</div>
+      ${agents.length ? `<div>${agents.map(row).join('')}</div>` : ''}
+    </section>
+    ${c.owner ? (() => {
+      const inRoom = new Set(c.participants.filter((p) => p.status === 'active').map((p) => p.name))
+      const addable = [...people.local, ...people.known].filter((p) => !inRoom.has(p.name))
+      return addable.length ? `<section class="section"><h3 class="section-title">Add people</h3>
+        ${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already approved in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}
+        <p class="note">People you've approved before join with one click. Their device gets the invite through a room you already share.</p></section>` : ''
+    })() : ''}
+    ${c.owner ? `<section class="section"><h3 class="section-title">Invite</h3>
+      <button class="btn btn-soft btn-block" id="inviteBtn">${icon('plus')}Copy an invite code</button>
+      <div class="code" id="inviteOut" hidden></div>
+      <p class="note">On the other machine: <b>rkeychat room join</b> with this code. It'll hand you back a request to approve under Keys.</p></section>` : ''}`
+}
+function renderAgentsPage () {
+  const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
+  const b = c.budget
+  const open = b.unlimited || (b.until && b.until > Date.now())
+  const agents = c.participants.filter((p) => p.role === 'agent' && p.status === 'active')
+  return `<section class="section">
+      <h3 class="section-title">Rounds</h3>
+      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No limit' : `Open until ${time(b.until)}`) : 'Used since your last message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
+      ${open || b.paused ? '' : `<div class="progress"><div class="progress-fill" style="width:${b.limit ? Math.min(100, (b.used / b.limit) * 100) : 0}%"></div></div>`}
+      <p class="note">A round is one hop of agents replying to agents. When they run out, everyone waits for you; your next message starts fresh at 3.</p>
+      <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button>
+        <button class="btn btn-soft btn-sm" data-ctl="reset" title="Back to 3 rounds per message">Reset</button></div>
+    </section>
+    <section class="section">
+      <h3 class="section-title">Message style</h3>
+      <div class="agent-opts" style="padding-left:0"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
+      <p class="note">Off = concise: agents keep posts short and put detail behind Thinking. Good for rooms where agents talk to each other. On = for one-on-one rooms where you want everything.</p>
+    </section>
+    <section class="section">
+      <h3 class="section-title">Let them run</h3>
+      <div class="inline"><button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">hours</span></div>
+      <button class="btn btn-soft btn-sm" data-ctl="unlimited" data-confirm="Let the agents talk with no limit until you reset?">No limit</button>
+      <p class="note">For overnight work. Your messages don't cancel it; Reset or Pause does.</p>
+    </section>
+    <section class="section">
+      <h3 class="section-title">Each agent</h3>
+      ${agents.map((p) => {
+        const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
+        const [tone, label] = personStatus(p, b)
+        return `<div class="agent-card"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div>
+            <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : 'remote'} · ${b.agents?.posts?.[p.name] ?? 0} posts since your last message</span></div>
+            <span class="status ${tone}">${esc(label)}</span></div>
+          <div class="agent-opts"><span>Can speak</span><label class="switch"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label></div>
+          <div class="agent-opts"><span>Max posts per message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>
+        </div>`
+      }).join('') || '<p class="note">No agents in this room.</p>'}
+    </section>`
+}
+function renderKeysPage () {
+  const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
+  const sel = selectedMsg && c.log.find((r) => r.id === selectedMsg)
+  const glyph = (m) => m.depth === 0 ? 'root' : m.label?.startsWith('device:') ? 'device' : m.scope.includes('admin') ? 'human' : 'bot'
+  const hl = sel ? new Set([sel.author]) : new Set()
+  const tree = c.members.map((m) => {
+    const [suite, hex] = m.ref.split(':')
+    const label = m.label?.replace(/^device:/, '') ?? '?'
+    const can = c.owner && m.status === 'active'
+    return `<div class="tree-row is-${m.status}${hl.has(m.ref) ? ' is-hl' : ''}" style="padding-left:${4 + (m.depth - 1) * 16}px" title="${esc(m.ref)}">
+      ${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(label)}</span><span class="tree-ref">${suite === 'bip340' ? 'nostr' : 'ed'}·${esc(hex.slice(0, 6))}</span>
+      ${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}
+      ${can ? `<button class="tree-x" data-revoke="${esc(m.label)}" title="Revoke">${icon('x')}</button>` : ''}</div>`
+  }).join('')
+  const rootRef = S.device.root
+  const memoRows = (sel?.att ?? []).filter((a) => a.mime?.startsWith('audio/')).map((a) => `<dt>Voice memo</dt><dd>${a.ms ? fmtDur(a.ms / 1000) : ''}${a.transcript ? `<div class="note" style="color:var(--text-2);margin-top:4px;user-select:text;cursor:text">${esc(a.transcript)}</div>` : ' · no transcript'}</dd>`).join('')
+  return `${sel ? `<section class="section">
+      <div class="trust"><div class="trust-lock">${icon('lock')}</div>
+        <div class="trust-text"><span class="trust-title">${esc(sel.name)} · verified</span><span class="trust-sub">Signed by ${esc(sel.name)}'s own key, the one this room trusts. It hasn't been changed.</span></div>
+        <button class="icon-btn" id="clearSel" title="Close">${icon('x')}</button></div>
+      ${memoRows ? `<dl class="kv">${memoRows}</dl>` : ''}
+      <details><summary>Technical details</summary>
+        <dl class="kv" style="margin-top:8px"><dt>Key</dt><dd class="mono">${esc(sel.author)}</dd>
+        <dt>Signed</dt><dd>${new Date(sel.ts).toLocaleString()}</dd>
+        ${sel.human ? '' : `<dt>Round</dt><dd>${sel.depth}</dd>`}
+        <dt>Signature</dt><dd class="mono">${esc(sel.sig)}</dd><dt>Id</dt><dd class="mono">${esc(sel.id)}</dd></dl>
+      </details></section>` : ''}
+    <section class="section"><div class="section-title-row"><h3 class="section-title">Who holds keys here</h3><span class="pill tone-dim">${c.members.filter((m) => m.status === 'active').length} active</span></div>
+      <div class="tree"><div class="tree-row" title="${esc(c.root)}">${icon('root', 'tree-glyph')}<span class="tree-label">root</span><span class="tree-ref">nostr·${esc((c.root ?? '').split(':')[1]?.slice(0, 6) ?? '')}</span>${c.owner ? '<span class="pill tone-accent">yours</span>' : ''}</div>${tree}</div>
+      <p class="note">Every device and participant is a key signed into this tree. Revoke one and it, plus anything under it, is out.</p></section>
+    ${c.owner ? `<section class="section"><h3 class="section-title">Approve a device</h3>
+      <textarea class="text-input mono" id="reqIn" rows="3" placeholder="Paste a join request (rkr1.…)"></textarea>
+      <button class="btn btn-primary btn-sm" id="approveBtn">Enroll it</button></section>` : ''}
+    <section class="section"><h3 class="section-title">This device</h3>
+      <dl class="kv"><dt>Name</dt><dd>${esc(S.device.name)}</dd><dt>Device key</dt><dd class="mono">${esc(S.device.ref)}</dd>${rootRef ? `<dt>Your root</dt><dd class="mono">${esc(rootRef)}</dd>` : ''}</dl>
+      <p class="note">Your root key lives on this Mac for now. It moves to an NFC card (Satochip) later, and approvals become a tap.</p></section>`
+}
+
+// ---------- global bits
+function renderChrome () {
+  const c = cur()
+  $('roomTitle').textContent = c ? c.name : (S?.rooms.length ? 'rooms' : 'no rooms yet')
+  const cs = $('connStatus')
+  cs.className = 'status tone-good'; cs.textContent = S.device.name
+  const b = c?.budget
+  const pa = $('pauseAll'); const paused = !!b?.paused
+  pa.classList.toggle('is-stop', paused)
+  pa.innerHTML = paused ? `${icon('play')}<span>Resume</span>` : `${icon('pause')}<span>Pause</span>`
+  pa.title = paused ? 'Let the agents speak again' : 'Pause every agent in this room'
+  pa.disabled = !c?.admitted
+  $('agentsBadge').hidden = !c?.participants.some((p) => p.role === 'agent' && p.online && p.state === 'thinking')
+  $('floorRight').textContent = c ? `${c.participants.filter((p) => p.status === 'active' && p.online).length} online` : ''
+  const others = c?.participants.filter((p) => p.status === 'active' && p.name !== me()).map((p) => '@' + p.name) ?? []
+  if (!dictation) $('text').placeholder = c ? `Message ${c.name}${others.length && !isPhone() ? ` · ${others.slice(0, 3).join(' ')}` : ''}` : 'Create a room to start'
+  $('text').disabled = !c?.admitted
+}
+function renderAll () { renderSide(); renderHead(); renderChrome(); renderFeed(); renderStrip(); renderPanel(); const rec = !!(navigator.mediaDevices && window.MediaRecorder); $('micBtn').hidden = !rec || !S?.canTranscribe; $('memoBtn').hidden = !rec }
+
+function bindRoomForms (root) {
+  const ga = root.querySelector('#glossAdd')
+  if (ga) ga.onsubmit = async (e) => { e.preventDefault(); const f = new FormData(ga); glossary = await api('POST', '/api/glossary', { from: f.get('from'), to: f.get('to') }); renderPanel() }
+  const create = root.querySelector('#heroCreate, #panelCreate')
+  if (create) create.onsubmit = async (e) => { e.preventDefault(); const f = new FormData(create); const r = await api('POST', '/api/rooms', { name: f.get('name'), members: f.getAll('m') }); toast(`Created "${r.name}".`); openPage('people'); await load(r.topic) }
+  const join = root.querySelector('#heroJoin, #panelJoin')
+  if (join) join.onsubmit = async (e) => { e.preventDefault(); const r = await api('POST', '/api/rooms/join', { invite: new FormData(join).get('invite') }); joinedRequest = r.request; await load(r.room.topic) }
+}
+
+// ---------- events
+const es = new EventSource('/api/events')
+es.onopen = () => load(store.get('rk.room', null))
+es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else { renderSide(); renderChrome() } })
+es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { S.current = r; renderAll() } })
+es.addEventListener('record', (e) => {
+  const { topic, rec, budget } = JSON.parse(e.data)
+  const c = cur(); if (!c || topic !== c.topic) return
+  if (!c.log.some((x) => x.id === rec.id)) { c.log.push(rec); c.log.sort((a, b) => a.ts - b.ts) }
+  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); if (page === 'agents') renderPanel()
+})
+es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'agents') renderPanel() } })
+es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
+es.addEventListener('activity', (e) => {
+  const { topic, rec } = JSON.parse(e.data)
+  if (topic !== cur()?.topic || rec.name !== activityAgent) return
+  activityLog.push(rec); if (activityLog.length > 600) activityLog = activityLog.slice(-400)
+  if (page === 'activity') { const el = $('panelBody'); const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60; renderPanel(); if (atEnd) scrollActivity() }
+})
+es.addEventListener('agent-error', (e) => { const x = JSON.parse(e.data); toast(`${x.name}: ${x.error}`, 'bad') })
+es.addEventListener('fork', () => toast('The key chain forked: a writer key signed two different histories. Check your keys.', 'bad'))
+es.onerror = () => { const cs = $('connStatus'); cs.className = 'status tone-bad'; cs.textContent = 'daemon unreachable, retrying' }
+
+// ---------- interactions
+const ta = $('text')
+function grow () {
+  ta.style.height = 'auto'
+  const max = 176
+  const h = Math.min(ta.scrollHeight + 2, max)
+  ta.style.height = h + 'px'
+  const over = ta.scrollHeight + 2 > max
+  ta.classList.toggle('is-overflow', over)
+  ta.classList.toggle('at-end', !over || ta.scrollTop + ta.clientHeight >= ta.scrollHeight - 4)
+}
+ta.addEventListener('input', grow)
+ta.addEventListener('scroll', () => ta.classList.toggle('at-end', ta.scrollTop + ta.clientHeight >= ta.scrollHeight - 4))
+// @-mention picker: type @ and choose who to hand the floor to
+let mention = null // { start, items, i }
+function mentionQuery () {
+  const upto = ta.value.slice(0, ta.selectionStart)
+  const m = upto.match(/(^|\s)@([a-z0-9_-]*)$/i)
+  return m ? { start: upto.length - m[2].length - 1, q: m[2].toLowerCase() } : null
+}
+function updateMentions () {
+  const c = cur(); const found = c && mentionQuery()
+  const menu = $('mentionMenu')
+  if (!found) { mention = null; menu.hidden = true; return }
+  const people = c.participants.filter((p) => p.status === 'active' && p.name !== me())
+  const items = [...people.filter((p) => p.name.startsWith(found.q)), ...(('all'.startsWith(found.q) && people.length > 1) ? [{ name: 'all', role: 'everyone' }] : [])]
+  if (!items.length) { mention = null; menu.hidden = true; return }
+  mention = { start: found.start, items, i: Math.min(mention?.i ?? 0, items.length - 1) }
+  menu.innerHTML = items.map((p, i) => `<button type="button" class="mention-item${i === mention.i ? ' is-active' : ''}" data-mention="${esc(p.name)}">
+    <div class="avatar${p.role === 'human' ? ' is-human' : ''}">${p.name === 'all' ? '*' : esc(p.name.slice(0, 1))}</div>@${esc(p.name)}<span class="sub">${p.role === 'everyone' ? 'wakes every agent' : p.role === 'agent' ? (p.online ? 'agent' : 'agent · offline') : 'person'}</span></button>`).join('')
+  menu.hidden = false
+}
+function pickMention (name) {
+  if (!mention) return
+  const end = ta.selectionStart
+  ta.value = ta.value.slice(0, mention.start) + '@' + name + ' ' + ta.value.slice(end)
+  const pos = mention.start + name.length + 2
+  ta.setSelectionRange(pos, pos); ta.focus()
+  mention = null; $('mentionMenu').hidden = true; grow()
+}
+ta.addEventListener('input', updateMentions)
+ta.addEventListener('click', updateMentions)
+ta.addEventListener('blur', () => setTimeout(() => { $('mentionMenu').hidden = true; mention = null }, 150))
+$('mentionMenu').addEventListener('mousedown', (e) => { const b = e.target.closest('[data-mention]'); if (b) { e.preventDefault(); pickMention(b.dataset.mention) } })
+ta.addEventListener('keydown', (e) => {
+  if (mention) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); mention.i = (mention.i + (e.key === 'ArrowDown' ? 1 : -1) + mention.items.length) % mention.items.length; updateMentions(); return }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mention.items[mention.i].name); return }
+    if (e.key === 'Escape') { e.preventDefault(); mention = null; $('mentionMenu').hidden = true; return }
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
+})
+$('composer').addEventListener('submit', async (e) => {
+  e.preventDefault()
+  const text = ta.value.trim(); if ((!text && !pendingMemo) || !cur()) return
+  if (pendingMemo && !pendingMemo.hash) { toast('One second, the memo is still saving.'); return }
+  const via = dictatedThisMessage ? 'voice' : undefined
+  const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : undefined
+  await api('POST', '/api/send', { room: roomArg(), text, via, att })
+  ta.value = ''; dictatedThisMessage = false; clearPending(); grow()
+})
+
+// ---------- learning: what you retype after dictating becomes a fix (autocorrect-style)
+let dictatedSpans = []
+function wordDiffPairs (a, b) {
+  const A = a.split(/\s+/).filter(Boolean); const B = b.split(/\s+/).filter(Boolean)
+  const n = A.length; const m = B.length
+  if (!n || !m || n * m > 250000) return []
+  const norm = (w) => w.toLowerCase().replace(/[.,!?;:"'()]/g, '')
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = norm(A[i]) === norm(B[j]) ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+  const pairs = []; let i = 0; let j = 0; let del = []; let ins = []
+  const flush = () => { if (del.length && ins.length) pairs.push([del.join(' '), ins.join(' ')]); del = []; ins = [] }
+  while (i < n && j < m) {
+    if (norm(A[i]) === norm(B[j])) { flush(); i++; j++ } else if (L[i + 1][j] >= L[i][j + 1]) del.push(A[i++]); else ins.push(B[j++])
+  }
+  flush()
+  return pairs.filter(([x, y]) => x.split(' ').length <= 3 && y.split(' ').length <= 3)
+}
+function learnFromEdits (final) {
+  const pairs = dictatedSpans.flatMap((span) => wordDiffPairs(span, final))
+  dictatedSpans = []
+  if (pairs.length) api('POST', '/api/glossary/learn', { pairs }).then((r) => { if (r.learned?.length) api('GET', '/api/glossary').then((g) => { glossary = g }) }).catch(() => {})
+}
+
+// ---------- voice: dictation (mic) and memos (waveform). Both record here and
+// transcribe on this machine; nothing goes to a cloud speech service.
+let dictatedThisMessage = false
+let pendingMemo = null
+const fmtDur = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+const recMime = () => ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || ''
+
+async function startRecording ({ onLevel } = {}) {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+  const mime = recMime()
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+  const chunks = []
+  mr.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+  let ctx, raf
+  if (onLevel) {
+    ctx = new AudioContext(); const an = ctx.createAnalyser(); an.fftSize = 1024
+    ctx.createMediaStreamSource(stream).connect(an)
+    const buf = new Uint8Array(an.fftSize)
+    const tick = () => { an.getByteTimeDomainData(buf); onLevel(buf); raf = requestAnimationFrame(tick) }
+    tick()
+  }
+  mr.start(250)
+  const started = Date.now()
+  const finish = (keep) => new Promise((resolve) => {
+    mr.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop()); cancelAnimationFrame(raf); ctx?.close()
+      resolve(keep ? { blob: new Blob(chunks, { type: (mr.mimeType || mime || 'audio/webm').split(';')[0] }), seconds: (Date.now() - started) / 1000 } : null)
+    }
+    mr.stop()
+  })
+  return { stop: () => finish(true), cancel: () => finish(false), started }
+}
+async function peaksOf (blob, n = 48) {
+  try {
+    const ctx = new AudioContext(); const buf = await ctx.decodeAudioData(await blob.arrayBuffer()); ctx.close()
+    const data = buf.getChannelData(0); const step = Math.floor(data.length / n) || 1; const out = []
+    for (let i = 0; i < n; i++) { let m = 0; for (let j = i * step; j < (i + 1) * step && j < data.length; j++) m = Math.max(m, Math.abs(data[j])); out.push(m) }
+    const max = Math.max(...out, 0.01)
+    return { peaks: out.map((v) => Math.round((v / max) * 100) / 100), duration: buf.duration }
+  } catch { return { peaks: [], duration: null } }
+}
+const micError = (err) => toast(err?.name === 'NotAllowedError' ? 'The browser blocked the microphone. Allow it for localhost and try again.' : `Couldn't use the microphone: ${err?.message ?? err}`, 'bad')
+
+// dictation, live: audio streams to the daemon as you talk, text streams back
+// into the box. Click the mic again to finish; the final pass replaces the draft.
+let dictation = null
+async function startLiveDictation () {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } })
+  const ws = new WebSocket(`ws://${location.host}/api/live`)
+  ws.binaryType = 'arraybuffer'
+  const ctx = new AudioContext()
+  const src = ctx.createMediaStreamSource(stream)
+  const proc = ctx.createScriptProcessor(4096, 1, 1)
+  const ratio = ctx.sampleRate / 16000
+  proc.onaudioprocess = (e) => {
+    if (ws.readyState !== 1) return
+    const input = e.inputBuffer.getChannelData(0)
+    const out = new Int16Array(Math.floor(input.length / ratio))
+    for (let i = 0; i < out.length; i++) {
+      const s = input[Math.floor(i * ratio)]
+      out[i] = Math.max(-32768, Math.min(32767, s * 32767))
+    }
+    ws.send(out.buffer)
+  }
+  src.connect(proc); proc.connect(ctx.destination)
+  const at = ta.selectionStart ?? ta.value.length
+  const before = ta.value.slice(0, at); const after = ta.value.slice(at)
+  const sep = before && !/\s$/.test(before) ? ' ' : ''
+  const show = (text) => { ta.value = before + (text ? sep + text : '') + after; grow(); ta.scrollTop = ta.scrollHeight }
+  let resolveFinal
+  const final = new Promise((resolve) => { resolveFinal = resolve })
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data)
+    if (m.type === 'partial') show(m.text)
+    if (m.type === 'final') { show(m.text); resolveFinal(m) }
+    if (m.type === 'error') toast(`Dictation: ${m.error}`, 'bad')
+  }
+  ws.onclose = () => resolveFinal(null)
+  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error('couldn\'t reach the live transcriber')) })
+  ta.readOnly = true
+  return {
+    async stop () {
+      proc.disconnect(); src.disconnect(); stream.getTracks().forEach((t) => t.stop()); ctx.close()
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'end' }))
+      const m = await Promise.race([final, new Promise((resolve) => setTimeout(() => resolve(null), 20000))])
+      ta.readOnly = false
+      const end = (before + sep + (m?.text ?? '')).length
+      ta.focus(); ta.setSelectionRange(end, end)
+      return m
+    }
+  }
+}
+$('micBtn').onclick = async () => {
+  const mic = $('micBtn')
+  if (dictation) {
+    const d = dictation; dictation = null
+    mic.classList.remove('is-live'); mic.classList.add('is-busy'); ta.placeholder = 'Finishing…'
+    try { const m = await d.stop(); if (m?.text) { dictatedThisMessage = true; dictatedSpans.push(m.text) } } finally { mic.classList.remove('is-busy'); renderChrome() }
+    return
+  }
+  if (S && !S.canTranscribe) return toast('This device has no local transcriber set up.', 'bad')
+  try {
+    dictation = await startLiveDictation()
+    mic.classList.add('is-live'); ta.placeholder = `Listening… ${isPhone() ? 'tap' : 'click'} the mic when you're done`
+  } catch (err) { dictation = null; micError(err) }
+}
+
+// memos: the input turns into a recorder with a live waveform
+let memoRec = null
+function drawLevel (buf) {
+  const cv = $('recWave'); const w = cv.clientWidth; const h = cv.clientHeight
+  if (cv.width !== w * devicePixelRatio) { cv.width = w * devicePixelRatio; cv.height = h * devicePixelRatio }
+  const g = cv.getContext('2d'); g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); g.clearRect(0, 0, w, h)
+  g.strokeStyle = '#ff8a80'; g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath()
+  for (let i = 0; i < buf.length; i += 4) { const x = (i / buf.length) * w; const y = (buf[i] / 255) * h; i ? g.lineTo(x, y) : g.moveTo(x, y) }
+  g.stroke()
+  $('recTime').textContent = fmtDur((Date.now() - memoRec.started) / 1000)
+}
+function showRecorder (on) { $('inputShell').hidden = on; $('recorder').hidden = !on; $('composer').querySelector('.btn-primary').hidden = on }
+$('memoBtn').onclick = async () => {
+  try { memoRec = await startRecording({ onLevel: (b) => memoRec && drawLevel(b) }); showRecorder(true) } catch (err) { micError(err) }
+}
+$('recCancel').onclick = async () => { const r = memoRec; memoRec = null; showRecorder(false); await r?.cancel() }
+$('recStop').onclick = async () => {
+  const r = memoRec; memoRec = null; showRecorder(false)
+  const rec = await r.stop()
+  if (!rec || rec.seconds < 0.5) return
+  const { peaks, duration } = await peaksOf(rec.blob)
+  pendingMemo = { blob: rec.blob, mime: rec.blob.type, duration: duration ?? rec.seconds, peaks, url: URL.createObjectURL(rec.blob) }
+  renderPending()
+  try {
+    const res = await fetch(`/api/blob?room=${encodeURIComponent(roomArg())}`, { method: 'POST', headers: { 'content-type': rec.blob.type }, body: rec.blob })
+    const out = await res.json(); if (!res.ok) throw new Error(out.error)
+    if (pendingMemo) { Object.assign(pendingMemo, { hash: out.hash, size: out.size, transcript: out.transcript }); renderPending() }
+  } catch (err) { toast(`Couldn't save the memo: ${err.message}`, 'bad'); clearPending() }
+  ta.focus()
+}
+function renderPending () {
+  const el = $('pending')
+  if (!pendingMemo) { el.hidden = true; el.innerHTML = ''; return }
+  el.hidden = false
+  el.innerHTML = `${memoHTML({ ...pendingMemo, local: true }, null)}<span class="note">${pendingMemo.hash ? 'Ready. Add a note if you like, then send.' : 'Saving…'}</span><button type="button" class="in-btn" id="dropMemo" title="Discard memo">${icon('x')}</button>`
+}
+function clearPending () { if (pendingMemo?.url) URL.revokeObjectURL(pendingMemo.url); pendingMemo = null; renderPending() }
+
+// the memo block + one shared player
+function memoHTML (a, r) {
+  if (!a.mime?.startsWith('audio/')) return ''
+  const key = a.local ? 'pending' : a.hash
+  const secs = a.ms ? a.ms / 1000 : a.duration
+  const bars = (a.peaks?.length ? a.peaks : Array(40).fill(0.3)).map((p) => `<i style="height:${Math.max(12, Math.round(p > 1 ? p : p * 100))}%"></i>`).join('')
+  return `<div class="memo" data-memo="${esc(key)}" data-mime="${esc(a.mime)}"><button type="button" class="memo-play" data-play="${esc(key)}">${icon(player.key === key && !player.audio.paused ? 'pausef' : 'playf')}</button>
+    <div class="memo-bars">${bars}</div><span class="memo-time">${secs ? fmtDur(secs) : ''}</span></div>`
+}
+const player = { audio: new Audio(), key: null }
+player.audio.addEventListener('timeupdate', paintPlayer)
+player.audio.addEventListener('ended', () => { player.key = null; paintPlayer(true) })
+player.audio.addEventListener('pause', () => paintPlayer())
+player.audio.addEventListener('play', () => paintPlayer())
+function paintPlayer (reset) {
+  document.querySelectorAll('.memo').forEach((m) => {
+    const mine = m.dataset.memo === player.key
+    const btn = m.querySelector('.memo-play'); btn.innerHTML = icon(mine && !player.audio.paused ? 'pausef' : 'playf')
+    const bars = m.querySelectorAll('.memo-bars i'); const k = mine && player.audio.duration ? player.audio.currentTime / player.audio.duration : 0
+    bars.forEach((b, i) => b.classList.toggle('on', mine && !reset && i / bars.length < k))
+  })
+}
+function playMemo (key, mime) {
+  if (player.key === key) { player.audio.paused ? player.audio.play() : player.audio.pause(); return }
+  player.key = key
+  player.audio.src = key === 'pending' ? pendingMemo.url : `/api/blob/${key}?room=${encodeURIComponent(roomArg())}&mime=${encodeURIComponent(mime)}`
+  player.audio.play().catch(() => toast('That memo isn\'t on this device yet. Try again in a moment.', 'bad'))
+}
+
+document.querySelectorAll('.dock-btn[data-page]').forEach((b) => (b.onclick = () => openPage(page === b.dataset.page ? '' : b.dataset.page)))
+$('panelClose').onclick = () => openPage('')
+// no microphone outside a secure context (phone over plain http): the keyboard's own dictation still works
+if (!navigator.mediaDevices?.getUserMedia) { $('micBtn').hidden = true; $('memoBtn').hidden = true }
+$('sideAdd').addEventListener('keydown', async (e) => {
+  if (e.key !== 'Enter') return
+  const v = e.target.value.trim(); if (!v) return
+  try {
+    if (v.startsWith('rkc1.')) { const r = await api('POST', '/api/rooms/join', { invite: v }); joinedRequest = r.request; e.target.value = ''; await load(r.room.topic) }
+    else { const r = await api('POST', '/api/rooms', { name: v }); e.target.value = ''; toast(`Created "${r.name}". Invite people from the header.`); await load(r.topic) }
+  } catch {}
+})
+const side = $('side')
+let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
+const applySide = () => {
+  const w = Number(store.get('rk.sideW', 272)); side.style.setProperty('--side-w', `${w}px`)
+  side.classList.toggle('is-collapsed', store.get('rk.sideC', '0') === '1')
+  if (window.innerWidth <= 720) side.classList.toggle('is-mobile-hidden', !roomsScreen)
+}
+applySide()
+$('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
+$('sideGrip').addEventListener('pointerdown', (e) => {
+  const x0 = e.clientX; const w0 = side.getBoundingClientRect().width
+  const move = (ev) => { const w = Math.max(200, Math.min(460, w0 + ev.clientX - x0)); side.style.setProperty('--side-w', `${w}px`); store.set('rk.sideW', w) }
+  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+})
+$('sideToggle').onclick = () => {
+  if (window.innerWidth <= 720) roomsScreen = !roomsScreen
+  else store.set('rk.sideC', store.get('rk.sideC', '0') === '1' ? '0' : '1')
+  applySide()
+}
+$('roomSwitch').onclick = () => $('sideToggle').click()
+$('gearBtn').onclick = () => { openPage(page === 'settings' ? '' : 'settings'); loadSettings() }
+$('pauseAll').onclick = () => cur()?.admitted && control({ action: cur().budget.paused ? 'resume' : 'pause' })
+
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('#picker') && !e.target.closest('[data-react-open]')) closePicker()
+  const rp = e.target.closest('[data-react-pick]')
+  if (rp) { closePicker(); toggleReaction(rp.dataset.reactPick, rp.dataset.emoji); return }
+  const ro = e.target.closest('[data-react-open]')
+  if (ro) { openPicker(ro.dataset.reactOpen, ro); return }
+  if (!e.target.closest('#who')) closeWho()
+  const rt = e.target.closest('[data-react-toggle]')
+  if (rt) { if (held) { held = false; return } toggleReaction(rt.dataset.reactToggle, rt.dataset.emoji); return }
+  const th = e.target.closest('[data-thinking]')
+  if (th) { openThinking(th.dataset.thinking); return }
+  const actEl = e.target.closest('[data-activity]')
+  if (actEl) { openActivity(actEl.dataset.activity); return }
+  const bars = e.target.closest('.memo-bars')
+  if (bars && player.key === bars.closest('.memo').dataset.memo && player.audio.duration) {
+    const r = bars.getBoundingClientRect(); player.audio.currentTime = ((e.clientX - r.left) / r.width) * player.audio.duration; return
+  }
+  const t = e.target.closest('button, [data-room]')
+  if (e.target.closest('[data-open-invite]')) { openPage('invite'); loadPeople(); return }
+  if (e.target.closest('[data-show-rooms]')) { roomsScreen = true; applySide(); return }
+  const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
+  const go = e.target.closest('[data-go]')
+  if (go) {
+    document.getElementById('menu')?.remove()
+    const g = go.dataset.go
+    if (g === 'pause') return control({ action: cur()?.budget?.paused ? 'resume' : 'pause' })
+    if (g === 'settings') loadSettings()
+    if (g === 'invite') loadPeople()
+    openPage(g); return
+  }
+  if (!e.target.closest('#menu')) document.getElementById('menu')?.remove()
+  if (!t) return
+  const d = t.dataset
+  if (d.room) { selectedMsg = null; joinedRequest = null; if (window.innerWidth <= 720) { roomsScreen = false; applySide() } await load(d.room); return }
+  if (t.dataset.openInvite !== undefined) { openPage('invite'); loadPeople(); return }
+  if (d.pause) return control({ action: 'pause', agent: d.pause })
+  if (d.resume) return control({ action: 'resume', agent: d.resume })
+  if (d.reply) { ta.value = `@${d.reply} ` + ta.value.replace(/^@\S+\s/, ''); ta.focus(); grow(); return }
+  if (d.info) { selectedMsg = d.info; openPage('keys'); renderFeed(); return }
+  if (d.ctl) { if (d.confirm && !confirm(d.confirm)) return; return control({ action: d.ctl, ...(d.n ? { n: Number(d.n) } : {}) }) }
+  if (d.revoke) { if (confirm(`Revoke ${d.revoke}? It, and anything it enrolled, is cut out of the room.`)) api('POST', '/api/revoke', { room: roomArg(), name: d.revoke }); return }
+  if (d.play) { playMemo(d.play, t.closest('.memo')?.dataset.mime); return }
+  if (t.id === 'dropMemo') { clearPending(); return }
+  if (d.remoteOn) { try { await api('POST', '/api/remote/enable', { https: d.remoteOn === 'https' }) } catch {} await loadSettings(); return }
+  if (t.dataset.pair !== undefined) { pairing = await api('POST', '/api/remote/pair'); renderPanel(); setTimeout(() => { pairing = null; loadSettings() }, 10 * 60_000); return }
+  if (d.unpair) { await api('POST', '/api/remote/revoke', { id: d.unpair }); await loadSettings(); return }
+  if (d.addMember) { const r = await api('POST', '/api/rooms/add', { room: roomArg(), name: d.addMember }); toast(r.via ? `Added ${d.addMember}. The invite went out through "${r.via}".` : `Added ${d.addMember}.`); loadPeople(); return }
+  if (d.redact) { if (confirm('Remove this message for everyone in the room? Any file it carried is blocked from this room too.')) api('POST', '/api/redact', { room: roomArg(), target: d.redact }); return }
+  if (d.glossRm) { glossary = await api('POST', '/api/glossary', { from: d.glossRm, remove: true }); renderPanel(); return }
+  if (t.id === 'runFor') return control({ action: 'until', hours: Number($('runHours').value) || 8 })
+  if (t.id === 'clearSel') { selectedMsg = null; renderPanel(); renderFeed(); return }
+  if (t.id === 'inviteBtn') { const { invite } = await api('GET', `/api/invite?room=${encodeURIComponent(roomArg())}`); const o = $('inviteOut'); o.textContent = invite; o.hidden = false; navigator.clipboard?.writeText(invite).then(() => toast('Invite copied.')); return }
+  if (t.id === 'approveBtn') { const { enrolled } = await api('POST', '/api/approve', { room: roomArg(), code: $('reqIn').value }); toast(`Enrolled ${enrolled} key${enrolled === 1 ? '' : 's'}.`); return }
+})
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
+  if (e.target.id === 'autofix') { api('POST', '/api/settings', { autofix: e.target.checked }).then((x) => { settings = { ...settings, ...x } }); return }
+  const d = e.target.dataset
+  if (d.agentToggle) control({ action: e.target.checked ? 'resume' : 'pause', agent: d.agentToggle })
+  if (d.agentLimit) control({ action: 'limit', agent: d.agentLimit, n: Number(e.target.value) || 0 })
+})
+setInterval(() => S && (renderStrip(), page === 'agents' && renderPanel()), 30_000)
+</script>
+</body>
+</html>

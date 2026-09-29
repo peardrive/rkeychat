@@ -1,0 +1,173 @@
+// Waking agents. For every agent hosted on this device the daemon watches the
+// room; when something is addressed to it and the round budget allows a reply,
+// it builds one turn from everything new since the agent last spoke and hands
+// it to the agent's bridge:
+//
+//   hermes — calls the local Hermes Agent API server and posts the reply.
+//   stream — delivers the turn to whoever is listening on /api/wait (Claude
+//            Code via `rkeychat wait`), who replies with `rkeychat send`.
+
+import { replyDepth } from './turns.js'
+
+const PASS = /^\s*PASS\s*$/i
+const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
+
+export function renderTurn (room, name, { intro = false } = {}) {
+  const log = room.log()
+  const triggers = room.triggersFor(name)
+  let lastOwn = -1
+  log.forEach((r, i) => { if (r.kind === 'msg' && r.name === name) lastOwn = i })
+  const fresh = log.slice(lastOwn + 1).filter((r) => r.kind === 'msg' && !r.redacted).slice(-40)
+  const others = room.participantsList().filter((p) => p.name !== name && p.status === 'active')
+  const b = room.budget()
+  const depth = replyDepth(triggers)
+  const left = b.remaining === Infinity ? 'unlimited' : Math.max(0, b.limit - depth)
+
+  const lines = []
+  if (intro) {
+    lines.push(
+      `You are @${name}, a participant in rKeyChat room "${room.cfg.name}" — a live group chat between Guy (the human who runs these projects) and his AI agents, working together on PearDrive/pearcore.`,
+      'Whatever you reply is posted to the room verbatim under your name. Keep it conversational and concise; put long material in files and reference paths.',
+      'Agents only get woken when @mentioned (or when Guy posts without mentioning anyone). To hand someone the floor, @mention them. To stay silent, reply exactly PASS.',
+      'Agent-to-agent exchanges are limited by a round budget that Guy controls; when it runs out, everyone waits for Guy.',
+      'Messages marked (dictated) were spoken and transcribed. Expect misheard words, especially project names (pearcore, PearDrive, Kimi, Hermes, Hyperbee, rKey). Read by context and meaning, not spelling. A dictated message can also catch a stray sentence that was said to someone else in the room; if part of it clearly isn\'t addressed to this conversation, ignore that part rather than act on it.',
+      ''
+    )
+  }
+  lines.push(room.style() === 'verbose'
+    ? '(This room is set to verbose: full detail is welcome here.)'
+    : '(This room is set to concise: keep messages short and put detail behind files or Thinking. Other agents pay for every token you post.)')
+  lines.push(`[room ${room.cfg.name} · you are @${name} · others: ${others.map((p) => `@${p.name}${p.role === 'human' ? ' (human)' : ''}${p.online ? '' : ' (offline)'}`).join(', ')} · rounds left after your reply: ${left}]`)
+  lines.push('')
+  // reactions since this agent last spoke, compact: they're cheap context, never a wake-up
+  const reacts = log.slice(lastOwn + 1).filter((r) => r.kind === 'react' && r.on && r.name !== name)
+  for (const r of fresh) {
+    const to = r.mentions.length ? ` → ${r.mentions.map((m) => '@' + m).join(' ')}` : ''
+    const memos = (r.att ?? []).filter((a) => a.mime?.startsWith('audio/')).map((a) => {
+      const sec = a.ms ? a.ms / 1000 : 0
+      const len = sec ? ` ${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : ''
+      return a.transcript ? ` [voice memo${len}, transcript: ${a.transcript}]` : ` [voice memo${len}, no transcript available]`
+    }).join('')
+    lines.push(`[${fmtTime(r.ts)}] ${r.name}${r.via === 'voice' || memos ? ' (dictated)' : ''}${to}: ${r.text}${memos}`)
+  }
+  if (reacts.length) {
+    const byId = new Map(log.map((r) => [r.id, r]))
+    lines.push('', 'Reactions: ' + reacts.map((r) => {
+      const t = byId.get(r.target)
+      const whose = !t ? 'a message' : t.name === name ? 'your message' : `${t.name}'s message`
+      return `${r.name} ${r.emoji} ${whose}${t?.text ? ` ("${t.text.slice(0, 40)}${t.text.length > 40 ? '…' : ''}")` : ''}`
+    }).join('; '))
+    lines.push('(You can react too, without replying: rkeychat react. Reactions never wake anyone.)')
+  }
+  return { text: lines.join('\n'), triggers, depth }
+}
+
+export class AgentRunner {
+  constructor (room, name, bridge) {
+    this.room = room
+    this.name = name
+    this.bridge = bridge // { kind: 'hermes', url, key } | { kind: 'stream' }
+    this.busy = false
+    this.introduced = false
+    this.listeners = new Set() // for stream bridges
+    this.room.on('record', () => this.poke())
+    this.room.on('changed', () => this.poke())
+    // a stream agent isn't listening until something connects to /api/wait
+    if (bridge.kind === 'stream') this.room.agentState.set(name, 'offline')
+  }
+
+  due () {
+    const me = this.room.local[this.name]?.signer.ref
+    if (!me || !this.room.state?.isActive(me)) return null // not (or no longer) in this room
+    const triggers = this.room.triggersFor(this.name)
+    if (!triggers.length) return null
+    return this.room.budget().allows(replyDepth(triggers), this.name) ? triggers : null
+  }
+
+  poke () {
+    if (this.busy || !this.due()) return
+    if (this.bridge.kind === 'hermes') this.#runHermes().catch((err) => this.#fail(err))
+    if (this.bridge.kind === 'stream') this.#offer()
+  }
+
+  #fail (err) {
+    this.busy = false
+    this.room.setAgentState(this.name, 'error')
+    this.room.emit('agent-error', { name: this.name, error: String(err?.message ?? err) })
+  }
+
+  // ---- stream bridge (Claude Code) ----
+
+  #offer () {
+    if (!this.listeners.size) {
+      this.room.setAgentState(this.name, 'waiting')
+      return
+    }
+    const turn = renderTurn(this.room, this.name, { intro: !this.introduced })
+    this.introduced = true
+    this.busy = true
+    this.room.setAgentState(this.name, 'thinking')
+    this.offered = turn.triggers.map((t) => t.id)
+    this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`).catch(() => {})
+    for (const fn of this.listeners) fn({ name: this.name, re: this.offered, prompt: turn.text })
+    // if nobody answers within the window, free the slot so newer turns flow
+    clearTimeout(this.offerTimer)
+    this.offerTimer = setTimeout(() => { this.busy = false; this.room.setAgentState(this.name, 'idle'); this.poke() }, 15 * 60_000)
+  }
+
+  listen (fn) {
+    this.listeners.add(fn)
+    this.introduced = false
+    this.room.setAgentState(this.name, 'idle')
+    setImmediate(() => this.poke())
+    return () => {
+      this.listeners.delete(fn)
+      if (!this.listeners.size) this.room.setAgentState(this.name, 'offline')
+    }
+  }
+
+  // called after the stream agent posts (or passes)
+  answered ({ passed = false } = {}) {
+    if (passed && this.offered) this.room.markPassed(this.name, this.offered)
+    clearTimeout(this.offerTimer)
+    this.busy = false
+    this.room.setAgentState(this.name, 'idle')
+    setImmediate(() => this.poke())
+  }
+
+  // ---- hermes bridge ----
+
+  async #runHermes () {
+    this.busy = true
+    this.room.setAgentState(this.name, 'thinking')
+    const turn = renderTurn(this.room, this.name, { intro: !this.introduced })
+    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}; asking Hermes`).catch(() => {})
+    const { url = 'http://127.0.0.1:8642', key, model = 'hermes-agent' } = this.bridge
+    const res = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(key ? { authorization: `Bearer ${key}` } : {}),
+        'x-hermes-session-id': `rkeychat-${this.room.topic.slice(0, 12)}-${this.name}`
+      },
+      body: JSON.stringify({ model, stream: false, messages: [{ role: 'user', content: turn.text }] }),
+      signal: AbortSignal.timeout(20 * 60_000)
+    })
+    if (!res.ok) throw new Error(`hermes ${res.status}: ${(await res.text()).slice(0, 300)}`)
+    const body = await res.json()
+    this.introduced = true
+    const reply = body?.choices?.[0]?.message?.content ?? ''
+    await this.#deliver(reply, turn.triggers.map((t) => t.id))
+  }
+
+  async #deliver (reply, re) {
+    try {
+      if (reply && !PASS.test(reply)) await this.room.post(this.name, reply, { re })
+      else { this.room.markPassed(this.name, re); this.room.activity(this.name, 'decided to stay quiet (PASS)').catch(() => {}) }
+    } finally {
+      this.busy = false
+      this.room.setAgentState(this.name, 'idle')
+      setImmediate(() => this.poke())
+    }
+  }
+}
