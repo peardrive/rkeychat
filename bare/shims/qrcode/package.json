@@ -1,0 +1,2 @@
+{ "name": "qrcode", "version": "1.99.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js" },
+  "description": "qrcode's SVG output only (its PNG path needs Node streams)", "dependencies": { "qrcode-core": "npm:qrcode@^1.5.4" } }

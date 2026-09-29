@@ -1,0 +1,3 @@
+{ "name": "child_process", "version": "0.0.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js" },
+  "description": "bare-subprocess plus the sync helpers desktop code imports (they throw on a phone; callers treat that as 'not available')",
+  "dependencies": { "bare-subprocess": "^6.2.0" } }

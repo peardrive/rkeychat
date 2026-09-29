@@ -1,0 +1,2 @@
+{ "name": "ws", "version": "8.99.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js" },
+  "description": "Placeholder: live desktop dictation's WebSocket isn't used on the phone yet" }

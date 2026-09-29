@@ -1,0 +1,2 @@
+{ "name": "pino", "version": "10.99.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js", "./file": "./index.js" },
+  "description": "Minimal pino-compatible console logger for Bare" }

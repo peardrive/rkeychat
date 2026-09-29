@@ -1,0 +1,2 @@
+{ "name": "better-sqlite3", "version": "12.99.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js" },
+  "description": "better-sqlite3's API (the part drizzle and pearcore use) on top of bare-sqlite", "dependencies": { "bare-sqlite": "^0.1.4" } }

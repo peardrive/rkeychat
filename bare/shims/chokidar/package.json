@@ -1,0 +1,2 @@
+{ "name": "chokidar", "version": "5.99.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js" },
+  "description": "No-op file watcher for Bare (mobile apps don't watch local folders)" }

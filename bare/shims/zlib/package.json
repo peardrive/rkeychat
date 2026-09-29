@@ -1,0 +1,3 @@
+{ "name": "zlib", "version": "1.99.0-bare", "type": "module", "main": "index.js", "exports": { ".": "./index.js" },
+  "description": "bare-zlib plus the Brotli pearcore's sharelinks need",
+  "dependencies": { "bare-zlib": "^1.4.1", "brotli": "^1.3.3" } }
