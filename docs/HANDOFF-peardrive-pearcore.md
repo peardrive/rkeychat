@@ -173,3 +173,11 @@ Idea: posting a file from space A into space B (e.g. a rKeyChat room) shouldn't 
   - Blocked hashes are never served in that space (HTTP 410, blob requests ignored), and new messages carrying them are rejected.
   - Local copies are untouched. Repeat offenders get their key revoked in the rKey chain.
   - Because redactions are ordinary signed records, the moderation history is auditable and replicates like everything else.
+
+## Addendum (2026-09-30): found while wiring files-by-hash into rKeyChat
+
+- **Crash: file watcher handlers are unbound.** `LocalFileRegistry` does `this.watcher.on(CHANGE, this.onChangeEvent)`; chokidar calls it with the watcher as `this`, so the first change to a registered file throws `Cannot read properties of undefined (reading 'getCredentials')` and kills the process. Fix: bind (done on the `mobile-bare` branch, commit 35dfca1).
+- **File lists don't reach late peers.** A node only sends its file list in reply to a *direct* space-sync message, and syncs only happen when the space record changes. A peer that connects after files were added never learns about them, and the add-time broadcast doesn't reliably reach connected peers either. rKeyChat works around it by re-announcing its own signed records through `FileEventBroadcaster` when a peer connects (`Room.announceFiles`). pearcore should send the file-list context on connection (or on `SpaceHashList`), not only on sync.
+- **Downloads don't register the receiver as a provider.** After `download()` completes, the file is on disk but not in the local registry, so the receiver can't serve it. rKeyChat calls `addFile` on the downloaded copy. Worth doing in pearcore itself: it's what makes content more available as it spreads.
+- **`Registry already exists`** when the same disk path is added twice: callers need a way to look up the existing record by path (rKeyChat falls back to the file list under its own key).
+- **The Bare port** (`rKeyChat-mobile/bare`) runs pearcore unmodified on Bare via npm overrides: `better-sqlite3` → a `bare-sqlite` adapter, `zlib` → bare-zlib plus a pure-JS Brotli, tiny shims for `pino`, `chokidar`, `ws`, `qrcode`, `child_process`, `module`. One optional env var added to pearcore: `PEARCORE_MIGRATIONS_PATH`. A pluggable storage/logging layer in pearcore itself would make those overrides unnecessary.
