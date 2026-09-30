@@ -4,7 +4,7 @@ import { spawn, execFile } from 'node:child_process'
 import { openSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir } from '../src/config.js'
+import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir, newIdentity, accountSigner } from '../src/config.js'
 import { decodeInvite } from '../src/server.js'
 
 const USAGE = `rkeychat — a room for you and your agents, on pearcore + rKey
@@ -41,6 +41,7 @@ agents
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
   rkeychat rename --room ROOM NAME             rename a room for everyone in it
   rkeychat revoke NAME                         cut a key (and anything under it) out of the room`
@@ -58,6 +59,7 @@ const { values: opt, positionals: pos } = parseArgs({
     as: { type: 'string' },
     room: { type: 'string' },
     order: { type: 'string' },
+    key: { type: 'string' },
     file: { type: 'string' },
     pass: { type: 'boolean' },
     background: { type: 'boolean' },
@@ -227,6 +229,21 @@ switch (cmd) {
     console.log(out.path)
     break
   }
+  case 'identity': {
+    // who this device's participants are: account (root) and session key. `identity new NAME` re-mints NAME.
+    const cfg = cfgOrDie()
+    if (pos[0] === 'new') {
+      const name = pos[1] ?? die('usage: rkeychat identity new NAME')
+      const { account, session } = newIdentity(cfg, name); saveConfig(cfg)
+      console.log(`new identity for @${name}\n  account: ${account}\n  session: ${session}\nrestart the daemon, then rejoin rooms with the new keys: rkeychat request --room ROOM (the owner approves it, then revokes the old ones).`)
+      break
+    }
+    for (const [name, p] of Object.entries(cfg.participants)) {
+      const acct = accountSigner(cfg, name)
+      console.log(`@${name} (${p.role})\n  account: ${acct ? acct.ref : '(none yet: rkeychat identity new ' + name + ')'}\n  session: ${p.ref}`)
+    }
+    break
+  }
   case 'purpose': {
     // the room's standing prompt for agents, plus who answers first
     const text = pos.join(' ')
@@ -292,7 +309,7 @@ switch (cmd) {
     for (const [k, v] of Object.entries(g).sort()) console.log(`${k.padEnd(18)} → ${v}`)
     break
   }
-  case 'revoke': await api('POST', '/api/revoke', { room: opt.room, name: pos[0] }); console.log('revoked'); break
+  case 'revoke': { const r = await api('POST', '/api/revoke', { room: opt.room, name: pos[0], ref: opt.key }); console.log(`revoked ${(r.revoked ?? []).map((x) => x.slice(0, 20)).join(', ') || pos[0]}`); break }
   case 'wait': {
     // Stays up across daemon restarts: reconnects quietly and says so once.
     const as = opt.as ?? die('usage: rkeychat wait --as NAME')

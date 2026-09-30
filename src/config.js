@@ -56,8 +56,34 @@ export function addParticipant (cfg, name, { role = 'agent', bridge = { kind: 's
 
 export function participantSigners (cfg) {
   return Object.fromEntries(Object.entries(cfg.participants).map(([name, p]) => [
-    name, { signer: signerFromSecret(p.suite, p.secretKey), role: p.role, bridge: p.bridge }
+    name, { signer: signerFromSecret(p.suite, p.secretKey), role: p.role, bridge: p.bridge, account: accountSigner(cfg, name) }
   ]))
+}
+
+// Every participant is an account: a person's account is this device's root
+// (one root, many devices); an agent's account is its own root, minted on the
+// device that hosts it. The participant key is the session key under it.
+export function accountSigner (cfg, name) {
+  const p = cfg.participants[name]
+  if (!p) return null
+  if (p.role === 'human') return rootSigner(cfg)
+  return p.root ? signerFromSecret(p.root.suite, p.root.secretKey) : null
+}
+
+// Mint (or re-mint) an identity: a fresh root for an agent, plus a fresh
+// session key for the participant, so old keys can be revoked cleanly.
+export function newIdentity (cfg, name) {
+  const p = cfg.participants[name]
+  if (!p) throw new Error(`no participant ${name} on this device`)
+  if (p.role === 'human') {
+    if (!cfg.root) { const r = generate('bip340'); cfg.root = { suite: 'bip340', secretKey: r.secretKey } }
+  } else {
+    const r = generate('ed25519')
+    p.root = { suite: 'ed25519', secretKey: r.secretKey, ref: r.ref }
+  }
+  const k = generate('ed25519')
+  Object.assign(p, { suite: 'ed25519', secretKey: k.secretKey, ref: k.ref })
+  return { account: accountSigner(cfg, name).ref, session: k.ref }
 }
 
 export function rootSigner (cfg) {

@@ -202,13 +202,22 @@ export function serve ({ app }) {
       return { enrolled: await room.approve(decodeRequest(code)), room: room.cfg.name }
     },
     'POST /api/revoke': async (req) => {
-      const { room: key, name, reason = 'removed' } = await body(req)
+      // by name: the whole account (every top-level key with that name, children cascade);
+      // with `key` (a ref or prefix): just that key, e.g. the old one after a key roll
+      const { room: key, name, ref, reason = 'removed' } = await body(req)
       const { room } = pick(key)
-      const m = room.members().find((x) => x.name === name)
-      need(m, `nobody called ${name} in this room`)
-      if (cfg.participants[name]) await room.leave(name)
-      else await room.revoke(m.ref, reason)
-      return { ok: true }
+      const active = room.members().filter((x) => x.status === 'active')
+      if (ref) {
+        const m = active.find((x) => x.ref === ref || x.ref.includes(ref) || x.ref.slice(8).startsWith(ref))
+        need(m, `no active key matching ${ref}`)
+        await room.revoke(m.ref, reason)
+        return { ok: true, revoked: [m.ref] }
+      }
+      const tops = active.filter((x) => x.name === name && x.depth === 1 && !x.label?.startsWith('device:'))
+      need(tops.length, `nobody called ${name} in this room`)
+      if (cfg.participants[name] && !room.isOwner) { await room.leave(name); return { ok: true } }
+      for (const m of tops) await room.revoke(m.ref, reason)
+      return { ok: true, revoked: tops.map((m) => m.ref) }
     },
 
     // NDJSON stream of turns for a stream-bridged agent, across all rooms

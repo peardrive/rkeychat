@@ -133,7 +133,14 @@ export class App extends EventEmitter {
     for (const [pname, p] of Object.entries(this.participants)) {
       if (p.role !== 'human' && !members.includes(pname)) continue
       const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
-      await chain.append(await enroll(root, { root: r, key: p.signer.ref, consent: await consent(p.signer, r), scope: ['bind', SCOPES.chat, role], label: pname }), root)
+      if (p.account && p.account.ref !== r) {
+        // an agent with its own root: enrolled under ours with delegate, then it enrolls its session key
+        await chain.append(await enroll(root, { root: r, key: p.account.ref, consent: await consent(p.account, r), scope: ['bind', SCOPES.chat, role, 'delegate'], label: pname }), root)
+        await chain.append(await enroll(p.account, { root: r, key: p.signer.ref, consent: await consent(p.signer, r), scope: ['bind', SCOPES.chat, role], label: `${pname}@${this.cfg.deviceName}` }), root)
+      } else {
+        // a key under our own root (a person's device key, or a legacy agent key)
+        await chain.append(await enroll(root, { root: r, key: p.signer.ref, consent: await consent(p.signer, r), scope: ['bind', SCOPES.chat, role], label: p.role === 'human' ? `${pname}@${this.cfg.deviceName}` : pname }), root)
+      }
     }
     new RoomStore(join(dataDir(), rcfg.dir)).writeJSON('chain.json', chain.toJSON())
     this.cfg.rooms.push(rcfg)
@@ -151,7 +158,7 @@ export class App extends EventEmitter {
     for (const { room } of this.rooms.values()) {
       if (!room.isOwner) continue
       for (const m of room.members()) {
-        if (m.status !== 'active' || m.name.startsWith('device:') || this.participants[m.name]) continue
+        if (m.status !== 'active' || m.label?.startsWith('device:') || this.participants[m.name]) continue
         if (!out.has(m.name)) out.set(m.name, { name: m.name, role: m.scope.includes('admin') ? 'human' : 'agent', from: room.cfg.name })
       }
     }
@@ -165,9 +172,16 @@ export class App extends EventEmitter {
     if (!source) throw new Error(`${name} isn't in any of your other rooms yet — invite them the usual way`)
     const { participant, device } = source.enrollmentOf(name)
     if (!device) throw new Error(`couldn't tell which device ${name} is on`)
+    // rKey ops are bound to the root, not the room, so the account's own ops from the
+    // source room are valid here too: its root enrollment and its session-key enrollment
+    const role = participant.scope.includes('admin') ? 'human' : 'agent'
+    const acct = source.chain.entries.find((x) => x.op?.t === 'enroll' && x.op.key === participant.parent)?.op
+    const account = acct && acct.parent === source.cfg.root && acct.key !== source.cfg.root
+      ? { ref: acct.key, consent: acct.consent, enroll: participant }
+      : undefined
     await target.approve({
       device: { ref: device.key, name: device.label.replace(/^device:/, ''), consent: device.consent },
-      participants: [{ ref: participant.key, name, role: participant.scope.includes('admin') ? 'human' : 'agent', consent: participant.consent }]
+      participants: [{ ref: participant.key, name, role, consent: participant.consent, account }]
     })
     await source.sendInvite(device.key, encodeInvite(target.cfg), target.cfg.name)
     return { added: name, via: source.cfg.name }

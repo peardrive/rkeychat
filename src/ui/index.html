@@ -612,7 +612,7 @@ function renderFeed () {
     html += `<div class="msg${isMine ? ' is-mine' : ''}${cont ? ' is-cont' : ''}${selectedMsg === r.id ? ' is-selected' : ''}" data-id="${esc(r.id)}">
       <div class="avatar${r.human ? ' is-human' : ''}">${esc(r.name.slice(0, 1))}</div>
       <div class="msg-main">
-        <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
+        <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${r.device ? `<span class="pill tone-dim" title="Posted from ${esc(r.device)}">${esc(r.device)}</span>` : ''}${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
         <div class="bubble">${quoteHTML(r, prev)}${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => a.kind === 'file' ? fileHTML(a, r) : memoHTML(a, r)).join('')}</div>
         ${reactsHTML(r, isMine)}
         ${isMine ? `<span class="mine-time">${time(r.ts)}</span>` : ''}
@@ -742,7 +742,7 @@ function renderStrip () {
   if (!c?.admitted) { strip.hidden = true; return }
   const b = c.budget
   const agents = c.participants.filter((p) => p.role === 'agent' && p.status === 'active')
-  const thinking = agents.filter((p) => p.online && p.state === 'thinking')
+  const thinking = agents.filter((p) => p.online && (p.state === 'thinking' || (p.state === 'idle' && p.busy)))
   const open = b.unlimited || (b.until && b.until > Date.now())
   const exhausted = !open && !b.paused && b.used > 0 && b.remaining === 0
   const active = thinking.length || (b.used > 0 && !exhausted)
@@ -750,7 +750,7 @@ function renderStrip () {
   if (b.paused) parts.push(`<span class="status tone-bad">Agents are paused</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="resume">Resume</button>`)
   else if (exhausted) parts.push(`<span class="status tone-select">The agents are waiting for you</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">Let them go 3 more</button>`)
   else if (active || open) {
-    if (thinking.length) parts.push(`<span class="status tone-warn">${thinking.map((p) => `<span class="clickable" data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing">${esc(p.name)}</span>`).join(', ')} ${thinking.length === 1 ? 'is' : 'are'} thinking</span>`)
+    if (thinking.length) parts.push(`<span class="status tone-warn">${thinking.map((p) => `<span class="clickable" data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing">${esc(p.name)}</span>`).join(', ')} ${thinking.length === 1 ? 'is' : 'are'} ${thinking.every((p) => p.state === 'idle') ? 'working' : 'thinking'}</span>`)
     // phone: screen space is precious; the round counter stays in the ⋯ menu, Pause shows only while someone is thinking
     if (isPhone()) { if (thinking.length) parts.push(`<span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause</button>`) } else parts.push(`<span class="pill tone-dim">${open ? (b.unlimited ? 'no round limit' : `open until ${time(b.until)}`) : `round ${b.used} of ${b.limit}`}</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause agents</button>`)
   }
@@ -773,7 +773,7 @@ function renderSide () {
     const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
     const peopleRows = open && c ? c.participants.filter((p) => p.status === 'active').map((p) => {
       const [tone, label] = personStatus(p, c.budget)
-      return `<div class="person-row${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}>${faceHTML(p)}<span class="nm">${esc(p.name === me() ? `${p.name} (you)` : p.name)}</span><span class="status ${tone}">${esc(label)}</span></div>`
+      return `<div class="person-row${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}>${faceHTML(p)}<span class="nm">${esc(p.name === me() ? `${p.name} (you)` : p.name)}${p.devices?.length ? ` <span class="pill tone-dim" title="devices">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="status ${tone}">${esc(label)}</span></div>`
     }).join('') : ''
     return `<button class="room-row${open ? ' is-open' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${stackHTML(others.length ? others : r.people)}
         <div class="room-main"><span class="room-name"><span class="n">${esc(r.name)}</span><span class="count">${r.members}</span></span><span class="room-last">${esc(last)}</span></div></button>
@@ -920,6 +920,7 @@ function personStatus (p, b) {
   if (!p.online) return ['', 'offline']
   if (p.role === 'human') return ['tone-good', p.local ? 'you' : 'here']
   if (b?.agents?.paused.includes(p.name)) return ['tone-bad', 'paused']
+  if (p.state === 'idle' && p.busy) return ['tone-warn', 'working']
   return { thinking: ['tone-warn', 'thinking'], waiting: ['tone-select', 'turn waiting'], error: ['tone-bad', 'error'], offline: ['', 'not listening'] }[p.state] || ['tone-good', 'listening']
 }
 function renderRoomsPage () {

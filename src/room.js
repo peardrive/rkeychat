@@ -135,7 +135,7 @@ export class Room extends EventEmitter {
   members () {
     const s = this.state
     if (!s) return []
-    return s.members().filter((m) => m.depth > 0).map((m) => ({ ...m, name: m.label }))
+    return s.members().filter((m) => m.depth > 0).map((m) => ({ ...m, name: nameOf(m.label), device: deviceOf(m.label) }))
   }
 
   participantsList () {
@@ -145,17 +145,29 @@ export class Room extends EventEmitter {
       if (now - p.ts < PRESENCE_STALE) p.participants.forEach((x) => online.add(x.name))
     }
     Object.keys(this.local).forEach((n) => online.add(n))
-    return this.members()
-      .filter((m) => m.scope.includes(SCOPES.chat))
-      .map((m) => ({
-        name: m.name,
-        ref: m.ref,
-        status: m.status,
-        role: m.scope.includes(SCOPES.admin) ? 'human' : 'agent',
-        local: !!this.local[m.name],
-        online: online.has(m.name),
-        state: this.agentState.get(m.name) ?? this.#remoteState(m.name) ?? 'idle'
-      }))
+    // one row per account: its root and its device/session keys share a name
+    const byName = new Map()
+    for (const m of this.members()) {
+      if (!m.scope.includes(SCOPES.chat)) continue
+      const row = byName.get(m.name) ?? { name: m.name, ref: m.ref, status: 'revoked', role: m.scope.includes(SCOPES.admin) ? 'human' : 'agent', keys: [], devices: [], local: !!this.local[m.name], online: online.has(m.name), state: this.#stateOf(m.name), busy: this.#recentActivity(m.name) }
+      row.keys.push({ ref: m.ref, device: m.device, status: m.status, parent: m.parent })
+      if (m.status === 'active') { row.status = 'active'; if (m.device && !row.devices.includes(m.device)) row.devices.push(m.device) }
+      if (!m.device) row.ref = m.ref // the account root, if there is one
+      byName.set(m.name, row)
+    }
+    return [...byName.values()]
+  }
+
+  #stateOf (name) { return this.agentState.get(name) ?? this.#remoteState(name) ?? 'idle' }
+
+  // an agent that reported activity in the last while is working, even between turns
+  #recentActivity (name) {
+    const a = this.store.activity
+    for (let i = a.length - 1; i >= 0 && i >= a.length - 200; i--) {
+      if (a[i].ts < Date.now() - 90_000) return null
+      if (this.view(a[i]).name === name) return a[i].text
+    }
+    return null
   }
 
   #remoteState (name) {
@@ -173,7 +185,7 @@ export class Room extends EventEmitter {
     const s = this.state
     const node = s?.get(rec.author)
     const scope = node ? s.scopeOf(rec.author) : []
-    return { ...rec, name: node?.label ?? rec.author.slice(0, 16), human: scope.includes(SCOPES.admin) }
+    return { ...rec, name: node ? nameOf(node.label) : rec.author.slice(0, 16), device: node ? deviceOf(node.label) : '', human: scope.includes(SCOPES.admin) }
   }
 
   // What admins removed: message ids and blocked content hashes.
@@ -242,6 +254,7 @@ export class Room extends EventEmitter {
         const s = this.state
         if (rec?.kind === 'activity' && rec.room === this.topic && s?.can(rec.author, SCOPES.chat) && verifyRecord(rec) && this.store.addActivity(rec)) {
           this.emit('activity', this.view(rec))
+          this.#busyTick()
         }
         return
       }
@@ -270,6 +283,14 @@ export class Room extends EventEmitter {
     if (rec.kind === 'invite' && rec.to === this.device.ref) this.emit('invite', { code: rec.code, from: this.cfg.name })
     if (!quiet) this.emit('record', this.view(rec))
     return true
+  }
+
+  // presence rows change when activity starts and when it goes quiet
+  #busyTick () {
+    this.emit('changed')
+    clearTimeout(this.busyTimer)
+    this.busyTimer = setTimeout(() => this.emit('changed'), 95_000)
+    this.busyTimer.unref?.()
   }
 
   #onChain (entries, pending = []) {
@@ -344,9 +365,11 @@ export class Room extends EventEmitter {
   async approve (request) {
     if (!this.isOwner) throw new Error('only the room owner can approve')
     const root = this.chain.root
-    const taken = new Set(this.members().filter((m) => m.status !== 'revoked').map((m) => m.name))
+    const taken = new Set(this.members().filter((m) => m.status !== 'revoked' && !m.device).map((m) => m.name))
     const ops = []
     const d = request.device
+    // a device already in the room may roll its keys under the same names; a new device may not take a name in use
+    const rolling = !!(d && this.state.isActive(d.ref))
     if (d && !this.state.isActive(d.ref)) {
       ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
     }
@@ -354,9 +377,20 @@ export class Room extends EventEmitter {
       if (this.state.isActive(p.ref)) continue
       if (this.state.get(p.ref)?.revoked) continue // revoked keys stay out; the rest of the request still counts
       const name = String(p.name).toLowerCase()
-      if (taken.has(name)) throw new Error(`name already in use: ${name}`)
       const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
-      ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, scope: ['bind', SCOPES.chat, role], label: name }))
+      const a = p.account
+      if (a && a.ref !== root) {
+        // an account root: same account joining from another device is fine, a different account with a taken name is not
+        const existing = this.state.get(a.ref)
+        if (!existing && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (existing?.revoked) continue
+        if (!existing) ops.push(await enroll(this.rootSigner, { root, key: a.ref, consent: a.consent, scope: ['bind', SCOPES.chat, role, 'delegate'], label: name }))
+        if (a.enroll?.key === p.ref) ops.push(a.enroll) // the account enrolls its own session key (signed by it)
+      } else {
+        // a key under this room's own root: another device of the owner (label name@device), or a legacy key
+        if (a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
+      }
       taken.add(name)
     }
     for (const op of ops) await this.chain.append(op, this.rootSigner)
@@ -387,6 +421,7 @@ export class Room extends EventEmitter {
     const rec = await makeActivity(p.signer, { room: this.topic, text, claim })
     this.store.addActivity(rec)
     this.emit('activity', this.view(rec))
+    this.#busyTick()
     await this.#send('act', { rec })
     return rec
   }
@@ -594,7 +629,7 @@ export class Room extends EventEmitter {
   // consent), so the same root can sign it into another room without asking again.
   enrollmentOf (name) {
     const s = this.state
-    const e = this.chain?.entries.findLast((x) => x.op?.t === 'enroll' && x.op.label === name && s.isActive(x.op.key))
+    const e = this.chain?.entries.findLast((x) => x.op?.t === 'enroll' && nameOf(x.op.label) === name && !x.op.label.startsWith('device:') && s.isActive(x.op.key))
     if (!e) return null
     const deviceRef = [...this.presence.entries()].find(([, p]) => p.participants.some((x) => x.name === name))?.[0] ??
       this.chain.entries.filter((x) => x.op?.t === 'enroll' && x.op.label?.startsWith('device:') && s.isActive(x.op.key))
@@ -705,11 +740,26 @@ export class Room extends EventEmitter {
 }
 
 // Build the join request a new device hands to the owner.
+// A join request carries this device, and each participant with its account:
+// the account root's consent to the room, plus the account's own enrollment
+// of the session key (pre-signed; the owner appends it after enrolling the root).
 export async function joinRequest ({ root, deviceName, device, participants }) {
   return {
     device: { ref: device.ref, name: deviceName, consent: await consent(device, root) },
-    participants: await Promise.all(Object.entries(participants).map(async ([name, p]) => ({
-      ref: p.signer.ref, name, role: p.role, consent: await consent(p.signer, root)
-    })))
+    participants: await Promise.all(Object.entries(participants).map(async ([name, p]) => {
+      const out = { ref: p.signer.ref, name, role: p.role, consent: await consent(p.signer, root) }
+      if (p.account && p.account.ref !== p.signer.ref) {
+        const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
+        out.account = {
+          ref: p.account.ref,
+          consent: await consent(p.account, root),
+          enroll: await enroll(p.account, { root, key: p.signer.ref, consent: out.consent, scope: ['bind', SCOPES.chat, role], label: `${name}@${deviceName}` })
+        }
+      }
+      return out
+    }))
   }
 }
+
+export const nameOf = (label = '') => String(label).split('@')[0]
+export const deviceOf = (label = '') => String(label).split('@')[1] ?? ''
