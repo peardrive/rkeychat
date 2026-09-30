@@ -51,14 +51,23 @@ export async function makeMessage (signer, { room, text, mentions = [], re = [],
 // A control: budget and pause changes. Only admins' controls count.
 //   action: 'extend' (n) | 'unlimited' | 'until' (until: ms epoch) | 'pause' | 'resume' | 'reset'
 //   with agent set: 'pause' | 'resume' | 'limit' (n) for that one agent
-export async function makeControl (signer, { room, action, n, until, agent, style, ts = Date.now() }) {
-  return signBody('rkeychat-control', signer, { kind: 'control', id: newId(), room, ts, action, n, until, agent, style })
+// Besides the round controls: 'charter' (text = the room's purpose and the agents'
+// roles, order = which agent answers an open-floor message first) and 'rename'.
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, name, ts = Date.now() }) {
+  return signBody('rkeychat-control', signer, {
+    kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
+    text: text === undefined ? undefined : String(text).slice(0, 8000),
+    order: Array.isArray(order) ? order.map(String).slice(0, 32) : undefined,
+    name: name === undefined ? undefined : String(name).trim().slice(0, 80)
+  })
 }
 
 // Activity: what an agent is doing right now (reading, running, editing).
 // Shown to people on request; never part of the conversation agents read.
-export async function makeActivity (signer, { room, text, ts = Date.now() }) {
-  return signBody('rkeychat-activity', signer, { kind: 'activity', id: newId(), room, ts, text: String(text).slice(0, 2000) })
+// `claim` lists the message ids this agent is now answering (turn order: the
+// next agent in line stands down when it sees an earlier one's claim).
+export async function makeActivity (signer, { room, text, claim, ts = Date.now() }) {
+  return signBody('rkeychat-activity', signer, { kind: 'activity', id: newId(), room, ts, text: String(text).slice(0, 2000), claim: Array.isArray(claim) && claim.length ? claim.map(String).slice(0, 64) : undefined })
 }
 
 // A reaction: an emoji on a message, toggled on or off. Never wakes anyone.

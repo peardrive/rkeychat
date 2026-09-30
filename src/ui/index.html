@@ -766,10 +766,16 @@ function renderHead () {
   const online = active.filter((p) => p.online).length
   h.innerHTML = `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
-    <div><h2>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
+    <div><h2${c.owner ? ' class="clickable" title="Double-click to rename"' : ''}>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
     <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
+}
+async function renameRoom () {
+  const c = cur(); if (!c?.owner) return
+  const name = prompt('Rename this room for everyone in it:', c.name)
+  if (!name || name.trim() === c.name) return
+  try { await control({ action: 'rename', name: name.trim() }); toast(`Renamed to ${name.trim()}`) } catch (err) { toast(err.message) }
 }
 function openMenu (anchor) {
   document.getElementById('menu')?.remove()
@@ -780,6 +786,7 @@ function openMenu (anchor) {
     `<button data-go="agents">${icon('agents')}Agents</button>`,
     `<button data-go="keys">${icon('key')}Keys</button>`,
     `<button data-go="settings">${icon('gear')}Settings</button>`,
+    c?.owner ? `<button data-go="rename">${icon('rooms')}Rename room</button>` : '',
     `<button data-go="pause">${icon(paused ? 'play' : 'pause')}${paused ? 'Resume agents' : 'Pause agents'}</button>`
   ].join('')
   document.body.append(el)
@@ -953,6 +960,14 @@ function renderAgentsPage () {
       <p class="note">A round is one hop of agents replying to agents. When they run out, everyone waits for you; your next message starts fresh at 3.</p>
       <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button>
         <button class="btn btn-soft btn-sm" data-ctl="reset" title="Back to 3 rounds per message">Reset</button></div>
+    </section>
+    <section class="section">
+      <h3 class="section-title">Purpose</h3>
+      ${c.owner
+        ? `<textarea class="text-input" id="charterText" rows="5" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>
+        <div class="inline" style="margin-top:8px"><span class="note" style="align-self:center">Answers first:</span><input class="text-input" id="charterOrder" placeholder="${esc(agents.map((p) => p.name).join(', ')) || 'agent names, in order'}" value="${esc((c.charter?.order ?? []).join(', '))}" style="flex:1"><button class="btn btn-soft btn-sm" id="charterSave">Save</button></div>
+        <p class="note">A message that names nobody goes to the first agent listed; the next steps in only if the one before stays silent for 45s. @mentions skip the order.</p>`
+        : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>${c.charter?.order?.length ? `<p class="note">Answers first: ${esc(c.charter.order.join(' → '))}</p>` : ''}`}
     </section>
     <section class="section">
       <h3 class="section-title">Message style</h3>
@@ -1349,6 +1364,7 @@ const applySide = () => {
 }
 applySide()
 $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
+$('roomHead').addEventListener('dblclick', (e) => { if (e.target.closest('h2')) renameRoom() })
 $('sideGrip').addEventListener('pointerdown', (e) => {
   const x0 = e.clientX; const w0 = side.getBoundingClientRect().width
   const move = (ev) => { const w = Math.max(200, Math.min(460, w0 + ev.clientX - x0)); side.style.setProperty('--side-w', `${w}px`); store.set('rk.sideW', w) }
@@ -1390,6 +1406,7 @@ document.addEventListener('click', async (e) => {
     document.getElementById('menu')?.remove()
     const g = go.dataset.go
     if (g === 'pause') return control({ action: cur()?.budget?.paused ? 'resume' : 'pause' })
+    if (g === 'rename') return renameRoom()
     if (g === 'settings') loadSettings()
     if (g === 'invite') loadPeople()
     openPage(g); return
@@ -1420,6 +1437,11 @@ document.addEventListener('click', async (e) => {
 })
 document.addEventListener('change', (e) => {
   if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
+  if (e.target.id === 'charterSave') {
+    const order = $('charterOrder').value.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean)
+    control({ action: 'charter', text: $('charterText').value, order }).then(() => toast('Purpose saved')).catch((err) => toast(err.message))
+    return
+  }
   if (e.target.id === 'autofix') { api('POST', '/api/settings', { autofix: e.target.checked }).then((x) => { settings = { ...settings, ...x } }); return }
   const d = e.target.dataset
   if (d.agentToggle) control({ action: e.target.checked ? 'resume' : 'pause', agent: d.agentToggle })

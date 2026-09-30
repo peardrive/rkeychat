@@ -15,6 +15,7 @@ const PRESENCE_EVERY = 20_000
 const PRESENCE_STALE = 60_000
 const DEBUG = !!process.env.RKEYCHAT_DEBUG
 const SYNC_EVERY = 60_000
+export const TURN_WINDOW = 45_000 // how long the next agent in line waits before taking an unclaimed turn
 export const MAX_BLOB = 8 * 1024 * 1024 // one pearcore message; ~40 min of voice
 const RECENT = 48 * 3600_000 // history sync compares ids within this window
 
@@ -72,6 +73,7 @@ export class Room extends EventEmitter {
     this.syncTimer = setInterval(() => this.#hello(), SYNC_EVERY)
     this.syncTimer.unref()
     if (this.isOwner) await this.#syncWhitelist()
+    this.applyRename()
     this.#hello()
   }
 
@@ -259,6 +261,7 @@ export class Room extends EventEmitter {
   #ingest (rec, { quiet = false } = {}) {
     if (this.store.has(rec?.id) || !this.#admits(rec)) return false
     this.store.add(rec)
+    if (rec.kind === 'control' && rec.action === 'rename') this.applyRename()
     if (rec.kind === 'invite' && rec.to === this.device.ref) this.emit('invite', { code: rec.code, from: this.cfg.name })
     if (!quiet) this.emit('record', this.view(rec))
     return true
@@ -373,10 +376,10 @@ export class Room extends EventEmitter {
 
   // ---------- activity (people can watch it; agents never read it) ----------
 
-  async activity (name, text) {
+  async activity (name, text, { claim } = {}) {
     const p = this.local[name]
     if (!p || !this.state?.can(p.signer.ref, SCOPES.chat)) return null
-    const rec = await makeActivity(p.signer, { room: this.topic, text })
+    const rec = await makeActivity(p.signer, { room: this.topic, text, claim })
     this.store.addActivity(rec)
     this.emit('activity', this.view(rec))
     await this.#send('act', { rec })
@@ -460,6 +463,22 @@ export class Room extends EventEmitter {
     return st
   }
 
+  // The room's purpose (a standing prompt every agent gets) and the order in
+  // which agents answer a message that names nobody. Latest admin record wins.
+  charter () {
+    let c = { text: '', order: [] }
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'charter') c = { text: r.text ?? '', order: r.order ?? [] }
+    return c
+  }
+
+  // A rename is a control record, so it reaches every member and survives
+  // restarts. The config name follows the latest one.
+  applyRename () {
+    let name = null
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'rename' && r.name) name = r.name
+    if (name && name !== this.cfg.name) { this.cfg.name = name; this.emit('renamed', name) }
+  }
+
   // Everything this room knows about a key: its enroll op (with the key's own
   // consent), so the same root can sign it into another room without asking again.
   enrollmentOf (name) {
@@ -526,7 +545,32 @@ export class Room extends EventEmitter {
     log.forEach((r, i) => { if (r.kind === 'msg' && r.name === name) lastOwn = i })
     const answered = new Set(log.filter((r) => r.name === name).flatMap((r) => r.re ?? []))
     const passed = this.passed.get(name) ?? new Set()
-    return log.slice(lastOwn + 1).filter((r) => addressedTo(r, name) && !answered.has(r.id) && !passed.has(r.id))
+    const mine = log.slice(lastOwn + 1).filter((r) => addressedTo(r, name) && !answered.has(r.id) && !passed.has(r.id))
+    // turn order: a message that names nobody goes to the first agent in the
+    // charter's list; the next in line waits one window, then takes it unless
+    // an earlier agent has claimed or answered it. Mentions bypass the order.
+    const order = this.charter().order
+    const i = order.indexOf(name)
+    if (i <= 0) return mine
+    const earlier = new Set(order.slice(0, i))
+    const taken = (t) => log.some((r) => r.kind === 'msg' && earlier.has(r.name) && (r.re ?? []).includes(t.id)) ||
+      this.store.activity.some((a) => a.ts >= t.ts && Array.isArray(a.claim) && a.claim.includes(t.id) && earlier.has(this.view(a).name))
+    const now = Date.now()
+    return mine.filter((t) => {
+      if (!t.human || t.mentions.length) return true
+      if (taken(t)) { if (!this.passed.has(name)) this.passed.set(name, new Set()); this.passed.get(name).add(t.id); return false }
+      const dueAt = t.ts + i * TURN_WINDOW
+      if (now < dueAt) { this.#pokeAt(dueAt); return false }
+      return true
+    })
+  }
+
+  #pokeAt (when) {
+    const delay = Math.max(50, when - Date.now() + 20)
+    if (this.pokeTimer && this.pokeAtTs <= when) return
+    clearTimeout(this.pokeTimer)
+    this.pokeAtTs = when
+    this.pokeTimer = setTimeout(() => { this.pokeTimer = null; this.emit('changed') }, delay)
   }
 
   // An agent chose to stay silent on these; don't wake it for them again.

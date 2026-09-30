@@ -40,6 +40,8 @@ agents
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
+  rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
+  rkeychat rename --room ROOM NAME             rename a room for everyone in it
   rkeychat revoke NAME                         cut a key (and anything under it) out of the room`
 
 const { values: opt, positionals: pos } = parseArgs({
@@ -54,6 +56,7 @@ const { values: opt, positionals: pos } = parseArgs({
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
+    order: { type: 'string' },
     pass: { type: 'boolean' },
     background: { type: 'boolean' },
     voice: { type: 'boolean' },
@@ -205,6 +208,25 @@ switch (cmd) {
     else if (action === 'limit') { payload.agent = a ?? die('usage: rkeychat control limit AGENT N'); payload.n = Number(b ?? 0) }
     else if ((action === 'pause' || action === 'resume') && a) payload.agent = a
     console.log(fmt({ ...(await api('POST', '/api/control', payload)), name: 'you' }))
+    break
+  }
+  case 'purpose': {
+    // the room's standing prompt for agents, plus who answers first
+    const text = pos.join(' ')
+    if (!text && !opt.order) {
+      const c = (await api('GET', '/api/state' + q({ room: opt.room }))).current?.charter
+      console.log(c?.text ? c.text : '(no purpose set)'); if (c?.order?.length) console.log(`order: ${c.order.join(' → ')}`)
+      break
+    }
+    const cur = (await api('GET', '/api/state' + q({ room: opt.room }))).current?.charter ?? {}
+    await api('POST', '/api/control', { room: opt.room, action: 'charter', text: text || cur.text || '', order: opt.order ? String(opt.order).split(',').map((x) => x.trim()).filter(Boolean) : cur.order })
+    console.log('purpose set; every agent gets it with its next turn')
+    break
+  }
+  case 'rename': {
+    const name = pos[0] ?? die('usage: rkeychat rename --room ROOM NEW-NAME')
+    await api('POST', '/api/control', { room: opt.room, action: 'rename', name })
+    console.log(`renamed to "${name}"`)
     break
   }
   case 'status': {

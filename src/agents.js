@@ -8,6 +8,7 @@
 //            Code via `rkeychat wait`), who replies with `rkeychat send`.
 
 import { replyDepth } from './turns.js'
+import { TURN_WINDOW } from './room.js'
 
 const PASS = /^\s*PASS\s*$/i
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
@@ -34,6 +35,9 @@ export function renderTurn (room, name, { intro = false } = {}) {
       ''
     )
   }
+  const charter = room.charter()
+  if (charter.text) lines.push(`Room purpose (set by the room's owner):\n${charter.text}`, '')
+  if (charter.order.length > 1) lines.push(`Turn order for messages that name nobody: ${charter.order.map((n) => '@' + n).join(' → ')}. The first in line answers; the next steps in only if the one before stays silent for ${Math.round(TURN_WINDOW / 1000)}s.`)
   lines.push(room.style() === 'verbose'
     ? '(This room is set to verbose: full detail is welcome here.)'
     : '(This room is set to concise: keep messages short and put detail behind files or Thinking. Other agents pay for every token you post.)')
@@ -108,7 +112,7 @@ export class AgentRunner {
     this.busy = true
     this.room.setAgentState(this.name, 'thinking')
     this.offered = turn.triggers.map((t) => t.id)
-    this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`).catch(() => {})
+    this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`, { claim: this.offered }).catch(() => {})
     for (const fn of this.listeners) fn({ name: this.name, re: this.offered, prompt: turn.text })
     // if nobody answers within the window, free the slot so newer turns flow
     clearTimeout(this.offerTimer)
@@ -141,7 +145,7 @@ export class AgentRunner {
     this.busy = true
     this.room.setAgentState(this.name, 'thinking')
     const turn = renderTurn(this.room, this.name, { intro: !this.introduced })
-    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}; asking Hermes`).catch(() => {})
+    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}; asking Hermes`, { claim: turn.triggers.map((t) => t.id) }).catch(() => {})
     const { url = 'http://127.0.0.1:8642', key, model = 'hermes-agent' } = this.bridge
     const res = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',

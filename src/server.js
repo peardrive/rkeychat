@@ -71,6 +71,7 @@ export function roomSnapshot (room) {
     budget: serializeBudget(room.budget()),
     reactions: room.reactions(),
     style: room.style(),
+    charter: room.charter(),
     log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
   }
 }
@@ -169,12 +170,14 @@ export function serve ({ app }) {
       return { ...rec, roomName: room.cfg.name, fixes: fixed.fixes }
     },
     'POST /api/control': async (req) => {
-      const { room: key, action, n, until, hours, agent, style } = await body(req)
+      const { room: key, action, n, until, hours, agent, style, text, order, name } = await body(req)
       const { room } = pick(key)
-      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style']
+      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename']
+      if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
+      if (action === 'charter' && order !== undefined) need(Array.isArray(order) && order.every((o) => room.participantsList().some((p) => p.name === o && p.role === 'agent')), 'order must list agents in this room')
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
-      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined })
+      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, name })
     },
 
     'GET /api/invite': (req, res, url) => {

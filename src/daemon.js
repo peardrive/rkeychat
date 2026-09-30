@@ -69,6 +69,7 @@ export class App extends EventEmitter {
     room.on('error', (err) => console.error(`[room ${rcfg.name}]`, err?.stack ?? err))
     room.on('agent-error', (e) => console.error(`[${rcfg.name} · ${e.name}]`, e.error))
     room.on('fork', (f) => console.error(`[${rcfg.name}] rKey chain FORK at seq`, f.seq))
+    room.on('renamed', () => { saveConfig(this.cfg); this.emit('room-added', this.rooms.get(rcfg.topic)) })
     // an owner we already trust signed this device into another room: join it
     room.on('invite', async ({ code, from }) => {
       try {
