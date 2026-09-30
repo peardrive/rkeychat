@@ -238,7 +238,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .room-profile .meta { font-size: 12.5px; color: var(--text-3); }
 .order-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .order-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; cursor: grab; user-select: none; }
-.order-item:active { cursor: grabbing; } .order-item.is-drag { opacity: 0.45; } .order-item.is-over { box-shadow: 0 0 0 2px var(--accent) inset; }
+.order-item { transition: transform 0.18s var(--ease); touch-action: none; } .order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
+.apply-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; animation: tip-in 0.12s var(--ease); }
 .order-item .grip { color: var(--text-3); font-size: 14px; letter-spacing: -2px; } .order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
 .order-item .nm { flex: 1; font-weight: 600; } .order-item .wait { font-size: 11px; color: var(--text-3); }
 .panel-grip { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
@@ -921,6 +922,8 @@ function openPage (p) {
 }
 function renderPanel () {
   const panel = $('panel')
+  // never repaint the room page under someone's unsaved edit or mid-drag
+  if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText')) return
   document.querySelectorAll('.dock-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
   if (!page || !PAGES[page]) { panel.hidden = true; return }
   panel.hidden = false
@@ -1002,8 +1005,8 @@ function renderRoomPage () {
         ? `<textarea class="text-input" id="charterText" rows="6" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>`
         : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>`}
       <p class="note" style="margin-top:10px">Who answers a message that names nobody. The next in line steps in after 45s of silence.</p>
-      <div class="order-list" id="orderList">${order.map((n, i) => `<div class="order-item" draggable="${c.owner ? 'true' : 'false'}" data-order="${esc(n)}"><span class="idx">${i + 1}</span><div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div><span class="nm">${esc(n)}</span>${i ? `<span class="wait">waits ${i * 45}s</span>` : '<span class="wait">answers first</span>'}${c.owner ? '<span class="grip">⋮⋮</span>' : ''}</div>`).join('') || '<p class="note">No agents in this room.</p>'}</div>
-      ${c.owner ? '<div class="inline" style="margin-top:8px"><button class="btn btn-primary btn-sm" id="charterSave">Save purpose and order</button><span class="note" style="align-self:center">Drag to reorder. @mentions skip the order.</span></div>' : ''}
+      <div class="order-list" id="orderList">${order.map((n, i) => `<div class="order-item" data-order="${esc(n)}" data-draggable="${c.owner ? '1' : ''}"><span class="idx">${i + 1}</span><div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div><span class="nm">${esc(n)}</span>${i ? `<span class="wait">waits ${i * 45}s</span>` : '<span class="wait">answers first</span>'}${c.owner ? '<span class="grip">⋮⋮</span>' : ''}</div>`).join('') || '<p class="note">No agents in this room.</p>'}</div>
+      ${c.owner ? '<div class="apply-bar" id="charterApply" hidden><button class="btn btn-primary btn-sm" id="charterSave">Apply</button><span class="note">Sends the change to the room.</span></div><p class="note">Drag to reorder. @mentions skip the order.</p>' : ''}
     </section>
     <section class="section"><h3 class="section-title">People</h3>${humans.map(person).join('') || '<p class="note">Nobody yet.</p>'}</section>
     <section class="section"><h3 class="section-title">Agents</h3>${agents.map((p) => {
@@ -1531,20 +1534,50 @@ const applySide = () => {
 applySide()
 $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
 $('roomHead').addEventListener('click', (e) => { if (e.target.closest('[data-open-room]')) openPage(page === 'room' ? null : 'room') })
-// drag to reorder who answers first
+// purpose + order: the Apply bar shows only once something changed
+function charterDirty () { const bar = document.getElementById('charterApply'); if (bar) bar.hidden = false }
+document.addEventListener('input', (e) => { if (e.target.id === 'charterText') charterDirty() })
+// drag to reorder who answers first: rows slide out of the way as you cross their midpoints
 {
-  let dragging = null
-  document.addEventListener('dragstart', (e) => { const it = e.target.closest?.('.order-item[draggable="true"]'); if (!it) return; dragging = it; it.classList.add('is-drag'); e.dataTransfer.effectAllowed = 'move' })
-  document.addEventListener('dragover', (e) => { const it = e.target.closest?.('.order-item'); if (!it || !dragging || it === dragging) return; e.preventDefault(); it.classList.add('is-over') })
-  document.addEventListener('dragleave', (e) => { e.target.closest?.('.order-item')?.classList.remove('is-over') })
-  document.addEventListener('drop', (e) => {
-    const it = e.target.closest?.('.order-item'); if (!it || !dragging || it === dragging) return
-    e.preventDefault(); it.classList.remove('is-over')
-    const list = it.parentElement; const items = [...list.children]
-    if (items.indexOf(dragging) < items.indexOf(it)) it.after(dragging); else it.before(dragging)
-    ;[...list.querySelectorAll('.order-item')].forEach((el, i) => { el.querySelector('.idx').textContent = i + 1; el.querySelector('.wait').textContent = i ? `waits ${i * 45}s` : 'answers first' })
+  let drag = null
+  const relabel = (list) => [...list.querySelectorAll('.order-item')].forEach((el, i) => { el.querySelector('.idx').textContent = i + 1; el.querySelector('.wait').textContent = i ? `waits ${i * 45}s` : 'answers first' })
+  document.addEventListener('pointerdown', (e) => {
+    const it = e.target.closest?.('.order-item[data-draggable="1"]'); if (!it || e.button) return
+    e.preventDefault()
+    const list = it.parentElement
+    drag = { it, list, startY: e.clientY, offset: 0 }
+    it.classList.add('is-drag'); it.setPointerCapture(e.pointerId)
   })
-  document.addEventListener('dragend', () => { dragging?.classList.remove('is-drag'); dragging = null })
+  document.addEventListener('pointermove', (e) => {
+    if (!drag) return
+    const { it, list } = drag
+    const dy = e.clientY - drag.startY
+    it.style.transform = `translateY(${dy - drag.offset}px) scale(1.02)`
+    // crossing a neighbour's midpoint swaps places with it (FLIP so it slides)
+    const siblings = [...list.querySelectorAll('.order-item')].filter((x) => x !== it)
+    const mid = it.getBoundingClientRect(); const cy = mid.top + mid.height / 2
+    for (const s of siblings) {
+      const r = s.getBoundingClientRect(); const before = s.compareDocumentPosition(it) & Node.DOCUMENT_POSITION_FOLLOWING // s is above it
+      if ((before && cy < r.top + r.height / 2) || (!before && cy > r.top + r.height / 2)) {
+        const first = s.getBoundingClientRect().top
+        if (before) s.before(it); else s.after(it)
+        drag.offset += (before ? -1 : 1) * (r.height + 4)
+        it.style.transform = `translateY(${dy - drag.offset}px) scale(1.02)`
+        const last = s.getBoundingClientRect().top
+        s.style.transition = 'none'; s.style.transform = `translateY(${first - last}px)`
+        requestAnimationFrame(() => { s.style.transition = ''; s.style.transform = '' })
+        relabel(list)
+        break
+      }
+    }
+  })
+  const end = () => {
+    if (!drag) return
+    const { it, list } = drag; drag = null
+    it.classList.remove('is-drag'); it.style.transform = ''
+    relabel(list); charterDirty()
+  }
+  document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end)
 }
 // resizable right panel
 {
@@ -1640,7 +1673,7 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
   if (e.target.id === 'charterSave') {
     const order = $('orderList') ? [...$('orderList').querySelectorAll('[data-order]')].map((el) => el.dataset.order) : $('charterOrder').value.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean)
-    control({ action: 'charter', text: $('charterText').value, order }).then(() => toast('Purpose saved')).catch((err) => toast(err.message))
+    control({ action: 'charter', text: $('charterText').value, order }).then(() => { toast('Applied'); const bar = document.getElementById('charterApply'); if (bar) bar.hidden = true }).catch((err) => toast(err.message))
     return
   }
   if (e.target.id === 'autofix') { api('POST', '/api/settings', { autofix: e.target.checked }).then((x) => { settings = { ...settings, ...x } }); return }
