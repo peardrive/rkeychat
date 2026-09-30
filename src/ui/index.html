@@ -48,7 +48,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 /* ---------- the room: conversation + panel */
 .room { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 0 24px; }
-.column { flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
+.column { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden;
   background: linear-gradient(180deg, rgba(26, 27, 33, 0.96), rgba(14, 15, 18, 0.98)); border: 1px solid var(--line); box-shadow: var(--shadow-float); }
 .feed { flex: 1; overflow-y: auto; padding: 18px 22px 10px; display: flex; flex-direction: column; gap: 2px; }
 .feed::-webkit-scrollbar, .panel-body::-webkit-scrollbar, .composer textarea::-webkit-scrollbar { width: 8px; }
@@ -131,6 +131,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .rec-stop i { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
 .rec-wave { flex: 1; min-width: 0; height: 30px; }
 .rec-time { font-variant-numeric: tabular-nums; font-size: 12.5px; color: #ffb3ac; min-width: 36px; text-align: right; }
+/* replies: a quote of the message being answered, in the bubble and above the composer */
+.quote { display: block; margin: -2px 0 6px; padding: 5px 9px; border-left: 3px solid var(--accent); border-radius: 6px; background: rgba(255,255,255,0.05); color: var(--text-2); font-size: 12.5px; cursor: pointer; overflow: hidden; }
+.quote b { color: var(--text); font-weight: 600; margin-right: 6px; } .quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.quote:hover { background: rgba(255,255,255,0.08); }
+.replybar { display: flex; align-items: center; gap: 8px; margin: 0 14px 6px; } .replybar .quote { flex: 1; margin: 0; }
+.msg.is-flash .bubble { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.2s; }
+.jump-back { position: absolute; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 12; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--text); background: rgba(34,35,43,0.97); box-shadow: 0 0 0 1px var(--line-strong) inset, var(--shadow-pop); }
+.jump-back[hidden] { display: none; }
 .pending { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; }
 /* the memo block inside a message */
 /* files shared by hash: inline media under the auto-fetch threshold, a card otherwise */
@@ -450,6 +458,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
   <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="10.5" rx="3"/><path d="M12 4.5V8M9.5 12.5v1.5M14.5 12.5v1.5"/></symbol>
@@ -471,6 +480,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
     <header class="room-head" id="roomHead"></header>
     <div class="feed" id="feed"></div>
     <div class="agent-strip" id="agentStrip" hidden></div>
+    <button type="button" class="jump-back" id="jumpBack" hidden><svg class="ico"><use href="#i-down"/></svg></button>
+    <div class="replybar" id="replyBar" hidden></div>
     <div class="pending" id="pending" hidden></div>
     <form class="composer" id="composer">
       <div class="mention-menu" id="mentionMenu" hidden></div>
@@ -602,7 +613,7 @@ function renderFeed () {
       <div class="avatar${r.human ? ' is-human' : ''}">${esc(r.name.slice(0, 1))}</div>
       <div class="msg-main">
         <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
-        <div class="bubble">${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => a.kind === 'file' ? fileHTML(a, r) : memoHTML(a, r)).join('')}</div>
+        <div class="bubble">${quoteHTML(r, prev)}${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => a.kind === 'file' ? fileHTML(a, r) : memoHTML(a, r)).join('')}</div>
         ${reactsHTML(r, isMine)}
         ${isMine ? `<span class="mine-time">${time(r.ts)}</span>` : ''}
       </div></div>`
@@ -622,7 +633,7 @@ function reactsHTML (r, isMine) {
   const chips = rs ? Object.entries(rs).map(([emoji, names]) => `<button class="react-chip${names.includes(mine) ? ' is-mine' : ''}" data-react-toggle="${esc(id)}" data-emoji="${esc(emoji)}" title="${esc(names.join(', '))}">${esc(emoji)}${names.length > 1 ? `<b>${names.length}</b>` : ''}</button>`).join('') : ''
   const add = `<button class="react-add${rs ? '' : ' on-hover'}" data-react-open="${esc(id)}" title="Add a reaction">${icon('smile')}</button>`
   const info = isMine ? `<button class="react-add on-hover" data-info="${esc(id)}" title="Verified · details">${icon('info')}</button>` : ''
-  const reply = `<button class="react-add" data-reply="${esc(r.name)}" title="Reply to ${esc(r.name)}">${icon('reply')}</button>`
+  const reply = `<button class="react-add" data-reply="${esc(r.id)}" title="Reply to this message">${icon('reply')}</button>`
   return `<div class="reacts" data-reacts="${esc(id)}">${info}${add}${chips}${reply}</div>`
 }
 
@@ -698,7 +709,7 @@ async function openThinking (id) {
   $('copyThinking').onclick = () => navigator.clipboard?.writeText(acts.map((a) => `[${new Date(a.ts).toLocaleTimeString()}] ${a.text}`).join('\n')).then(() => toast('Copied. Paste it wherever it helps.'))
 }
 function closeOverlay () { $('overlay')?.remove() }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeOverlay(); closePicker() } })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeOverlay(); closePicker(); if (replyTo && document.activeElement === ta) clearReply() } })
 
 function renderNoRooms () {
   $('feed').innerHTML = `<div class="hero">
@@ -1154,8 +1165,8 @@ $('composer').addEventListener('submit', async (e) => {
   if (pendingFile && !pendingFile.hash) { toast('One second, the file is still being indexed.'); return }
   const via = dictatedThisMessage ? 'voice' : undefined
   const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : pendingFile ? [pendingFile] : undefined
-  await api('POST', '/api/send', { room: roomArg(), text, via, att })
-  ta.value = ''; dictatedThisMessage = false; clearPending(); grow()
+  await api('POST', '/api/send', { room: roomArg(), text, via, att, re: replyTo ? [replyTo] : undefined })
+  ta.value = ''; dictatedThisMessage = false; clearPending(); clearReply(); grow()
 })
 
 // ---------- learning: what you retype after dictating becomes a fix (autocorrect-style)
@@ -1345,6 +1356,52 @@ function showDrop (on) {
   if (on && !el) { el = document.createElement('div'); el.id = 'dropHint'; el.className = 'drop-hint'; el.textContent = 'Drop to share by hash'; document.querySelector('.column')?.append(el) }
   if (!on) el?.remove()
 }
+// ---------- replying to a message: quote it, jump to it, and come back
+let replyTo = null
+const navStack = [] // scroll positions to return to, newest last
+function summary (id) {
+  const r = (cur()?.log ?? []).find((x) => x.id === id)
+  if (!r) return null
+  const text = r.redacted ? '(removed)' : r.text || (r.att?.some((a) => a.kind === 'file') ? `📎 ${r.att.find((a) => a.kind === 'file').name}` : r.att?.length ? 'Voice memo' : '')
+  return { id, name: r.name, text: text.slice(0, 160) }
+}
+function quoteHTML (r, prev) {
+  const id = (r.re ?? [])[0]
+  if (!id || prev?.id === id) return '' // answering the message right above needs no quote
+  const q = summary(id); if (!q) return ''
+  return `<a class="quote" data-jump="${esc(q.id)}" title="Go to that message"><b>${esc(q.name)}</b><span>${esc(q.text)}</span></a>`
+}
+function setReplyTo (id) {
+  replyTo = id
+  const bar = $('replyBar'); const q = summary(id)
+  if (!q) { replyTo = null; bar.hidden = true; return }
+  bar.hidden = false
+  bar.innerHTML = `<a class="quote" data-jump="${esc(q.id)}"><b>Replying to ${esc(q.name)}</b><span>${esc(q.text)}</span></a><button type="button" class="in-btn" id="dropReply" title="Cancel reply">${icon('x')}</button>`
+  ta.focus()
+}
+function clearReply () { replyTo = null; const bar = $('replyBar'); bar.hidden = true; bar.innerHTML = '' }
+function jumpTo (id) {
+  const feed = $('feed'); const el = feed.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)
+  if (!el) { toast('That message isn\'t loaded here'); return }
+  navStack.push(feed.scrollTop)
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  el.classList.add('is-flash'); setTimeout(() => el.classList.remove('is-flash'), 1600)
+  updateJumpBack()
+}
+function jumpBack () {
+  const feed = $('feed')
+  if (navStack.length) feed.scrollTo({ top: navStack.pop(), behavior: 'smooth' })
+  else feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' })
+  updateJumpBack()
+}
+function updateJumpBack () {
+  const feed = $('feed'); const btn = $('jumpBack')
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
+  btn.hidden = !navStack.length && atBottom
+  btn.title = navStack.length ? 'Back to where you were' : 'Jump to the latest'
+}
+$('feed').addEventListener('scroll', () => { const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140 && !navStack.length) $('jumpBack').hidden = true; else if (feed.scrollHeight - feed.scrollTop - feed.clientHeight >= 140) $('jumpBack').hidden = false })
+$('jumpBack').addEventListener('click', jumpBack)
 function renderPending () {
   const el = $('pending')
   if (pendingFile) {
@@ -1359,14 +1416,16 @@ function renderPending () {
 function clearPending () { if (pendingMemo?.url) URL.revokeObjectURL(pendingMemo.url); pendingMemo = null; pendingFile = null; renderPending() }
 
 // the memo block + one shared player
+// media that finishes loading after render grows the feed: stay pinned to the bottom if we were there
+window.mediaLoaded = (el) => { const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 400 + el.offsetHeight) feed.scrollTop = feed.scrollHeight }
 const AUTO_FETCH = 25 * 1024 * 1024 // media up to this size shows inline; bigger files are a card you tap
 const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
 function fileHTML (a, r) {
   const src = `/api/file/${esc(a.hash)}/${encodeURIComponent(a.name)}?room=${encodeURIComponent(roomArg())}`
   const media = a.mime?.startsWith('image/') ? 'img' : a.mime?.startsWith('video/') ? 'video' : a.mime?.startsWith('audio/') ? 'audio' : null
   if (media && a.size <= AUTO_FETCH && !a.local) {
-    if (media === 'img') return `<a href="${src}" target="_blank"><img class="fmedia" src="${src}" alt="${esc(a.name)}" loading="lazy"></a>`
-    if (media === 'video') return `<video class="fmedia" src="${src}" controls preload="metadata" playsinline></video>`
+    if (media === 'img') return `<a href="${src}" target="_blank"><img class="fmedia" src="${src}" alt="${esc(a.name)}" loading="lazy" onload="mediaLoaded(this)"></a>`
+    if (media === 'video') return `<video class="fmedia" src="${src}" controls preload="metadata" playsinline onloadedmetadata="mediaLoaded(this)"></video>`
     return `<audio class="fmedia" src="${src}" controls preload="metadata"></audio>`
   }
   const ext = (a.name.split('.').pop() || '').slice(0, 4)
@@ -1454,7 +1513,7 @@ document.addEventListener('click', async (e) => {
   if (bars && player.key === bars.closest('.memo').dataset.memo && player.audio.duration) {
     const r = bars.getBoundingClientRect(); player.audio.currentTime = ((e.clientX - r.left) / r.width) * player.audio.duration; return
   }
-  const t = e.target.closest('button, [data-room]')
+  const t = e.target.closest('button, [data-room], [data-jump]')
   if (e.target.closest('[data-open-invite]')) { openPage('invite'); loadPeople(); return }
   if (e.target.closest('[data-show-rooms]')) { roomsScreen = true; applySide(); return }
   const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
@@ -1475,12 +1534,14 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.openInvite !== undefined) { openPage('invite'); loadPeople(); return }
   if (d.pause) return control({ action: 'pause', agent: d.pause })
   if (d.resume) return control({ action: 'resume', agent: d.resume })
-  if (d.reply) { ta.value = `@${d.reply} ` + ta.value.replace(/^@\S+\s/, ''); ta.focus(); grow(); return }
+  if (d.reply) { setReplyTo(d.reply); return }
+  if (d.jump) { jumpTo(d.jump); return }
   if (d.info) { selectedMsg = d.info; openPage('keys'); renderFeed(); return }
   if (d.ctl) { if (d.confirm && !confirm(d.confirm)) return; return control({ action: d.ctl, ...(d.n ? { n: Number(d.n) } : {}) }) }
   if (d.revoke) { if (confirm(`Revoke ${d.revoke}? It, and anything it enrolled, is cut out of the room.`)) api('POST', '/api/revoke', { room: roomArg(), name: d.revoke }); return }
   if (d.play) { playMemo(d.play, t.closest('.memo')?.dataset.mime); return }
   if (t.id === 'dropMemo') { clearPending(); return }
+  if (t.id === 'dropReply') { clearReply(); return }
   if (d.remoteOn) { try { await api('POST', '/api/remote/enable', { https: d.remoteOn === 'https' }) } catch {} await loadSettings(); return }
   if (t.dataset.pair !== undefined) { pairing = await api('POST', '/api/remote/pair'); renderPanel(); setTimeout(() => { pairing = null; loadSettings() }, 10 * 60_000); return }
   if (d.unpair) { await api('POST', '/api/remote/revoke', { id: d.unpair }); await loadSettings(); return }

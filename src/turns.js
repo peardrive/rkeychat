@@ -80,10 +80,13 @@ export function budget (log, { now = Date.now(), defaultRounds = DEFAULT_ROUNDS 
 //   - never by its own messages
 //   - a human message with no mentions goes to every agent ("open floor")
 //   - otherwise only when mentioned
-export function addressedTo (m, agent) {
+//   - a human replying to a specific message (re) addresses its author, not the floor
+export function addressedTo (m, agent, byId = null) {
   if (m.kind !== 'msg' || m.name === agent || m.via === 'mirror' || m.redacted) return false
-  if (m.human && m.mentions.length === 0) return true
-  return m.mentions.includes(agent)
+  if (m.mentions.includes(agent)) return true
+  if (m.human && m.re?.length && byId) return m.re.some((id) => byId.get(id)?.name === agent)
+  if (m.human && m.mentions.length === 0 && !m.re?.length) return true
+  return false
 }
 
 export const replyDepth = (triggers) => 1 + Math.max(0, ...triggers.map((t) => (t.human ? 0 : t.depth)))

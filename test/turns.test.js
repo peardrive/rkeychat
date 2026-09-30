@@ -69,6 +69,12 @@ test('mirrored terminal messages never wake agents or touch rounds', () => {
   const mirroredHuman = { kind: 'msg', human: true, name: 'guy', depth: 0, text: 'hi', mentions: [], via: 'mirror' }
   const mirroredAgent = { kind: 'msg', human: false, name: 'claude', depth: 0, mentions: [], via: 'mirror' }
   assert.equal(addressedTo(mirroredHuman, 'claude'), false)
+  // a human replying to a specific message addresses its author only
+  const kimiMsg = { ...agent('kimi', 1, []), id: 'k1' }
+  const byId = new Map([[kimiMsg.id, kimiMsg]])
+  const reply = { ...human('right, and?'), re: ['k1'] }
+  assert.equal(addressedTo(reply, 'kimi', byId), true)
+  assert.equal(addressedTo(reply, 'claude', byId), false)
   const log = [human('go'), agent('claude', 1), agent('kimi', 2), mirroredHuman, mirroredAgent]
   assert.equal(budget(log).used, 2) // the mirrored human message did not reset the count
 })

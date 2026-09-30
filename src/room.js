@@ -647,7 +647,8 @@ export class Room extends EventEmitter {
     log.forEach((r, i) => { if (r.kind === 'msg' && r.name === name) lastOwn = i })
     const answered = new Set(log.filter((r) => r.name === name).flatMap((r) => r.re ?? []))
     const passed = this.passed.get(name) ?? new Set()
-    const mine = log.slice(lastOwn + 1).filter((r) => addressedTo(r, name) && !answered.has(r.id) && !passed.has(r.id))
+    const byId = new Map(log.map((r) => [r.id, r]))
+    const mine = log.slice(lastOwn + 1).filter((r) => addressedTo(r, name, byId) && !answered.has(r.id) && !passed.has(r.id))
     // turn order: a message that names nobody goes to the first agent in the
     // charter's list; the next in line waits one window, then takes it unless
     // an earlier agent has claimed or answered it. Mentions bypass the order.
