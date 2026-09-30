@@ -56,7 +56,7 @@ export function addParticipant (cfg, name, { role = 'agent', bridge = { kind: 's
 
 export function participantSigners (cfg) {
   return Object.fromEntries(Object.entries(cfg.participants).map(([name, p]) => [
-    name, { signer: signerFromSecret(p.suite, p.secretKey), role: p.role, bridge: p.bridge, account: accountSigner(cfg, name) }
+    name, { signer: signerFromSecret(p.suite, p.secretKey), previous: p.previous ? signerFromSecret(p.previous.suite, p.previous.secretKey) : null, role: p.role, bridge: p.bridge, account: accountSigner(cfg, name) }
   ]))
 }
 
@@ -82,6 +82,8 @@ export function newIdentity (cfg, name) {
     p.root = { suite: 'ed25519', secretKey: r.secretKey, ref: r.ref }
   }
   const k = generate('ed25519')
+  // the old session key stays usable in rooms that haven't enrolled the new one yet
+  p.previous = { suite: p.suite, secretKey: p.secretKey, ref: p.ref }
   Object.assign(p, { suite: 'ed25519', secretKey: k.secretKey, ref: k.ref })
   return { account: accountSigner(cfg, name).ref, session: k.ref }
 }

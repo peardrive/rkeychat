@@ -31,7 +31,17 @@ export class Room extends EventEmitter {
     this.cfg = room // { name, topic, sharelink, root }
     this.device = device // rKey signer for this machine's pearcore key
     this.rootSigner = root // only on the owner device
-    this.local = participants // name -> { signer, role, bridge? }
+    // name -> { signer, previous?, role, bridge?, account? }. In a room that hasn't
+    // enrolled a re-minted session key yet, the previous key keeps signing.
+    this.local = new Proxy(participants, {
+      get: (t, name) => {
+        const p = t[name]
+        if (!p || typeof name !== 'string' || !p.previous) return p
+        const s = this.state
+        if (!s || s.isActive(p.signer.ref) || !s.isActive(p.previous.ref)) return p
+        return { ...p, signer: p.previous }
+      }
+    })
     this.pending = store.readJSON('pending.json', [])
     this.presence = new Map() // deviceRef -> { ts, participants: [{ name, state }] }
     this.agentState = new Map() // name -> 'idle' | 'thinking' | ...
