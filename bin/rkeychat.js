@@ -44,7 +44,9 @@ agents
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
   rkeychat rename --room ROOM NAME             rename a room for everyone in it
-  rkeychat revoke NAME                         cut a key (and anything under it) out of the room`
+  rkeychat revoke NAME [--key PREFIX]          remove (they can be invited back later); --key for one key
+  rkeychat ban NAME [--key PREFIX]             keep them out until you lift it; rkeychat unban PREFIX lifts it
+  rkeychat readopt --room ROOM PREFIX          bring back a removed account's orphaned keys`
 
 const { values: opt, positionals: pos } = parseArgs({
   allowPositionals: true,
@@ -311,6 +313,8 @@ switch (cmd) {
     break
   }
   case 'readopt': { const r = await api('POST', '/api/readopt', { room: opt.room, ref: pos[0] ?? die('usage: rkeychat readopt --room ROOM KEYPREFIX') }); console.log(`re-adopted (${r.appended} entries)`); break }
+  case 'ban': { const r = await api('POST', '/api/revoke', { room: opt.room, name: pos[0], ref: opt.key, reason: 'banned' }); console.log(`banned ${(r.revoked ?? []).map((x) => x.slice(0, 20)).join(', ') || pos[0]} (only you can lift it: rkeychat unban)`); break }
+  case 'unban': { const r = await api('POST', '/api/unban', { room: opt.room, ref: pos[0] ?? die('usage: rkeychat unban --room ROOM KEYPREFIX') }); console.log(`ban lifted on ${r.unbanned.slice(0, 20)}; they come back through a fresh invite`); break }
   case 'revoke': { const r = await api('POST', '/api/revoke', { room: opt.room, name: pos[0], ref: opt.key }); console.log(`revoked ${(r.revoked ?? []).map((x) => x.slice(0, 20)).join(', ') || pos[0]}`); break }
   case 'wait': {
     // Stays up across daemon restarts: reconnects quietly and says so once.

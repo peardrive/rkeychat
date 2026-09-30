@@ -232,6 +232,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .section { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02)); border: 1px solid var(--line); box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset; }
 .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); }
 /* room details: a profile page for the room */
+.key-rows { margin: 2px 0 6px 40px; display: flex; flex-direction: column; gap: 3px; }
+.key-row { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-2); padding: 3px 6px; border-radius: 7px; background: rgba(255,255,255,0.03); }
+.key-row code { font: 11px ui-monospace, Menlo, monospace; color: var(--text-3); } .key-row .k { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-row .btn-sm { padding: 1px 7px; font-size: 11px; } .key-row.is-out { opacity: 0.6; }
 .room-profile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0 6px; text-align: center; }
 .room-profile .big { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; font-size: 26px; font-weight: 700; color: var(--accent-ink); background: linear-gradient(135deg, #b9db45, #7cc05a); box-shadow: 0 8px 24px rgba(168,206,56,0.25); }
 .room-profile h2 { font-size: 18px; font-weight: 650; }
@@ -993,9 +997,23 @@ function renderRoomPage () {
   const b = c.budget
   const open = b.unlimited || (b.until && b.until > Date.now())
   const active = c.participants.filter((p) => p.status === 'active')
-  const humans = active.filter((p) => p.role === 'human'); const agents = active.filter((p) => p.role === 'agent')
+  const humans = c.participants.filter((p) => p.role === 'human' && (p.status === 'active' || p.keys?.some((k) => k.reason === 'banned'))); const agents = c.participants.filter((p) => p.role === 'agent' && (p.status === 'active' || p.keys?.some((k) => k.reason === 'banned')))
   const order = [...(c.charter?.order ?? []).filter((n) => agents.some((a) => a.name === n)), ...agents.map((a) => a.name).filter((n) => !(c.charter?.order ?? []).includes(n))]
-  const person = (p) => { const [tone, label] = personStatus(p, b); return `<div class="row-item${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}><div class="avatar${p.role === 'human' ? ' is-human' : ''}">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}${p.name === me() ? ' (you)' : ''}${p.devices?.length ? ` <span class="pill tone-dim">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="row-sub">${p.local ? 'on this device' : p.online ? 'online' : 'offline'}${p.keys?.length > 1 ? ` · ${p.keys.filter((k) => k.status === 'active').length} keys` : ''}</span></div><span class="status ${tone}">${esc(label)}</span>${c.owner && p.name !== me() ? `<button class="tree-x" data-kick="${esc(p.name)}" title="Remove ${esc(p.name)} from this room">${icon('x')}</button>` : ''}</div>` }
+  const keyRow = (p, k) => {
+    const short = k.ref.slice(8, 20)
+    const what = k.account ? 'account root' : k.device ? `session on ${k.device}` : 'key'
+    const state = k.status === 'active' ? '' : k.reason === 'banned' ? 'banned' : k.reason === 'compromised' ? 'compromised' : k.status
+    const acts = !c.owner || p.name === me() ? '' : k.status === 'active'
+      ? `<button class="btn btn-soft btn-sm" data-key-revoke="${esc(k.ref)}" data-who="${esc(p.name)}" data-reason="removed">Remove</button>${k.account || !k.device ? `<button class="btn btn-soft btn-sm" data-key-revoke="${esc(k.ref)}" data-who="${esc(p.name)}" data-reason="banned" title="Bans the whole account: everything under this key">Ban</button>` : ''}`
+      : k.reason === 'banned' ? `<button class="btn btn-soft btn-sm" data-key-unban="${esc(k.ref)}" data-who="${esc(p.name)}">Unban</button>` : ''
+    return `<div class="key-row${k.status === 'active' ? '' : ' is-out'}"><span class="k" title="${esc(k.ref)}"><code>${esc(short)}</code> ${esc(what)}${state ? ` · ${esc(state)}` : ''}</span>${acts}</div>`
+  }
+  const person = (p) => {
+    const [tone, label] = personStatus(p, b)
+    const keys = [...(p.keys ?? [])].sort((a, b2) => (b2.account ? 1 : 0) - (a.account ? 1 : 0))
+    return `<div class="row-item${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}><div class="avatar${p.role === 'human' ? ' is-human' : ''}">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}${p.name === me() ? ' (you)' : ''}${p.devices?.length ? ` <span class="pill tone-dim">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="row-sub">${p.local ? 'on this device' : p.online ? 'online' : 'offline'} · ${keys.filter((k) => k.status === 'active').length} of ${keys.length} keys active</span></div><span class="status ${tone}">${esc(label)}</span>${c.owner && p.name !== me() && p.status === 'active' ? `<button class="tree-x" data-kick="${esc(p.name)}" title="Remove everything for ${esc(p.name)}: every key, for good in this room">${icon('x')}</button>` : ''}</div>
+      <div class="key-rows">${keys.map((k) => keyRow(p, k)).join('')}</div>`
+  }
   return `<div class="room-profile"><div class="big">${esc(c.name.slice(0, 1).toUpperCase())}</div><h2>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${active.filter((p) => p.online).length} online${c.owner ? ' · you own this room' : ''}</div>
       <div class="inline">${c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button><button class="btn btn-soft btn-sm" data-open-invite>${icon('plus')}Invite</button>` : `<button class="btn btn-soft btn-sm" id="leaveBtn" data-confirm="Leave this room? Your keys are revoked here; the history stays with the others.">Leave</button>`}
         <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume agents' : 'Pause agents'}</button></div></div>
@@ -1664,7 +1682,14 @@ document.addEventListener('click', async (e) => {
   if (t.id === 'renameBtn') return renameRoom()
   if (t.id === 'leaveBtn') { if (!confirm(t.dataset.confirm)) return }
   if (t.id === 'leaveBtn') return api('POST', '/api/revoke', { room: roomArg(), name: me() }).then(() => toast('You left the room')).catch((err) => toast(err.message))
-  if (d.kick) { if (!confirm(`Remove ${d.kick} from this room? Their keys are revoked here.`)) return; return api('POST', '/api/revoke', { room: roomArg(), name: d.kick }).then(() => toast(`${d.kick} removed`)).catch((err) => toast(err.message)) }
+  if (d.kick) { if (!confirm(`Remove EVERYTHING for ${d.kick} in this room? Every one of their keys is revoked here. They can be invited back later.`)) return; return api('POST', '/api/revoke', { room: roomArg(), name: d.kick }).then(() => toast(`${d.kick} removed`)).catch((err) => toast(err.message)) }
+  if (d.keyRevoke) {
+    const short = d.keyRevoke.slice(8, 20)
+    const msg = d.reason === 'banned' ? `Ban ${d.who}'s key ${short}? It stays out until you lift the ban. Their past messages stay valid.` : `Remove ${d.who}'s key ${short} from this room? It can be invited back later.`
+    if (!confirm(msg)) return
+    return api('POST', '/api/revoke', { room: roomArg(), ref: d.keyRevoke, reason: d.reason }).then(() => toast(`${d.reason === 'banned' ? 'Banned' : 'Removed'} ${short}`)).catch((err) => toast(err.message))
+  }
+  if (d.keyUnban) { if (!confirm(`Lift the ban on ${d.who}'s key ${d.keyUnban.slice(8, 20)}? They still need a fresh invite to come back.`)) return; return api('POST', '/api/unban', { room: roomArg(), ref: d.keyUnban }).then(() => toast('Ban lifted')).catch((err) => toast(err.message)) }
   if (t.id === 'clearSel') { selectedMsg = null; renderPanel(); renderFeed(); return }
   if (t.id === 'inviteBtn') { const { invite } = await api('GET', `/api/invite?room=${encodeURIComponent(roomArg())}`); const o = $('inviteOut'); o.textContent = invite; o.hidden = false; navigator.clipboard?.writeText(invite).then(() => toast('Invite copied.')); return }
   if (t.id === 'approveBtn') { const { enrolled } = await api('POST', '/api/approve', { room: roomArg(), code: $('reqIn').value }); toast(`Enrolled ${enrolled} key${enrolled === 1 ? '' : 's'}.`); return }
