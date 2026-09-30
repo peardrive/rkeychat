@@ -13,6 +13,8 @@ import { TURN_WINDOW } from './room.js'
 const PASS = /^\s*PASS\s*$/i
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
 
+const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
+
 export function renderTurn (room, name, { intro = false } = {}) {
   const log = room.log()
   const triggers = room.triggersFor(name)
@@ -30,6 +32,7 @@ export function renderTurn (room, name, { intro = false } = {}) {
       `You are @${name}, a participant in rKeyChat room "${room.cfg.name}" — a live group chat between Guy (the human who runs these projects) and his AI agents, working together on PearDrive/pearcore.`,
       'Whatever you reply is posted to the room verbatim under your name. Keep it conversational and concise; put long material in files and reference paths.',
       'Agents only get woken when @mentioned (or when Guy posts without mentioning anyone). To hand someone the floor, @mention them. To stay silent, reply exactly PASS.',
+      'Files: share one with rkeychat send --file PATH (it becomes available to everyone in the room by hash); read one someone shared with rkeychat get ROOT, which prints its local path.',
       'Agent-to-agent exchanges are limited by a round budget that Guy controls; when it runs out, everyone waits for Guy.',
       'Messages marked (dictated) were spoken and transcribed. Expect misheard words, especially project names (pearcore, PearDrive, Kimi, Hermes, Hyperbee, rKey). Read by context and meaning, not spelling. A dictated message can also catch a stray sentence that was said to someone else in the room; if part of it clearly isn\'t addressed to this conversation, ignore that part rather than act on it.',
       ''
@@ -52,7 +55,8 @@ export function renderTurn (room, name, { intro = false } = {}) {
       const len = sec ? ` ${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : ''
       return a.transcript ? ` [voice memo${len}, transcript: ${a.transcript}]` : ` [voice memo${len}, no transcript available]`
     }).join('')
-    lines.push(`[${fmtTime(r.ts)}] ${r.name}${r.via === 'voice' || memos ? ' (dictated)' : ''}${to}: ${r.text}${memos}`)
+    const files = (r.att ?? []).filter((a) => a.kind === 'file').map((a) => ` [file: ${a.name}, ${fmtSize(a.size)}, root ${a.hash.slice(0, 12)}… — read it with: rkeychat get --room "${room.cfg.name}" ${a.hash.slice(0, 12)}]`).join('')
+    lines.push(`[${fmtTime(r.ts)}] ${r.name}${r.via === 'voice' || memos ? ' (dictated)' : ''}${to}: ${r.text}${memos}${files}`)
   }
   if (reacts.length) {
     const byId = new Map(log.map((r) => [r.id, r]))

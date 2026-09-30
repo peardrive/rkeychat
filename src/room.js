@@ -6,6 +6,8 @@
 // chain; everyone else merges the copies they receive.
 
 import { EventEmitter } from 'node:events'
+import * as fsSync from 'node:fs'
+import { extname } from 'node:path'
 import { Chain, enroll, revoke, consent } from 'rkey'
 import { SCOPES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
@@ -15,6 +17,8 @@ const PRESENCE_EVERY = 20_000
 const PRESENCE_STALE = 60_000
 const DEBUG = !!process.env.RKEYCHAT_DEBUG
 const SYNC_EVERY = 60_000
+const MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', m4a: 'audio/mp4', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', pdf: 'application/pdf', md: 'text/markdown', txt: 'text/plain', json: 'application/json', js: 'text/javascript', mjs: 'text/javascript', html: 'text/html', css: 'text/css', zip: 'application/zip' }
+export const mimeOf = (name) => MIMES[extname(String(name)).slice(1).toLowerCase()] ?? 'application/octet-stream'
 export const TURN_WINDOW = 45_000 // how long the next agent in line waits before taking an unclaimed turn
 export const MAX_BLOB = 8 * 1024 * 1024 // one pearcore message; ~40 min of voice
 const RECENT = 48 * 3600_000 // history sync compares ids within this window
@@ -32,6 +36,7 @@ export class Room extends EventEmitter {
     this.presence = new Map() // deviceRef -> { ts, participants: [{ name, state }] }
     this.agentState = new Map() // name -> 'idle' | 'thinking' | ...
     this.passed = new Map() // name -> Set of record ids it chose not to answer
+    this.fetching = new Map() // root -> in-flight fetch
     const entries = store.readJSON('chain.json', null)
     this.chain = entries ? new Chain(entries) : null
   }
@@ -44,8 +49,8 @@ export class Room extends EventEmitter {
   async start () {
     const { emitter } = this.core
     emitter.on('SpaceMessage', (e) => this.#onSpaceMessage(e).catch((err) => this.emit('error', err)))
-    emitter.on('Connection', ({ topics }) => { if (topics.includes(this.topic)) this.#hello() })
-    emitter.on('SpaceHashList', ({ topics }) => { if (topics.includes(this.topic)) this.#hello() })
+    emitter.on('Connection', ({ topics }) => { if (topics.includes(this.topic)) { this.#hello(); this.announceFiles() } })
+    emitter.on('SpaceHashList', ({ topics }) => { if (topics.includes(this.topic)) { this.#hello(); this.announceFiles() } })
     emitter.on('SpaceSync', () => this.#hello())
     if (DEBUG) {
       emitter.on('Reject', (ctx) => console.error('[pearcore reject]', JSON.stringify(ctx).slice(0, 300)))
@@ -414,6 +419,9 @@ export class Room extends EventEmitter {
     att = Array.isArray(att) && att.length
       ? att.slice(0, 4).map((a) => ({
           hash: String(a.hash),
+          kind: a.kind === 'file' ? 'file' : undefined,
+          name: a.kind === 'file' ? String(a.name).slice(0, 255) : undefined,
+          path: a.kind === 'file' ? String(a.path).slice(0, 1024) : undefined,
           mime: String(a.mime ?? 'application/octet-stream'),
           size: Math.round(Number(a.size) || 0),
           ms: a.ms != null ? Math.round(Number(a.ms)) : a.duration != null ? Math.round(Number(a.duration) * 1000) : undefined,
@@ -422,7 +430,7 @@ export class Room extends EventEmitter {
         }))
       : undefined
     if (!text && !att) throw new Error('empty message')
-    for (const a of att ?? []) if (!this.store.hasBlob(a.hash)) throw new Error('attachment not found on this device')
+    for (const a of att ?? []) if (a.kind !== 'file' && !this.store.hasBlob(a.hash)) throw new Error('attachment not found on this device')
     if ((att ?? []).some((a) => this.blocked().hashes.has(a.hash))) throw new Error('that file was removed from this room by an admin')
     const triggers = re.map((id) => this.store.get(id)).filter(Boolean).map((r) => this.view(r))
     const human = p.role === 'human'
@@ -477,6 +485,100 @@ export class Room extends EventEmitter {
     let name = null
     for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'rename' && r.name) name = r.name
     if (name && name !== this.cfg.name) { this.cfg.name = name; this.emit('renamed', name) }
+  }
+
+  // ---------- files, by hash, on pearcore's drive ----------
+  // A shared file lives in this space at a virtual path (/chat/<name>) as a
+  // signed provider record (path → Merkle root → who has it). Anyone in the
+  // space fetches it by root from whoever is online; once fetched, this device
+  // registers as a provider too, so files get more available as they spread.
+
+  async #browser () {
+    const space = (await this.core.space.list()).find((s) => s.topicHash === this.topic)
+    if (!space) throw new Error('space not found')
+    return this.core.drives.get(space)
+  }
+
+  // pearcore only sends its file list during a space sync, so a peer that
+  // connects later never learns what we hold. Re-announce our own records
+  // (already signed) through pearcore's broadcaster when someone connects.
+  announceFiles () {
+    try {
+      const me = this.device.ref.slice(8)
+      const files = this.core.managers.spaceFileList.get(this.topic)
+      const b = this.core.managers.spaceFiles.fileEventBroadcaster
+      let n = 0
+      for (const [path, variants] of Object.entries(files)) {
+        for (const [rootHash, v] of Object.entries(variants)) {
+          const mine = v.peers?.[me]
+          if (!mine) continue
+          b.add('add', { topic: this.topic, path, publicKey: me, timestamp: mine.timestamp, rootHash, signature: mine.signature })
+          n++
+        }
+      }
+      if (DEBUG && n) console.error('[files] re-announced', n, 'records')
+    } catch (err) { if (DEBUG) console.error('[files] announce failed', err.message) }
+  }
+
+  // Share a file that already exists on this device. Returns the attachment.
+  async shareFile (localPath, { name } = {}) {
+    const { statSync } = await import('node:fs')
+    const { basename } = await import('node:path')
+    const st = statSync(localPath)
+    if (!st.isFile()) throw new Error('not a file')
+    name = String(name ?? basename(localPath)).replace(/[\/\\]/g, '_').trim() || 'file'
+    const path = `/chat/${name}`
+    const browser = await this.#browser()
+    const entry = await browser.addFile(`chat/${name}`, localPath)
+    const root = await new Promise((resolve, reject) => {
+      entry.onError(reject)
+      entry.onComplete(() => resolve(entry.rootHash))
+    })
+    if (!root) throw new Error('indexing produced no root')
+    this.store.rememberFile(root, localPath)
+    return { kind: 'file', hash: root, name, path: entry.path ?? path, size: st.size, mime: mimeOf(name) }
+  }
+
+  // Where a shared file is on this device, if it is (our own, or fetched).
+  localFile (root) {
+    const p = this.store.fileIndex()[root]
+    return p && fsSync.existsSync(p) ? p : null
+  }
+
+  // Everyone the space knows has this file right now.
+  providersOf (att) {
+    try {
+      const recs = this.core.managers?.spaceFileList?.get(this.topic)?.[att.path]?.[att.hash]?.peers ?? {}
+      return Object.keys(recs)
+    } catch { return [] }
+  }
+
+  // Fetch a shared file from the space. Resolves to the local path.
+  async fetchFile (att) {
+    const have = this.localFile(att.hash)
+    if (have) return have
+    if (this.blocked().hashes.has(att.hash)) throw new Error('that file was removed from this room by an admin')
+    if (this.fetching.has(att.hash)) return this.fetching.get(att.hash)
+    const job = (async () => {
+      const browser = await this.#browser()
+      const entry = await browser.getFile(att.path)
+      if (!entry || !entry.exists) throw new Error('nobody online has this file right now')
+      const dir = this.store.filePath(att.hash)
+      fsSync.mkdirSync(dir, { recursive: true })
+      const dest = `${dir}/${att.name}`
+      const task = await entry.download(att.hash, dest)
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('download timed out')), 6 * 3600_000); t.unref()
+        task.onComplete(() => { clearTimeout(t); resolve() })
+      })
+      this.store.rememberFile(att.hash, dest)
+      // become a provider too (fire and forget)
+      browser.addFile(att.name, dest).catch(() => {})
+      this.emit('file', { hash: att.hash, path: dest })
+      return dest
+    })()
+    this.fetching.set(att.hash, job)
+    try { return await job } finally { this.fetching.delete(att.hash) }
   }
 
   // Everything this room knows about a key: its enroll op (with the key's own

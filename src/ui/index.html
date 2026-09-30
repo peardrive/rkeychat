@@ -133,6 +133,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .rec-time { font-variant-numeric: tabular-nums; font-size: 12.5px; color: #ffb3ac; min-width: 36px; text-align: right; }
 .pending { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; }
 /* the memo block inside a message */
+/* files shared by hash: inline media under the auto-fetch threshold, a card otherwise */
+.fcard { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 8px 10px; border-radius: 12px; background: rgba(0,0,0,0.22); box-shadow: 0 0 0 1px var(--line) inset; min-width: 220px; max-width: 360px; }
+.fcard .fi { flex: none; width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--surface-3); color: var(--text-2); font: 600 10px ui-monospace, Menlo, monospace; text-transform: uppercase; }
+.fcard .fn { flex: 1; min-width: 0; } .fcard .fn b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .fcard .fn span { font-size: 11.5px; color: var(--text-3); }
+.fcard .btn-sm { flex: none; }
+.fmedia { display: block; margin-top: 6px; max-width: min(100%, 420px); max-height: 360px; border-radius: 12px; }
+.pending .fcard { margin-top: 0; }
+.drop-hint { position: absolute; inset: 0; z-index: 25; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 20px; background: rgba(9,9,11,0.7); color: var(--text); font-weight: 600; pointer-events: none; }
 .memo { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 6px 10px 6px 6px; border-radius: 12px; background: rgba(0,0,0,0.22); box-shadow: 0 0 0 1px var(--line) inset; min-width: 220px; user-select: none; cursor: default; }
 .bubble > .memo:first-child { margin-top: 0; }
 .memo-play { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--accent-ink); background: linear-gradient(135deg, #b9db45, #7cc05a); box-shadow: 0 1px 0 rgba(255,255,255,0.35) inset; }
@@ -442,6 +450,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
   <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="10.5" rx="3"/><path d="M12 4.5V8M9.5 12.5v1.5M14.5 12.5v1.5"/></symbol>
 </svg>
@@ -469,6 +478,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
         <textarea id="text" rows="1" placeholder="Message the room"></textarea>
         <button type="button" class="in-btn" id="micBtn" title="Dictate: talk, then click again. Transcribed on this machine."><svg class="ico"><use href="#i-mic"/></svg></button>
         <button type="button" class="in-btn" id="memoBtn" title="Record a voice memo"><svg class="ico"><use href="#i-wave"/></svg></button>
+        <button type="button" class="in-btn" id="fileBtn" title="Share a file by hash (or drop / paste one)"><svg class="ico"><use href="#i-clip"/></svg></button>
+        <input type="file" id="filePick" hidden>
       </div>
       <div class="recorder" id="recorder" hidden>
         <button type="button" class="rec-stop" id="recStop" title="Stop"><i></i></button>
@@ -591,7 +602,7 @@ function renderFeed () {
       <div class="avatar${r.human ? ' is-human' : ''}">${esc(r.name.slice(0, 1))}</div>
       <div class="msg-main">
         <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
-        <div class="bubble">${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => memoHTML(a, r)).join('')}</div>
+        <div class="bubble">${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => a.kind === 'file' ? fileHTML(a, r) : memoHTML(a, r)).join('')}</div>
         ${reactsHTML(r, isMine)}
         ${isMine ? `<span class="mine-time">${time(r.ts)}</span>` : ''}
       </div></div>`
@@ -1138,10 +1149,11 @@ ta.addEventListener('keydown', (e) => {
 })
 $('composer').addEventListener('submit', async (e) => {
   e.preventDefault()
-  const text = ta.value.trim(); if ((!text && !pendingMemo) || !cur()) return
+  const text = ta.value.trim(); if ((!text && !pendingMemo && !pendingFile) || !cur()) return
   if (pendingMemo && !pendingMemo.hash) { toast('One second, the memo is still saving.'); return }
+  if (pendingFile && !pendingFile.hash) { toast('One second, the file is still being indexed.'); return }
   const via = dictatedThisMessage ? 'voice' : undefined
-  const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : undefined
+  const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : pendingFile ? [pendingFile] : undefined
   await api('POST', '/api/send', { room: roomArg(), text, via, att })
   ta.value = ''; dictatedThisMessage = false; clearPending(); grow()
 })
@@ -1306,15 +1318,60 @@ $('recStop').onclick = async () => {
   } catch (err) { toast(`Couldn't save the memo: ${err.message}`, 'bad'); clearPending() }
   ta.focus()
 }
+// ---------- files: drop, paste or pick one; it's uploaded to this device's daemon, indexed, and shared by hash on send
+let pendingFile = null
+async function attachFile (file) {
+  if (!file || !cur()) return
+  if (pendingMemo) clearPending()
+  pendingFile = { kind: 'file', name: file.name, size: file.size, mime: file.type || 'application/octet-stream', local: true }
+  renderPending()
+  try {
+    const res = await fetch(`/api/upload?room=${encodeURIComponent(roomArg())}&name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file })
+    if (!res.ok) throw new Error((await res.text()) || res.statusText)
+    const att = await res.json()
+    if (pendingFile && pendingFile.name === file.name) { pendingFile = { ...att, local: true }; renderPending() }
+  } catch (err) { pendingFile = null; renderPending(); toast(`Couldn't share ${file.name}: ${err.message}`) }
+}
+$('fileBtn').addEventListener('click', () => $('filePick').click())
+$('filePick').addEventListener('change', (e) => { attachFile(e.target.files[0]); e.target.value = '' })
+document.addEventListener('paste', (e) => { const f = [...(e.clipboardData?.files ?? [])][0]; if (f) { e.preventDefault(); attachFile(f) } })
+let dragDepth = 0
+document.addEventListener('dragenter', (e) => { if ([...(e.dataTransfer?.types ?? [])].includes('Files')) { dragDepth++; showDrop(true) } })
+document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; showDrop(false) } })
+document.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.types ?? [])].includes('Files')) e.preventDefault() })
+document.addEventListener('drop', (e) => { dragDepth = 0; showDrop(false); const f = e.dataTransfer?.files?.[0]; if (f) { e.preventDefault(); attachFile(f) } })
+function showDrop (on) {
+  let el = document.getElementById('dropHint')
+  if (on && !el) { el = document.createElement('div'); el.id = 'dropHint'; el.className = 'drop-hint'; el.textContent = 'Drop to share by hash'; document.querySelector('.column')?.append(el) }
+  if (!on) el?.remove()
+}
 function renderPending () {
   const el = $('pending')
+  if (pendingFile) {
+    el.hidden = false
+    el.innerHTML = `${fileHTML(pendingFile, null)}<span class="note">${pendingFile.hash ? 'Ready. Add a note if you like, then send.' : 'Indexing…'}</span><button type="button" class="in-btn" id="dropMemo" title="Remove">${icon('x')}</button>`
+    return
+  }
   if (!pendingMemo) { el.hidden = true; el.innerHTML = ''; return }
   el.hidden = false
   el.innerHTML = `${memoHTML({ ...pendingMemo, local: true }, null)}<span class="note">${pendingMemo.hash ? 'Ready. Add a note if you like, then send.' : 'Saving…'}</span><button type="button" class="in-btn" id="dropMemo" title="Discard memo">${icon('x')}</button>`
 }
-function clearPending () { if (pendingMemo?.url) URL.revokeObjectURL(pendingMemo.url); pendingMemo = null; renderPending() }
+function clearPending () { if (pendingMemo?.url) URL.revokeObjectURL(pendingMemo.url); pendingMemo = null; pendingFile = null; renderPending() }
 
 // the memo block + one shared player
+const AUTO_FETCH = 25 * 1024 * 1024 // media up to this size shows inline; bigger files are a card you tap
+const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
+function fileHTML (a, r) {
+  const src = `/api/file/${esc(a.hash)}/${encodeURIComponent(a.name)}?room=${encodeURIComponent(roomArg())}`
+  const media = a.mime?.startsWith('image/') ? 'img' : a.mime?.startsWith('video/') ? 'video' : a.mime?.startsWith('audio/') ? 'audio' : null
+  if (media && a.size <= AUTO_FETCH && !a.local) {
+    if (media === 'img') return `<a href="${src}" target="_blank"><img class="fmedia" src="${src}" alt="${esc(a.name)}" loading="lazy"></a>`
+    if (media === 'video') return `<video class="fmedia" src="${src}" controls preload="metadata" playsinline></video>`
+    return `<audio class="fmedia" src="${src}" controls preload="metadata"></audio>`
+  }
+  const ext = (a.name.split('.').pop() || '').slice(0, 4)
+  return `<div class="fcard" data-file="${esc(a.hash)}"><div class="fi">${esc(ext) || 'file'}</div><div class="fn"><b title="${esc(a.name)}">${esc(a.name)}</b><span>${fmtSize(a.size)}${a.local ? ' · ready to send' : ''}</span></div>${a.local ? '' : `<a class="btn btn-soft btn-sm" href="${src}&dl=1" download="${esc(a.name)}" title="Fetch from whoever has it, then save">Get</a>`}</div>`
+}
 function memoHTML (a, r) {
   if (!a.mime?.startsWith('audio/')) return ''
   const key = a.local ? 'pending' : a.hash

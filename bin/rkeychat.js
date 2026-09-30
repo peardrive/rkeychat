@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util'
 import { spawn, execFile } from 'node:child_process'
 import { openSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir } from '../src/config.js'
 import { decodeInvite } from '../src/server.js'
@@ -40,6 +40,7 @@ agents
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
+  rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
   rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
   rkeychat rename --room ROOM NAME             rename a room for everyone in it
   rkeychat revoke NAME                         cut a key (and anything under it) out of the room`
@@ -57,6 +58,7 @@ const { values: opt, positionals: pos } = parseArgs({
     as: { type: 'string' },
     room: { type: 'string' },
     order: { type: 'string' },
+    file: { type: 'string' },
     pass: { type: 'boolean' },
     background: { type: 'boolean' },
     voice: { type: 'boolean' },
@@ -195,7 +197,9 @@ switch (cmd) {
   case 'request': console.log((await api('GET', '/api/request' + q({ room: opt.room }))).request); break
   case 'approve': console.log(`enrolled ${(await api('POST', '/api/approve', { room: opt.room, code: pos[0] })).enrolled} keys`); break
   case 'send': {
-    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined })
+    // --file PATH shares a file from this device by hash (no copy; the original is the source)
+    const att = opt.file ? [await api('POST', '/api/share', { room: opt.room, path: resolve(opt.file) })] : undefined
+    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined, att })
     console.log(out.passed ? `passed (${out.room})` : fmt(out))
     if (out.fixes?.length) console.log(`  fixed: ${out.fixes.map(([a, b]) => `${a} → ${b}`).join(', ')}`)
     break
@@ -208,6 +212,19 @@ switch (cmd) {
     else if (action === 'limit') { payload.agent = a ?? die('usage: rkeychat control limit AGENT N'); payload.n = Number(b ?? 0) }
     else if ((action === 'pause' || action === 'resume') && a) payload.agent = a
     console.log(fmt({ ...(await api('POST', '/api/control', payload)), name: 'you' }))
+    break
+  }
+  case 'files': {
+    const list = await api('GET', '/api/files' + q({ room: opt.room }))
+    if (!list.length) { console.log('no files shared here yet'); break }
+    for (const f of list) console.log(`${f.hash.slice(0, 12)}  ${String(f.size).padStart(11)}  ${f.local ? 'here   ' : `${f.providers} online`}  ${f.name}  (${f.by})`)
+    break
+  }
+  case 'get': {
+    // fetch a shared file by (a prefix of) its root; prints the local path
+    const root = pos[0] ?? die('usage: rkeychat get --room ROOM ROOT')
+    const out = await api('POST', '/api/fetch', { room: opt.room, root })
+    console.log(out.path)
     break
   }
   case 'purpose': {

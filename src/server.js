@@ -99,8 +99,14 @@ export function serve ({ app }) {
     room.on('activity', (rec) => push('activity', { topic: t, rec }))
     room.on('fork', (f) => push('fork', { topic: t, seq: f.seq }))
   }
+  // pearcore-level counters for the debug route (what arrives, what gets rejected)
+  const pcEvents = {}
+  for (const ev of ['SpaceFileEvent', 'SpaceSync', 'Reject', 'SpaceFileTreeResponse', 'Connection']) {
+    app.core.emitter.on(ev, (e) => { pcEvents[ev] = (pcEvents[ev] ?? 0) + 1; if (ev === 'Reject') pcEvents.lastRejection = { reason: e?.message?.payload?.reason ?? e?.message?.reason, of: e?.message?.payload?.type ?? e?.message?.payload?.original?.type } })
+  }
   for (const r of app.rooms.values()) wire(r)
   app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
+  app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
 
   const need = (cond, msg, status = 400) => { if (!cond) { const e = new Error(msg); e.status = status; throw e } }
   const pick = (key) => { const r = app.find(key); need(r, key ? `no room "${key}"` : 'no rooms yet. Create one first', 404); return r }
@@ -239,6 +245,39 @@ export function serve ({ app }) {
       } finally { rmSync(file, { force: true }) }
     },
     // Attachments: store by content hash in the room; voice gets a local transcript.
+    // ---- files by hash (pearcore drive) ----
+    // Upload from the GUI: streamed to disk (any size), then shared into the space.
+    'POST /api/upload': async (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const name = String(url.searchParams.get('name') ?? 'file').replace(/[\/\\]/g, '_').trim() || 'file'
+      const dir = join(room.store.dir, 'files', 'incoming', randomBytes(6).toString('hex')); mkdirSync(dir, { recursive: true })
+      const file = join(dir, name)
+      const { createWriteStream } = await import('node:fs')
+      await new Promise((resolve, reject) => { const w = createWriteStream(file); req.pipe(w); w.on('finish', resolve); w.on('error', reject); req.on('error', reject) })
+      return room.shareFile(file)
+    },
+    // Share a file already on this device (CLI, agents): no copy, the original is the source.
+    'POST /api/share': async (req) => {
+      const { room: key, path, name } = await body(req)
+      const { room } = pick(key)
+      need(path, 'path is required')
+      return room.shareFile(path, { name })
+    },
+    // Fetch a shared file from the room; answers when it's on this device.
+    'POST /api/fetch': async (req) => {
+      const { room: key, hash, root } = await body(req)
+      const { room } = pick(key)
+      const att = fileAtt(room, String(root ?? hash ?? ''))
+      need(att, 'no such file in this room', 404)
+      return { ...att, path: await room.fetchFile(att) }
+    },
+    'GET /api/files': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const seen = new Map()
+      for (const r of room.log()) for (const a of r.att ?? []) if (a.kind === 'file' && !seen.has(a.hash)) seen.set(a.hash, { ...a, by: r.name, ts: r.ts, local: !!room.localFile(a.hash), providers: room.providersOf(a).length })
+      return [...seen.values()]
+    },
+
     'POST /api/blob': async (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))
       const mime = String(req.headers['content-type'] ?? 'application/octet-stream').split(';')[0].trim()
@@ -334,9 +373,39 @@ export function serve ({ app }) {
       const swarm = app.core.managers.connection.swarmInstance
       return {
         swarmConnections: [...(swarm?.connections ?? [])].map((c) => Buffer.from(c.remotePublicKey).toString('hex').slice(0, 12)),
-        peers: [...app.core.managers.sockets.peers.keys()].map((k) => k.slice(0, 12))
+        peers: [...app.core.managers.sockets.peers.keys()].map((k) => k.slice(0, 12)),
+        pcEvents,
+        files: Object.fromEntries([...app.rooms.values()].map(({ room }) => [room.cfg.name, app.core.managers.spaceFileList.get(room.topic)]))
       }
     }
+  }
+  // A file attachment by (prefix of) its root, from the room's messages.
+  function fileAtt (room, root) {
+    if (root.length < 8) return null
+    for (const r of room.log()) for (const a of r.att ?? []) if (a.kind === 'file' && a.hash.startsWith(root) && !r.redacted) return a
+    return null
+  }
+  // Serve a shared file from disk (fetching it first if needed), with range support for media.
+  async function serveFile (req, res, url) {
+    const root = url.pathname.slice('/api/file/'.length).split('/')[0]
+    const r = app.find(url.searchParams.get('room'))
+    const att = r && fileAtt(r.room, root)
+    if (!att) { res.writeHead(404); return res.end() }
+    if (r.room.blocked().hashes.has(att.hash)) { res.writeHead(410); return res.end('removed from this room') }
+    let path
+    try { path = await r.room.fetchFile(att) } catch (err) { res.writeHead(404); return res.end(err.message) }
+    const { statSync, createReadStream } = await import('node:fs')
+    const size = statSync(path).size
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '')
+    const headers = { 'content-type': att.mime, 'accept-ranges': 'bytes', 'content-disposition': `${url.searchParams.get('dl') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(att.name)}` }
+    if (m) {
+      const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
+      const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+      res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 })
+      return createReadStream(path, { start, end }).pipe(res)
+    }
+    res.writeHead(200, { ...headers, 'content-length': size })
+    createReadStream(path).pipe(res)
   }
   // Serve an attachment; if this device doesn't have it yet, ask the room and wait briefly.
   async function serveBlob (req, res, url) {
@@ -382,6 +451,7 @@ export function serve ({ app }) {
       res.writeHead(401, { 'content-type': 'text/html' }); return res.end(PAIR_PAGE('This device isn\'t paired yet. On your Mac, open rKeyChat → Settings (gear) → Phone, and scan the code.'))
     }
     if (req.method === 'GET' && url.pathname.startsWith('/api/blob/')) return serveBlob(req, res, url)
+    if (req.method === 'GET' && url.pathname.startsWith('/api/file/')) return serveFile(req, res, url)
     const route = routes[`${req.method} ${url.pathname}`]
     if (!route) { res.writeHead(404); return res.end('not found') }
     try {
