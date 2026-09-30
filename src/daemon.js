@@ -14,6 +14,10 @@ import { SCOPES } from './proto.js'
 
 async function openCore (cfg) {
   const core = await createCore({ rootPath: join(dataDir(), 'pearcore') })
+  // pearcore (through c8633de) attaches its file-watcher handlers unbound, so the
+  // first change to a shared file crashes the process. Bind them before it starts watching.
+  const reg = core.managers?.spaceFiles?.localFileRegistry
+  if (reg) for (const m of ['onChangeEvent', 'onDeleteEvent']) if (typeof reg[m] === 'function') reg[m] = reg[m].bind(reg)
   const accounts = await core.accounts.list()
   const { username, password } = cfg.pearcore
   if (!accounts.some((a) => a.username === username)) await core.accounts.create(username, password)
@@ -207,6 +211,10 @@ export async function runDaemon ({ createRoomName } = {}) {
   console.log(`\n  open  http://127.0.0.1:${cfg.port}`)
   console.log('  this terminal is the daemon: leave it running (Ctrl-C stops it).')
   console.log('  run rkeychat commands from another tab, or next time use: rkeychat start --background\n')
+
+  // a bug deep in pearcore must not take the whole chat down: log it loudly and carry on
+  process.on('uncaughtException', (err) => console.error('[daemon] uncaught exception (kept running):', err?.stack ?? err))
+  process.on('unhandledRejection', (err) => console.error('[daemon] unhandled rejection (kept running):', err?.stack ?? err))
 
   const shutdown = async () => {
     server.close()

@@ -529,14 +529,23 @@ export class Room extends EventEmitter {
     name = String(name ?? basename(localPath)).replace(/[\/\\]/g, '_').trim() || 'file'
     const path = `/chat/${name}`
     const browser = await this.#browser()
-    const entry = await browser.addFile(`chat/${name}`, localPath)
-    const root = await new Promise((resolve, reject) => {
-      entry.onError(reject)
-      entry.onComplete(() => resolve(entry.rootHash))
-    })
+    let root
+    try {
+      const entry = await browser.addFile(`chat/${name}`, localPath)
+      root = await new Promise((resolve, reject) => {
+        entry.onError(reject)
+        entry.onComplete(() => resolve(entry.rootHash))
+      })
+    } catch (err) {
+      // the same file on disk was shared before: reuse our existing record
+      const me = this.device.ref.slice(8)
+      const variants = this.core.managers.spaceFileList.get(this.topic)[path] ?? {}
+      root = Object.entries(variants).find(([, v]) => v.peers?.[me])?.[0]
+      if (!root) throw err
+    }
     if (!root) throw new Error('indexing produced no root')
     this.store.rememberFile(root, localPath)
-    return { kind: 'file', hash: root, name, path: entry.path ?? path, size: st.size, mime: mimeOf(name) }
+    return { kind: 'file', hash: root, name, path, size: st.size, mime: mimeOf(name) }
   }
 
   // Where a shared file is on this device, if it is (our own, or fetched).
