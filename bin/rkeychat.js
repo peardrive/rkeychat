@@ -310,6 +310,7 @@ switch (cmd) {
     for (const [k, v] of Object.entries(g).sort()) console.log(`${k.padEnd(18)} → ${v}`)
     break
   }
+  case 'readopt': { const r = await api('POST', '/api/readopt', { room: opt.room, ref: pos[0] ?? die('usage: rkeychat readopt --room ROOM KEYPREFIX') }); console.log(`re-adopted (${r.appended} entries)`); break }
   case 'revoke': { const r = await api('POST', '/api/revoke', { room: opt.room, name: pos[0], ref: opt.key }); console.log(`revoked ${(r.revoked ?? []).map((x) => x.slice(0, 20)).join(', ') || pos[0]}`); break }
   case 'wait': {
     // Stays up across daemon restarts: reconnects quietly and says so once.

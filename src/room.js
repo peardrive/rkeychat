@@ -442,6 +442,40 @@ export class Room extends EventEmitter {
     return ops.length
   }
 
+  // Bring a revoked account back: re-enroll its root with the consent it gave
+  // before, then replay the enrollments it signed for its own session keys.
+  async readopt (ref) {
+    if (!this.isOwner) throw new Error('only the room owner can re-adopt')
+    const root = this.chain.root
+    const last = this.chain.entries.findLast((x) => x.op?.t === 'enroll' && x.op.key === ref)?.op
+    if (!last) throw new Error('no enrollment on record for that key')
+    const ops = []
+    const node = this.state.get(ref)
+    if (node?.revoked) {
+      // a revoked key stays revoked (rKey); its orphaned children can be adopted under us directly
+      const seen = new Set()
+      for (const e of this.chain.entries) {
+        const op = e.op
+        if (op?.t !== 'enroll' || op.parent !== ref || seen.has(op.key)) continue
+        seen.add(op.key)
+        const child = this.state.get(op.key)
+        if (child?.revoked || this.state.isActive(op.key)) continue
+        ops.push(await enroll(this.rootSigner, { root, key: op.key, consent: op.consent, scope: op.scope.filter((s) => s !== 'delegate'), label: op.label }))
+      }
+      if (!ops.length) throw new Error('that key is revoked and has nothing to bring back')
+    } else {
+      ops.push(await enroll(this.rootSigner, { root, key: ref, consent: last.consent, scope: last.scope, label: last.label }))
+      const seen = new Set()
+      for (const e of this.chain.entries) {
+        const op = e.op
+        if (op?.t === 'enroll' && op.parent === ref && !seen.has(op.key)) { seen.add(op.key); ops.push(op) }
+      }
+    }
+    for (const op of ops) await this.chain.append(op, this.rootSigner)
+    this.#chainChanged()
+    return ops.length
+  }
+
   async revoke (ref, reason = 'removed') {
     if (!this.isOwner) throw new Error('only the room owner can revoke others')
     await this.chain.append(await revoke(this.rootSigner, { root: this.chain.root, key: ref, reason }), this.rootSigner)

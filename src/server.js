@@ -202,6 +202,14 @@ export function serve ({ app }) {
       need(room.isOwner, 'only the room\'s owner can approve')
       return { enrolled: await room.approve(decodeRequest(code)), room: room.cfg.name }
     },
+    'POST /api/readopt': async (req) => {
+      const { room: key, ref } = await body(req)
+      const { room } = pick(key)
+      need(room.isOwner, 'only the room owner can re-adopt')
+      const m = room.members().find((x) => x.status === 'revoked' && (x.ref === ref || x.ref.slice(8).startsWith(ref) || x.ref.includes(ref)))
+      need(m, `no revoked key matching ${ref}`)
+      return { ok: true, appended: await room.readopt(m.ref) }
+    },
     'POST /api/revoke': async (req) => {
       // by name: the whole account (every top-level key with that name, children cascade);
       // with `key` (a ref or prefix): just that key, e.g. the old one after a key roll
@@ -214,8 +222,10 @@ export function serve ({ app }) {
         await room.revoke(m.ref, reason)
         return { ok: true, revoked: [m.ref] }
       }
-      const tops = active.filter((x) => x.name === name && x.depth === 1 && !x.label?.startsWith('device:'))
+      let tops = active.filter((x) => x.name === name && x.depth === 1 && !x.label?.startsWith('device:'))
       need(tops.length, `nobody called ${name} in this room`)
+      // after a key roll the name has an account root (delegate) and old flat keys: by name means the old keys
+      if (tops.some((x) => x.scope.includes('delegate')) && tops.some((x) => !x.scope.includes('delegate'))) tops = tops.filter((x) => !x.scope.includes('delegate'))
       if (cfg.participants[name] && !room.isOwner) { await room.leave(name); return { ok: true } }
       for (const m of tops) await room.revoke(m.ref, reason)
       return { ok: true, revoked: tops.map((m) => m.ref) }
