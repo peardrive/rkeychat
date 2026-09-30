@@ -531,10 +531,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <div class="floor-left"><span class="status" id="connStatus">connecting</span></div>
   <nav class="dock" aria-label="Pages">
     <button class="dock-btn" id="sideToggle" title="Show or hide rooms"><svg class="ico"><use href="#i-rooms"/></svg><span>Rooms</span></button>
-    <button class="dock-btn" data-page="agents" title="Agent controls for this room"><svg class="ico"><use href="#i-agents"/></svg><span>Agents</span><i class="dock-badge" id="agentsBadge" hidden></i></button>
-    <button class="dock-btn" data-page="keys" title="Keys and devices"><svg class="ico"><use href="#i-key"/></svg><span>Keys</span></button>
-    <span class="dock-sep"></span>
-    <button class="dock-btn" id="pauseAll" title="Pause every agent in this room"><svg class="ico"><use href="#i-pause"/></svg><span>Pause</span></button>
+    <button class="dock-btn" data-page="contacts" title="People and agents you know"><svg class="ico"><use href="#i-people"/></svg><span>Contacts</span></button>
+    <button class="dock-btn" data-page="profile" title="You: your keys, devices and agents"><svg class="ico"><use href="#i-human"/></svg><span>Profile</span><i class="dock-badge" id="agentsBadge" hidden></i></button>
+    <button class="dock-btn" id="pauseAll" hidden></button>
   </nav>
   <div class="floor-right" id="floorRight"></div>
 </footer>
@@ -823,8 +822,9 @@ function openMenu (anchor) {
   const el = document.createElement('div'); el.className = 'menu'; el.id = 'menu'
   el.innerHTML = [
     c?.owner ? `<button data-go="invite">${icon('plus')}Invite</button>` : '',
-    `<button data-go="agents">${icon('agents')}Agents</button>`,
-    `<button data-go="keys">${icon('key')}Keys</button>`,
+    `<button data-go="room">${icon('rooms')}Room details</button>`,
+    `<button data-go="contacts">${icon('people')}Contacts</button>`,
+    `<button data-go="profile">${icon('human')}Profile</button>`,
     `<button data-go="settings">${icon('gear')}Settings</button>`,
     c?.owner ? `<button data-go="rename">${icon('rooms')}Rename room</button>` : '',
     `<button data-go="pause">${icon(paused ? 'play' : 'pause')}${paused ? 'Resume agents' : 'Pause agents'}</button>`
@@ -851,8 +851,10 @@ const PAGES = {
   rooms: { title: 'Rooms', icon: 'rooms', render: renderRoomsPage },
   people: { title: 'People', icon: 'people', render: renderPeoplePage },
   room: { title: 'Room', icon: 'rooms', render: renderRoomPage },
+  contacts: { title: 'Contacts', icon: 'people', render: renderContactsPage },
+  profile: { title: 'Profile', icon: 'human', render: renderProfilePage },
   agents: { title: 'Agents', icon: 'agents', render: renderAgentsPage },
-  keys: { title: 'Keys', icon: 'key', render: renderKeysPage },
+  keys: { title: 'Verified', icon: 'lock', render: renderKeysPage },
   activity: { title: 'Activity', icon: 'agents', render: renderActivityPage },
   invite: { title: 'Invite', icon: 'plus', render: renderInvitePage },
   settings: { title: 'Settings', icon: 'gear', render: renderSettingsPage }
@@ -921,7 +923,7 @@ function renderActivityPage () {
 }
 function openPage (p) {
   page = p; store.set('rk.page', p || '')
-  if (p === 'rooms' || p === 'people') loadPeople()
+  if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room') loadPeople()
   renderPanel()
 }
 function renderPanel () {
@@ -992,12 +994,15 @@ function renderPeoplePage () {
       <div class="code" id="inviteOut" hidden></div>
       <p class="note">On the other machine: <b>rkeychat room join</b> with this code. It'll hand you back a request to approve under Keys.</p></section>` : ''}`
 }
+let expanded = new Set() // rows opened in the room list
 function renderRoomPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const b = c.budget
   const open = b.unlimited || (b.until && b.until > Date.now())
-  const active = c.participants.filter((p) => p.status === 'active')
-  const humans = c.participants.filter((p) => p.role === 'human' && (p.status === 'active' || p.keys?.some((k) => k.reason === 'banned'))); const agents = c.participants.filter((p) => p.role === 'agent' && (p.status === 'active' || p.keys?.some((k) => k.reason === 'banned')))
+  const everyone = c.participants.filter((p) => p.status === 'active' || p.keys?.some((k) => k.reason === 'banned'))
+  const agents = everyone.filter((p) => p.role === 'agent' && p.status === 'active')
+  const owner = c.participants.find((p) => p.role === 'human' && c.members.some((m) => m.name === p.name && m.depth === 1 && !m.device && !m.label?.startsWith('device:'))) // first human under the root
+  const ownerName = c.owner ? me() : (owner?.name ?? 'the owner')
   const order = [...(c.charter?.order ?? []).filter((n) => agents.some((a) => a.name === n)), ...agents.map((a) => a.name).filter((n) => !(c.charter?.order ?? []).includes(n))]
   const keyRow = (p, k) => {
     const short = k.ref.slice(8, 20)
@@ -1008,39 +1013,94 @@ function renderRoomPage () {
       : k.reason === 'banned' ? `<button class="btn btn-soft btn-sm" data-key-unban="${esc(k.ref)}" data-who="${esc(p.name)}">Unban</button>` : ''
     return `<div class="key-row${k.status === 'active' ? '' : ' is-out'}"><span class="k" title="${esc(k.ref)}"><code>${esc(short)}</code> ${esc(what)}${state ? ` · ${esc(state)}` : ''}</span>${acts}</div>`
   }
-  const person = (p) => {
-    const [tone, label] = personStatus(p, b)
-    const keys = [...(p.keys ?? [])].sort((a, b2) => (b2.account ? 1 : 0) - (a.account ? 1 : 0))
-    return `<div class="row-item${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}><div class="avatar${p.role === 'human' ? ' is-human' : ''}">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}${p.name === me() ? ' (you)' : ''}${p.devices?.length ? ` <span class="pill tone-dim">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="row-sub">${p.local ? 'on this device' : p.online ? 'online' : 'offline'} · ${keys.filter((k) => k.status === 'active').length} of ${keys.length} keys active</span></div><span class="status ${tone}">${esc(label)}</span>${c.owner && p.name !== me() && p.status === 'active' ? `<button class="tree-x" data-kick="${esc(p.name)}" title="Remove everything for ${esc(p.name)}: every key, for good in this room">${icon('x')}</button>` : ''}</div>
-      <div class="key-rows">${keys.map((k) => keyRow(p, k)).join('')}</div>`
+  const personStatusLine = (p) => {
+    if (p.role === 'human') return p.status !== 'active' ? ['tone-bad', 'banned'] : p.local ? ['tone-good', 'you'] : p.online ? ['tone-good', 'online'] : ['', 'offline']
+    return personStatus(p, b)
   }
-  return `<div class="room-profile"><div class="big">${esc(c.name.slice(0, 1).toUpperCase())}</div><h2>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${active.filter((p) => p.online).length} online${c.owner ? ' · you own this room' : ''}</div>
-      <div class="inline">${c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button><button class="btn btn-soft btn-sm" data-open-invite>${icon('plus')}Invite</button>` : `<button class="btn btn-soft btn-sm" id="leaveBtn" data-confirm="Leave this room? Your keys are revoked here; the history stays with the others.">Leave</button>`}
-        <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume agents' : 'Pause agents'}</button></div></div>
-    <section class="section">
-      <h3 class="section-title">Purpose</h3>
+  const row = (p) => {
+    const [tone, label] = personStatusLine(p)
+    const keys = [...(p.keys ?? [])].sort((a, b2) => (b2.account ? 1 : 0) - (a.account ? 1 : 0))
+    const isOpen = expanded.has(p.name)
+    return `<div class="row-item clickable" data-expand="${esc(p.name)}"><div class="avatar${p.role === 'human' ? ' is-human' : ''}">${esc(p.name.slice(0, 1))}</div>
+        <div class="row-main"><span class="row-title">${esc(p.name)}${p.name === me() ? ' (you)' : ''}${p.name === ownerName ? ' <span class="pill tone-accent">owner</span>' : ''}<span class="pill tone-dim">${p.role === 'agent' ? 'agent' : 'person'}</span>${p.devices?.length ? ` <span class="pill tone-dim">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="row-sub">${p.local ? 'on this device' : p.online ? 'online' : 'offline'}${p.role === 'agent' ? ` · ${b.agents?.posts?.[p.name] ?? 0} posts since ${ownerName === me() ? 'your' : 'the'} last message` : ''}</span></div>
+        <span class="status ${tone}">${esc(label)}</span></div>
+      ${isOpen ? `<div class="key-rows">${keys.map((k) => keyRow(p, k)).join('')}
+        <div class="inline" style="margin-top:4px">${p.role === 'agent' ? `<button class="btn btn-soft btn-sm" data-activity="${esc(p.name)}">What it's doing</button>` : ''}${c.owner && p.name !== me() && p.status === 'active' ? `<button class="btn btn-soft btn-sm is-stop" data-kick="${esc(p.name)}">Remove everything</button>` : ''}</div></div>` : ''}`
+  }
+  const inRoom = new Set(everyone.map((p) => p.name))
+  const addable = c.owner ? [...people.local, ...people.known].filter((p) => !inRoom.has(p.name)) : []
+  return `<div class="room-profile"><div class="big">${esc(c.name.slice(0, 1).toUpperCase())}</div><h2>${esc(c.name)}</h2><div class="meta">${everyone.filter((p) => p.status === 'active').length} in the room · ${everyone.filter((p) => p.online).length} online</div>
+      <div class="meta" title="${esc(c.root ?? '')}">Owned by <b>${esc(ownerName)}</b> · key ${esc((c.root ?? '').split(':')[1]?.slice(0, 8) ?? '')}</div>
+      <div class="inline">${c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button><button class="btn btn-soft btn-sm" data-open-invite>${icon('plus')}Invite</button>` : `<button class="btn btn-soft btn-sm" id="leaveBtn" data-confirm="Leave this room? Your keys are revoked here; the history stays with the others.">Leave</button>`}</div></div>
+    <section class="section"><div class="section-title-row"><h3 class="section-title">In this room</h3><span class="note">tap one for keys and options</span></div>${everyone.map(row).join('') || '<p class="note">Nobody yet.</p>'}
+      ${addable.length ? `<details style="margin-top:8px"><summary class="note">Add someone you already know</summary>${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already approved in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}</details>` : ''}
+    </section>
+    <section class="section"><details ${agents.length && (b.paused || !open && b.used > 0) ? 'open' : ''}><summary class="section-title" style="cursor:pointer">Agent rules${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</summary>
+      <div style="margin-top:10px">
+      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No round limit' : `Open until ${time(b.until)}`) : 'Rounds used since the last human message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
+      <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause all'}</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button><button class="btn btn-soft btn-sm" data-ctl="reset">Reset</button>
+        <button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">h</span></div>
+      <div class="agent-opts" style="padding-left:0;margin-top:8px"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
+      <h4 class="section-title" style="margin-top:14px">Purpose</h4>
       ${c.owner
         ? `<textarea class="text-input" id="charterText" rows="6" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>`
         : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>`}
       <p class="note" style="margin-top:10px">Who answers a message that names nobody. The next in line steps in after 45s of silence.</p>
       <div class="order-list" id="orderList">${order.map((n, i) => `<div class="order-item" data-order="${esc(n)}" data-draggable="${c.owner ? '1' : ''}"><span class="idx">${i + 1}</span><div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div><span class="nm">${esc(n)}</span>${i ? `<span class="wait">waits ${i * 45}s</span>` : '<span class="wait">answers first</span>'}${c.owner ? '<span class="grip">⋮⋮</span>' : ''}</div>`).join('') || '<p class="note">No agents in this room.</p>'}</div>
       ${c.owner ? '<div class="apply-bar" id="charterApply" hidden><button class="btn btn-primary btn-sm" id="charterSave">Apply</button><span class="note">Sends the change to the room.</span></div><p class="note">Drag to reorder. @mentions skip the order.</p>' : ''}
-    </section>
-    <section class="section"><h3 class="section-title">People</h3>${humans.map(person).join('') || '<p class="note">Nobody yet.</p>'}</section>
-    <section class="section"><h3 class="section-title">Agents</h3>${agents.map((p) => {
+      ${agents.length ? `<h4 class="section-title" style="margin-top:14px">Each agent</h4>${agents.map((p) => {
         const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
-        return `<div class="agent-card">${person(p)}
+        return `<div class="agent-card"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span></div></div>
           <div class="agent-opts"><span>Can speak</span><label class="switch"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label></div>
           <div class="agent-opts"><span>Max posts per message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div></div>`
-      }).join('') || '<p class="note">No agents in this room.</p>'}</section>
-    <section class="section">
-      <h3 class="section-title">Conversation</h3>
-      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No round limit' : `Open until ${time(b.until)}`) : 'Rounds used since your last message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
-      <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button><button class="btn btn-soft btn-sm" data-ctl="reset">Reset</button>
-        <button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">h</span></div>
-      <div class="agent-opts" style="padding-left:0;margin-top:8px"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
-    </section>`
+      }).join('')}` : ''}
+      </div></details></section>`
 }
+
+// ---------- contacts: everyone you share a room with, across rooms
+function renderContactsPage () {
+  const rooms = S?.rooms ?? []
+  const byName = new Map()
+  for (const r of rooms) for (const p of r.people ?? []) {
+    if (p.local) continue
+    const e = byName.get(p.name) ?? { name: p.name, role: p.role, rooms: [], online: false }
+    e.rooms.push(r.name); e.online = e.online || !!p.online
+    byName.set(p.name, e)
+  }
+  const list = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+  const c = cur(); const inRoom = new Set((c?.participants ?? []).filter((p) => p.status === 'active').map((p) => p.name))
+  const row = (e) => `<div class="row-item"><div class="avatar${e.role === 'human' ? ' is-human' : ''}">${esc(e.name.slice(0, 1))}</div>
+      <div class="row-main"><span class="row-title">${esc(e.name)} <span class="pill tone-dim">${e.role === 'human' ? 'person' : 'agent'}</span></span><span class="row-sub">${e.online ? 'online' : 'offline'} · with you in ${esc(e.rooms.join(', '))}</span></div>
+      ${c?.owner && !inRoom.has(e.name) ? `<button class="btn btn-soft btn-sm" data-add-member="${esc(e.name)}" title="Add to ${esc(c.name)}">Add here</button>` : ''}<button class="btn btn-soft btn-sm" data-start-room="${esc(e.name)}" title="Start a room with just the two of you">Room</button></div>`
+  const humans = list.filter((e) => e.role === 'human'); const agents = list.filter((e) => e.role === 'agent')
+  return `<section class="section"><h3 class="section-title">People</h3>${humans.map(row).join('') || '<p class="note">Nobody yet. Invite someone to a room and they show up here.</p>'}</section>
+    <section class="section"><h3 class="section-title">Agents you've met</h3>${agents.map(row).join('') || '<p class="note">None yet.</p>'}</section>`
+}
+
+// ---------- profile: you, your devices, the agents you host, approvals
+function renderProfilePage () {
+  const c = cur()
+  const d = S?.device ?? {}
+  const meName = me() || 'you'
+  const rootRef = d.root
+  const hosted = (d.participants ?? []).filter((p) => p.role === 'agent')
+  const mine = c ? c.members.filter((m) => m.status !== 'orphaned' && (m.ref === d.ref || m.name === meName)) : []
+  const glyph = (m) => m.label?.startsWith('device:') ? 'device' : m.device ? 'human' : 'root'
+  const tree = mine.map((m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + (m.depth - 1) * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`).join('')
+  return `<div class="room-profile"><div class="big" style="border-radius:50%">${esc(meName.slice(0, 1).toUpperCase())}</div><h2>${esc(meName)}</h2><div class="meta">on ${esc(d.name ?? 'this device')}</div>
+      <div class="inline"><button class="btn btn-soft btn-sm" data-go="settings">${icon('gear')}Settings</button></div></div>
+    <section class="section"><h3 class="section-title">Your account</h3>
+      <dl class="kv"><dt>Root</dt><dd class="mono">${esc(rootRef ?? 'none yet')}</dd><dt>This device</dt><dd class="mono">${esc(d.ref ?? '')}</dd></dl>
+      <p class="note">One account, a key per device, all shown as you. The root lives on this Mac for now; it moves to an NFC card later.</p></section>
+    ${c ? `<section class="section"><div class="section-title-row"><h3 class="section-title">Your keys in ${esc(c.name)}</h3><span class="pill tone-dim">${mine.filter((m) => m.status === 'active').length} active</span></div>
+      <div class="tree"><div class="tree-row" title="${esc(c.root)}">${icon('root', 'tree-glyph')}<span class="tree-label">root</span><span class="tree-ref">${esc((c.root ?? '').split(':')[1]?.slice(0, 6) ?? '')}</span>${c.owner ? '<span class="pill tone-accent">yours</span>' : ''}</div>${tree}</div>
+      <p class="note">Indented under whatever signed it in. Revoke a key and everything under it goes too.</p></section>` : ''}
+    <section class="section"><h3 class="section-title">Agents you host</h3>${hosted.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub mono">${esc(p.ref.slice(0, 26))}… · ${esc(p.bridge ?? 'stream')}</span></div></div>`).join('') || '<p class="note">None on this device. <b>rkeychat add NAME</b> adds one.</p>'}</section>
+    ${c?.owner ? `<section class="section"><h3 class="section-title">Approve a device or agent into ${esc(c.name)}</h3>
+      <textarea class="text-input mono" id="reqIn" rows="3" placeholder="Paste a join request (rkr1.…)"></textarea>
+      <button class="btn btn-primary btn-sm" id="approveBtn">Enroll it</button></section>` : ''}`
+}
+
 function renderAgentsPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const b = c.budget
@@ -1643,7 +1703,7 @@ document.addEventListener('click', async (e) => {
   if (bars && player.key === bars.closest('.memo').dataset.memo && player.audio.duration) {
     const r = bars.getBoundingClientRect(); player.audio.currentTime = ((e.clientX - r.left) / r.width) * player.audio.duration; return
   }
-  const t = e.target.closest('button, [data-room], [data-jump]')
+  const t = e.target.closest('button, [data-room], [data-jump], [data-expand]')
   if (e.target.closest('[data-open-invite]')) { openPage('invite'); loadPeople(); return }
   if (e.target.closest('[data-show-rooms]')) { roomsScreen = true; applySide(); return }
   const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
@@ -1680,6 +1740,8 @@ document.addEventListener('click', async (e) => {
   if (d.glossRm) { glossary = await api('POST', '/api/glossary', { from: d.glossRm, remove: true }); renderPanel(); return }
   if (t.id === 'runFor') return control({ action: 'until', hours: Number($('runHours').value) || 8 })
   if (t.id === 'renameBtn') return renameRoom()
+  if (d.expand !== undefined && !e.target.closest('button')) { expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand); renderPanel(); return }
+  if (d.startRoom) { api('POST', '/api/rooms', { name: `${me()} & ${d.startRoom}`, members: [d.startRoom] }).then((r) => { toast(`Room with ${d.startRoom} created`); load(r.topic) }).catch((err) => toast(err.message)); return }
   if (t.id === 'leaveBtn') { if (!confirm(t.dataset.confirm)) return }
   if (t.id === 'leaveBtn') return api('POST', '/api/revoke', { room: roomArg(), name: me() }).then(() => toast('You left the room')).catch((err) => toast(err.message))
   if (d.kick) { if (!confirm(`Remove EVERYTHING for ${d.kick} in this room? Every one of their keys is revoked here. They can be invited back later.`)) return; return api('POST', '/api/revoke', { room: roomArg(), name: d.kick }).then(() => toast(`${d.kick} removed`)).catch((err) => toast(err.message)) }
