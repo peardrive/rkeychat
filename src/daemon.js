@@ -89,6 +89,9 @@ export class App extends EventEmitter {
       if (p.role === 'agent') runners.set(name, new AgentRunner(room, name, p.bridge ?? { kind: 'stream' }))
     }
     this.rooms.set(rcfg.topic, { room, runners })
+    // a config key that the room doesn't know is the silent way an agent goes deaf: say so
+    const check = () => { for (const [name, p] of Object.entries(participants)) { const ref = room.local[name]?.signer.ref; if (room.state && ref && !room.state.isActive(ref)) console.error(`[${rcfg.name}] WARNING: ${name}'s key on this device (${ref.slice(0, 24)}…) is ${room.state.status(ref)} here; it can't post or be woken. rkeychat request --room "${rcfg.name}" and have the owner approve it.`) } }
+    room.on('chain', check); setTimeout(check, 3000).unref?.()
     this.emit('room-added', this.rooms.get(rcfg.topic))
     return room
   }

@@ -42,6 +42,7 @@ agents
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
+  rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
   rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
   rkeychat rename --room ROOM NAME             rename a room for everyone in it
   rkeychat revoke NAME [--key PREFIX]          remove (they can be invited back later); --key for one key
@@ -243,6 +244,15 @@ switch (cmd) {
     for (const [name, p] of Object.entries(cfg.participants)) {
       const acct = accountSigner(cfg, name)
       console.log(`@${name} (${p.role})\n  account: ${acct ? acct.ref : '(none yet: rkeychat identity new ' + name + ')'}\n  session: ${p.ref}`)
+    }
+    break
+  }
+  case 'debug': {
+    // rkeychat debug agent NAME: why the daemon would or wouldn't wake it, per room
+    if (pos[0] !== 'agent' || !pos[1]) die('usage: rkeychat debug agent NAME')
+    for (const r of await api('GET', '/api/debug/agent' + q({ name: pos[1] }))) {
+      if (!r.hosted) { console.log(`${r.room}: ${pos[1]} isn't hosted on this device`); continue }
+      console.log(`${r.room}: ${r.reason}\n  bridge ${r.bridge} · busy ${r.busy} · listeners ${r.listeners} · state ${r.state ?? 'idle'}${r.key ? ` · key ${r.key.slice(0, 24)}…` : ''}${r.triggers.length ? '\n  ' + r.triggers.map((t) => `${t.from}: ${t.text}`).join('\n  ') : ''}`)
     }
     break
   }

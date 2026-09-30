@@ -400,6 +400,15 @@ export function serve ({ app }) {
 
     'POST /api/stop': () => { setTimeout(() => process.kill(process.pid, 'SIGTERM'), 100); return { ok: true } },
 
+    'GET /api/debug/agent': (req, res, url) => {
+      const name = url.searchParams.get('name')
+      return [...app.rooms.values()].map(({ room, runners }) => {
+        const r = runners.get(name)
+        if (!r) return { room: room.cfg.name, hosted: false }
+        const w = r.why()
+        return { room: room.cfg.name, hosted: true, bridge: r.bridge.kind, busy: r.busy, listeners: r.listeners?.size ?? 0, state: room.agentState.get(name), ...w, triggers: (w.triggers ?? []).map((t) => ({ id: t.id, from: t.name, text: String(t.text).slice(0, 80) })) }
+      })
+    },
     'GET /api/debug': () => {
       const swarm = app.core.managers.connection.swarmInstance
       return {
