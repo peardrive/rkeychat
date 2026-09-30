@@ -108,6 +108,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 /* composer: grows with what you type, scrolls only past ~7 lines */
 .composer { flex: none; display: flex; gap: 10px; align-items: flex-end; padding: 12px 14px; border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.22); }
+.composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer textarea { flex: 1; min-width: 0; display: block; resize: none; height: 40px; max-height: 176px; overflow-y: hidden; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line-strong);
   background: rgba(0, 0, 0, 0.35); font-size: 13.5px; line-height: 20px; }
 .composer textarea.is-overflow { overflow-y: auto; -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), rgba(0,0,0,0.35)); mask-image: linear-gradient(180deg, #000 calc(100% - 22px), rgba(0,0,0,0.35)); }
@@ -230,6 +231,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .panel-body { flex: 1; overflow-y: auto; padding: 16px 16px 20px; display: flex; flex-direction: column; gap: 14px; }
 .section { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02)); border: 1px solid var(--line); box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset; }
 .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); }
+/* room details: a profile page for the room */
+.room-profile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 0 6px; text-align: center; }
+.room-profile .big { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; font-size: 26px; font-weight: 700; color: var(--accent-ink); background: linear-gradient(135deg, #b9db45, #7cc05a); box-shadow: 0 8px 24px rgba(168,206,56,0.25); }
+.room-profile h2 { font-size: 18px; font-weight: 650; }
+.room-profile .meta { font-size: 12.5px; color: var(--text-3); }
+.order-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.order-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; cursor: grab; user-select: none; }
+.order-item:active { cursor: grabbing; } .order-item.is-drag { opacity: 0.45; } .order-item.is-over { box-shadow: 0 0 0 2px var(--accent) inset; }
+.order-item .grip { color: var(--text-3); font-size: 14px; letter-spacing: -2px; } .order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
+.order-item .nm { flex: 1; font-weight: 600; } .order-item .wait { font-size: 11px; color: var(--text-3); }
+.panel-grip { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
+.panel-grip:hover, .panel-grip.is-active { background: linear-gradient(90deg, var(--accent), transparent); opacity: 0.5; }
 .section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .note { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
 .icon-btn { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: var(--text-2); transition: background 0.15s, color 0.15s; }
@@ -411,13 +424,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   .msg { max-width: 90%; gap: 6px; }
   .msg > .avatar { width: 26px; height: 26px; border-radius: 8px; font-size: 11px; }
   .bubble { font-size: 15px; }
-  .composer textarea::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .composer { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
+    .composer { padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); gap: 6px; }
   .composer textarea { font-size: 16px; } /* 16px stops iOS zooming in on focus */
   .agent-strip { margin: 0 8px 6px; }
   .side { position: fixed; inset: 0; z-index: 30; width: 100% !important; border-radius: 0; border: 0; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); background: var(--bg); box-shadow: none; }
   .side.is-mobile-hidden { display: none; }
-  .side-grip { display: none; }
+  .side-grip, .panel-grip { display: none; }
   .panel { position: fixed; inset: 0; z-index: 40; width: 100%; border-radius: 0; border: 0; background: var(--bg); box-shadow: none; padding-top: env(safe-area-inset-top); }
   .panel-body { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
   /* touch: no hover, so the add-emoji button only shows once a message has reactions; press and hold a bubble to react */
@@ -502,7 +514,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
     </form>
   </main>
 
-  <aside class="panel" id="panel">
+  <aside class="panel" id="panel" style="position:relative">
+    <div class="panel-grip" id="panelGrip" title="Drag to resize"></div>
     <header class="panel-head"><svg class="ico" id="panelIcon"><use href="#i-people"/></svg><h2 id="panelTitle">People</h2>
       <button class="icon-btn" id="panelClose" title="Close"><svg class="ico"><use href="#i-x"/></svg></button></header>
     <div class="panel-body" id="panelBody"></div>
@@ -788,7 +801,7 @@ function renderHead () {
   const online = active.filter((p) => p.online).length
   h.innerHTML = `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
-    <div><h2${c.owner ? ' class="clickable" title="Double-click to rename"' : ''}>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
+    <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
     <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
@@ -832,6 +845,7 @@ function renderInvitePage () {
 const PAGES = {
   rooms: { title: 'Rooms', icon: 'rooms', render: renderRoomsPage },
   people: { title: 'People', icon: 'people', render: renderPeoplePage },
+  room: { title: 'Room', icon: 'rooms', render: renderRoomPage },
   agents: { title: 'Agents', icon: 'agents', render: renderAgentsPage },
   keys: { title: 'Keys', icon: 'key', render: renderKeysPage },
   activity: { title: 'Activity', icon: 'agents', render: renderActivityPage },
@@ -970,6 +984,41 @@ function renderPeoplePage () {
       <button class="btn btn-soft btn-block" id="inviteBtn">${icon('plus')}Copy an invite code</button>
       <div class="code" id="inviteOut" hidden></div>
       <p class="note">On the other machine: <b>rkeychat room join</b> with this code. It'll hand you back a request to approve under Keys.</p></section>` : ''}`
+}
+function renderRoomPage () {
+  const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
+  const b = c.budget
+  const open = b.unlimited || (b.until && b.until > Date.now())
+  const active = c.participants.filter((p) => p.status === 'active')
+  const humans = active.filter((p) => p.role === 'human'); const agents = active.filter((p) => p.role === 'agent')
+  const order = [...(c.charter?.order ?? []).filter((n) => agents.some((a) => a.name === n)), ...agents.map((a) => a.name).filter((n) => !(c.charter?.order ?? []).includes(n))]
+  const person = (p) => { const [tone, label] = personStatus(p, b); return `<div class="row-item${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}><div class="avatar${p.role === 'human' ? ' is-human' : ''}">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}${p.name === me() ? ' (you)' : ''}${p.devices?.length ? ` <span class="pill tone-dim">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="row-sub">${p.local ? 'on this device' : p.online ? 'online' : 'offline'}${p.keys?.length > 1 ? ` · ${p.keys.filter((k) => k.status === 'active').length} keys` : ''}</span></div><span class="status ${tone}">${esc(label)}</span>${c.owner && p.name !== me() ? `<button class="tree-x" data-kick="${esc(p.name)}" title="Remove ${esc(p.name)} from this room">${icon('x')}</button>` : ''}</div>` }
+  return `<div class="room-profile"><div class="big">${esc(c.name.slice(0, 1).toUpperCase())}</div><h2>${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${active.filter((p) => p.online).length} online${c.owner ? ' · you own this room' : ''}</div>
+      <div class="inline">${c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button><button class="btn btn-soft btn-sm" data-open-invite>${icon('plus')}Invite</button>` : `<button class="btn btn-soft btn-sm" id="leaveBtn" data-confirm="Leave this room? Your keys are revoked here; the history stays with the others.">Leave</button>`}
+        <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume agents' : 'Pause agents'}</button></div></div>
+    <section class="section">
+      <h3 class="section-title">Purpose</h3>
+      ${c.owner
+        ? `<textarea class="text-input" id="charterText" rows="6" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>`
+        : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>`}
+      <p class="note" style="margin-top:10px">Who answers a message that names nobody. The next in line steps in after 45s of silence.</p>
+      <div class="order-list" id="orderList">${order.map((n, i) => `<div class="order-item" draggable="${c.owner ? 'true' : 'false'}" data-order="${esc(n)}"><span class="idx">${i + 1}</span><div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div><span class="nm">${esc(n)}</span>${i ? `<span class="wait">waits ${i * 45}s</span>` : '<span class="wait">answers first</span>'}${c.owner ? '<span class="grip">⋮⋮</span>' : ''}</div>`).join('') || '<p class="note">No agents in this room.</p>'}</div>
+      ${c.owner ? '<div class="inline" style="margin-top:8px"><button class="btn btn-primary btn-sm" id="charterSave">Save purpose and order</button><span class="note" style="align-self:center">Drag to reorder. @mentions skip the order.</span></div>' : ''}
+    </section>
+    <section class="section"><h3 class="section-title">People</h3>${humans.map(person).join('') || '<p class="note">Nobody yet.</p>'}</section>
+    <section class="section"><h3 class="section-title">Agents</h3>${agents.map((p) => {
+        const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
+        return `<div class="agent-card">${person(p)}
+          <div class="agent-opts"><span>Can speak</span><label class="switch"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label></div>
+          <div class="agent-opts"><span>Max posts per message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div></div>`
+      }).join('') || '<p class="note">No agents in this room.</p>'}</section>
+    <section class="section">
+      <h3 class="section-title">Conversation</h3>
+      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No round limit' : `Open until ${time(b.until)}`) : 'Rounds used since your last message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
+      <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button><button class="btn btn-soft btn-sm" data-ctl="reset">Reset</button>
+        <button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">h</span></div>
+      <div class="agent-opts" style="padding-left:0;margin-top:8px"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
+    </section>`
 }
 function renderAgentsPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
@@ -1481,7 +1530,36 @@ const applySide = () => {
 }
 applySide()
 $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
-$('roomHead').addEventListener('dblclick', (e) => { if (e.target.closest('h2')) renameRoom() })
+$('roomHead').addEventListener('click', (e) => { if (e.target.closest('[data-open-room]')) openPage(page === 'room' ? null : 'room') })
+// drag to reorder who answers first
+{
+  let dragging = null
+  document.addEventListener('dragstart', (e) => { const it = e.target.closest?.('.order-item[draggable="true"]'); if (!it) return; dragging = it; it.classList.add('is-drag'); e.dataTransfer.effectAllowed = 'move' })
+  document.addEventListener('dragover', (e) => { const it = e.target.closest?.('.order-item'); if (!it || !dragging || it === dragging) return; e.preventDefault(); it.classList.add('is-over') })
+  document.addEventListener('dragleave', (e) => { e.target.closest?.('.order-item')?.classList.remove('is-over') })
+  document.addEventListener('drop', (e) => {
+    const it = e.target.closest?.('.order-item'); if (!it || !dragging || it === dragging) return
+    e.preventDefault(); it.classList.remove('is-over')
+    const list = it.parentElement; const items = [...list.children]
+    if (items.indexOf(dragging) < items.indexOf(it)) it.after(dragging); else it.before(dragging)
+    ;[...list.querySelectorAll('.order-item')].forEach((el, i) => { el.querySelector('.idx').textContent = i + 1; el.querySelector('.wait').textContent = i ? `waits ${i * 45}s` : 'answers first' })
+  })
+  document.addEventListener('dragend', () => { dragging?.classList.remove('is-drag'); dragging = null })
+}
+// resizable right panel
+{
+  const grip = $('panelGrip'); const panel = $('panel')
+  const applyW = () => panel.style.setProperty('--panel-w', `${Number(store.get('rk.panelW', 0)) || 340}px`)
+  applyW()
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); grip.classList.add('is-active'); grip.setPointerCapture(e.pointerId)
+    const startX = e.clientX; const startW = panel.getBoundingClientRect().width
+    const move = (ev) => { const w = Math.max(280, Math.min(720, startW - (ev.clientX - startX))); panel.style.setProperty('--panel-w', `${w}px`); store.set('rk.panelW', String(Math.round(w))) }
+    const up = () => { grip.classList.remove('is-active'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up) }
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up)
+  })
+  grip.addEventListener('dblclick', () => { store.set('rk.panelW', '340'); applyW() })
+}
 $('sideGrip').addEventListener('pointerdown', (e) => {
   const x0 = e.clientX; const w0 = side.getBoundingClientRect().width
   const move = (ev) => { const w = Math.max(200, Math.min(460, w0 + ev.clientX - x0)); side.style.setProperty('--side-w', `${w}px`); store.set('rk.sideW', w) }
@@ -1550,6 +1628,10 @@ document.addEventListener('click', async (e) => {
   if (d.redact) { if (confirm('Remove this message for everyone in the room? Any file it carried is blocked from this room too.')) api('POST', '/api/redact', { room: roomArg(), target: d.redact }); return }
   if (d.glossRm) { glossary = await api('POST', '/api/glossary', { from: d.glossRm, remove: true }); renderPanel(); return }
   if (t.id === 'runFor') return control({ action: 'until', hours: Number($('runHours').value) || 8 })
+  if (t.id === 'renameBtn') return renameRoom()
+  if (t.id === 'leaveBtn') { if (!confirm(t.dataset.confirm)) return }
+  if (t.id === 'leaveBtn') return api('POST', '/api/revoke', { room: roomArg(), name: me() }).then(() => toast('You left the room')).catch((err) => toast(err.message))
+  if (d.kick) { if (!confirm(`Remove ${d.kick} from this room? Their keys are revoked here.`)) return; return api('POST', '/api/revoke', { room: roomArg(), name: d.kick }).then(() => toast(`${d.kick} removed`)).catch((err) => toast(err.message)) }
   if (t.id === 'clearSel') { selectedMsg = null; renderPanel(); renderFeed(); return }
   if (t.id === 'inviteBtn') { const { invite } = await api('GET', `/api/invite?room=${encodeURIComponent(roomArg())}`); const o = $('inviteOut'); o.textContent = invite; o.hidden = false; navigator.clipboard?.writeText(invite).then(() => toast('Invite copied.')); return }
   if (t.id === 'approveBtn') { const { enrolled } = await api('POST', '/api/approve', { room: roomArg(), code: $('reqIn').value }); toast(`Enrolled ${enrolled} key${enrolled === 1 ? '' : 's'}.`); return }
@@ -1557,7 +1639,7 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('change', (e) => {
   if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
   if (e.target.id === 'charterSave') {
-    const order = $('charterOrder').value.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean)
+    const order = $('orderList') ? [...$('orderList').querySelectorAll('[data-order]')].map((el) => el.dataset.order) : $('charterOrder').value.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean)
     control({ action: 'charter', text: $('charterText').value, order }).then(() => toast('Purpose saved')).catch((err) => toast(err.message))
     return
   }
