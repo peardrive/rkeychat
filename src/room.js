@@ -415,7 +415,7 @@ export class Room extends EventEmitter {
     // a device already in the room may roll its keys under the same names; a new device may not take a name in use
     const rolling = !!(d && this.state.isActive(d.ref))
     if (d && !this.state.isActive(d.ref) && !this.#burned(d.ref)) {
-      ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, consentAt: d.at, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
+      ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, consentAfter: d.after, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
     }
     for (const p of request.participants ?? []) {
       if (this.state.isActive(p.ref)) continue
@@ -428,12 +428,12 @@ export class Room extends EventEmitter {
         const existing = this.state.get(a.ref)
         if (!existing && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
         if (existing?.revoked && this.#burned(a.ref)) continue
-        if (!existing || existing.revoked) ops.push(await enroll(this.rootSigner, { root, key: a.ref, consent: a.consent, consentAt: a.at, scope: ['bind', SCOPES.chat, role, 'delegate'], label: name }))
+        if (!existing || existing.revoked) ops.push(await enroll(this.rootSigner, { root, key: a.ref, consent: a.consent, consentAfter: a.after, scope: ['bind', SCOPES.chat, role, 'delegate'], label: name }))
         if (a.enroll?.key === p.ref) ops.push(a.enroll) // the account enrolls its own session key (signed by it)
       } else {
         // a key under this room's own root: another device of the owner (label name@device), or a legacy key
         if (a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
-        ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, consentAt: p.at, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
+        ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, consentAfter: p.after, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
       }
       taken.add(name)
     }
@@ -830,20 +830,26 @@ export class Room extends EventEmitter {
 // A join request carries this device, and each participant with its account:
 // the account root's consent to the room, plus the account's own enrollment
 // of the session key (pre-signed; the owner appends it after enrolling the root).
-export async function joinRequest ({ root, deviceName, device, participants }) {
-  const at = Date.now()
+// `state` (the room's current key state, if this device has it) lets a key that
+// was removed earlier anchor its consent to that revocation, which is what lets
+// it back in.
+export async function joinRequest ({ root, deviceName, device, participants, state = null }) {
+  const after = (ref) => state?.get(ref)?.revoked?.sig
+  const fresh = async (signer) => { const a = after(signer.ref); return { consent: await consent(signer, root, a ? { after: a } : {}), after: a } }
+  const dev = await fresh(device)
   return {
-    at, // consents are fresh proofs of possession, so a removed key can be invited back
-    device: { ref: device.ref, name: deviceName, consent: await consent(device, root, { at }), at },
+    device: { ref: device.ref, name: deviceName, consent: dev.consent, after: dev.after },
     participants: await Promise.all(Object.entries(participants).map(async ([name, p]) => {
-      const out = { ref: p.signer.ref, name, role: p.role, consent: await consent(p.signer, root, { at }), at }
+      const c = await fresh(p.signer)
+      const out = { ref: p.signer.ref, name, role: p.role, consent: c.consent, after: c.after }
       if (p.account && p.account.ref !== p.signer.ref) {
         const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
+        const ac = await fresh(p.account)
         out.account = {
           ref: p.account.ref,
-          consent: await consent(p.account, root, { at }),
-          at,
-          enroll: await enroll(p.account, { root, key: p.signer.ref, consent: out.consent, consentAt: at, scope: ['bind', SCOPES.chat, role], label: `${name}@${deviceName}` })
+          consent: ac.consent,
+          after: ac.after,
+          enroll: await enroll(p.account, { root, key: p.signer.ref, consent: out.consent, consentAfter: c.after, scope: ['bind', SCOPES.chat, role], label: `${name}@${deviceName}` })
         }
       }
       return out

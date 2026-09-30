@@ -200,7 +200,7 @@ export class App extends EventEmitter {
   }
 
   request (room) {
-    return joinRequest({ root: room.cfg.root, deviceName: this.cfg.deviceName, device: this.device, participants: this.participants })
+    return joinRequest({ root: room.cfg.root, deviceName: this.cfg.deviceName, device: this.device, participants: this.participants, state: room.state })
   }
 }
 
