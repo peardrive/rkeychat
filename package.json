@@ -18,7 +18,7 @@
     "hyperdht": "^6.34.0",
     "pearcore": "github:peardrive/pearcore#c8633de",
     "qrcode": "^1.5.4",
-    "rkey": "file:../rKey-id",
+    "rkey": "file:../rKey",
     "sherpa-onnx-node": "^1.13.8",
     "ws": "^8.22.0"
   }
