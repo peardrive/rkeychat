@@ -82,13 +82,14 @@ export class Room extends EventEmitter {
         }
       }
     }
-    this.timer = setInterval(() => { this.#healSockets(); this.#sendPresence() }, PRESENCE_EVERY)
+    this.timer = setInterval(() => { this.#healSockets(); this.#sendPresence(); this.#deafCheck() }, PRESENCE_EVERY)
     this.timer.unref()
     // anti-entropy: even if a live message is lost, everything converges
     this.syncTimer = setInterval(() => this.#hello(), SYNC_EVERY)
     this.syncTimer.unref()
     if (this.isOwner) await this.#syncWhitelist()
     this.applyRename()
+    this.startedAt = Date.now()
     this.#hello()
   }
 
@@ -115,6 +116,38 @@ export class Room extends EventEmitter {
       await this.#send('hist-req', { since: Math.min(since, this.store.lastTs), have: this.store.since(since, Infinity).map((r) => r.id) })
       await this.#sendPresence()
     }, 300)
+  }
+
+  // Live transport view: how many swarm connections we hold to members of this room.
+  connections () {
+    const swarm = this.core.managers.connection.swarmInstance
+    if (!swarm || !this.state) return 0
+    let n = 0
+    for (const c of swarm.connections) {
+      if (c.destroyed || !c.remotePublicKey) continue
+      if (this.state.can(edRef(Buffer.from(c.remotePublicKey).toString('hex')), SCOPES.host)) n++
+    }
+    return n
+  }
+
+  // A daemon can come up looking healthy and never hear the room again (seen
+  // on the Mini: 17 minutes of silence after a peer restarted). If others are
+  // expected but nothing has arrived for a while and we hold no connections,
+  // refresh discovery so Hyperswarm looks for them again.
+  #deafCheck () {
+    const others = this.members().some((m) => m.status === 'active' && m.scope.includes(SCOPES.host) && m.ref !== this.device.ref)
+    if (!others) return
+    const quiet = Date.now() - (this.lastRx ?? this.startedAt ?? 0)
+    if (quiet < 3 * PRESENCE_STALE || this.connections() > 0) return
+    if (this.lastRefresh && Date.now() - this.lastRefresh < 2 * PRESENCE_STALE) return
+    this.lastRefresh = Date.now()
+    console.error(`[${this.cfg.name}] no traffic for ${Math.round(quiet / 1000)}s and no connections: refreshing discovery`)
+    try {
+      const cm = this.core.managers.connection
+      const d = cm.discoveryMap?.[this.topic]
+      if (d?.refresh) d.refresh({ server: true, client: true }).catch(() => {})
+      else cm.join(this.topic).catch?.(() => {})
+    } catch (err) { console.error('[deaf-check]', err.message) }
   }
 
   // Workaround for a pearcore bug: its SocketManager keeps one socket per peer,
@@ -245,6 +278,7 @@ export class Room extends EventEmitter {
 
   async #onSpaceMessage ({ message, content }) {
     if (message.topic !== this.topic || !isOurs(content)) return
+    this.lastRx = Date.now()
     const fromDevice = edRef(message.publicKey)
     if (DEBUG) console.error('[rx]', content.type, 'from', message.publicKey.slice(0, 8), content.rec ? `${content.rec.kind} ${this.#admitReason(content.rec)}` : '')
     switch (content.type) {

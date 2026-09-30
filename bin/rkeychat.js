@@ -266,6 +266,7 @@ switch (cmd) {
   case 'status': {
     const s = await api('GET', '/api/state' + q({ room: opt.room }))
     const c = s.current
+    if (c && c.admitted && c.participants.some((p) => p.status === 'active' && !p.local) && c.connections === 0) console.log('DEAF: no live connections to anyone in this room (people may show online from stale state)')
     if (!c) { console.log(`device ${s.device.name}, no rooms yet`); break }
     const b = c.budget
     console.log(`room ${c.name}${c.owner ? ' (owner)' : ''}${c.admitted ? '' : ' — waiting for approval'}   [${s.rooms.map((r) => r.name).join(', ')}]`)

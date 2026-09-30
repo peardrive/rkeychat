@@ -72,6 +72,7 @@ export function roomSnapshot (room) {
     reactions: room.reactions(),
     style: room.style(),
     charter: room.charter(),
+    connections: room.connections(),
     log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
   }
 }
