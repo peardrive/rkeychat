@@ -1216,6 +1216,11 @@ function bindRoomForms (root) {
 
 // ---------- events
 const es = new EventSource('/api/events')
+// safety net: if the event stream goes quiet (seen in the phone app's WebView), poll instead
+let lastEvent = Date.now()
+es.addEventListener('message', () => { lastEvent = Date.now() })
+for (const t of ['record', 'room', 'rooms', 'participants', 'activity']) es.addEventListener(t, () => { lastEvent = Date.now() }, true)
+setInterval(() => { if (Date.now() - lastEvent > 20_000 && cur()) { lastEvent = Date.now() - 15_000; load(cur().topic).catch(() => {}) } }, 5_000)
 es.onopen = () => load(store.get('rk.room', null))
 es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else { renderSide(); renderChrome() } })
 es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { S.current = r; renderAll() } })
@@ -1298,6 +1303,7 @@ $('composer').addEventListener('submit', async (e) => {
   const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : pendingFile ? [pendingFile] : undefined
   await api('POST', '/api/send', { room: roomArg(), text, via, att, re: replyTo ? [replyTo] : undefined })
   ta.value = ''; dictatedThisMessage = false; clearPending(); clearReply(); grow()
+  if (Date.now() - lastEvent > 3_000) load(roomArg()).catch(() => {}) // stream quiet: show what we just sent
 })
 
 // ---------- learning: what you retype after dictating becomes a fix (autocorrect-style)
