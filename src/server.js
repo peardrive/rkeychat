@@ -21,13 +21,7 @@ const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
-export function encodeInvite (room) { return 'rkc1.' + b64({ n: room.name, s: room.sharelink, r: room.root, t: room.topic }) }
-export function decodeInvite (code) {
-  const s = String(code ?? '').trim()
-  if (!s.startsWith('rkc1.')) throw new Error('that isn\'t an rKeyChat invite (they start with rkc1.)')
-  const { n, s: sharelink, r: root, t: topic } = unb64(s.slice(5))
-  return { name: n, sharelink, root, topic }
-}
+export { encodeInvite, decodeInvite } from './invite.js'
 export const encodeRequest = (req) => 'rkr1.' + b64(req)
 export function decodeRequest (code) {
   const s = String(code ?? '').trim()
@@ -111,12 +105,18 @@ export function serve ({ app }) {
 
   const need = (cond, msg, status = 400) => { if (!cond) { const e = new Error(msg); e.status = status; throw e } }
   const pick = (key) => { const r = app.find(key); need(r, key ? `no room "${key}"` : 'no rooms yet. Create one first', 404); return r }
-  const localHuman = () => Object.entries(cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+  // the default `as`: the local human; on a device with none, the only local participant; else say what's available
+  const localHuman = () => {
+    const names = Object.keys(cfg.participants)
+    return Object.entries(cfg.participants).find(([, p]) => p.role === 'human')?.[0] ?? (names.length === 1 ? names[0] : undefined)
+  }
+  const nameOrDie = (as) => { need(as, `say who's posting: --as NAME (on this device: ${Object.keys(cfg.participants).join(', ') || 'nobody yet'})`); return as }
   // an agent replying without naming a room answers wherever it was given a turn
   const roomForAgent = (as, key) => key ? pick(key) : ([...app.rooms.values()].find((r) => r.runners.get(as)?.busy) ?? pick())
 
   const routes = {
     'GET /': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(readFileSync(UI)) },
+    'GET /jsQR.js': (req, res) => { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'max-age=86400' }); res.end(readFileSync(join(dirname(UI), 'jsQR.js'))) },
 
     'GET /api/state': (req, res, url) => {
       const r = app.find(url.searchParams.get('room'))
@@ -165,6 +165,7 @@ export function serve ({ app }) {
 
     'POST /api/send': async (req) => {
       const { room: key, as = localHuman(), text, re = [], pass = false, via, att } = await body(req)
+      nameOrDie(as)
       const { room, runners } = runners0(as, key)
       // a mirrored terminal exchange is just recorded: no turns, no rounds, no glossary
       if (via === 'mirror') return { ...(await room.post(as, text, { via })), roomName: room.cfg.name }
@@ -231,7 +232,8 @@ export function serve ({ app }) {
         const m = active.find((x) => x.ref === ref || x.ref.includes(ref) || x.ref.slice(8).startsWith(ref))
         need(m, `no active key matching ${ref}`)
         await room.revoke(m.ref, reason)
-        return { ok: true, revoked: [m.ref] }
+        const devices = await room.pruneDevices(reason)
+        return { ok: true, revoked: [m.ref], devices }
       }
       let tops = active.filter((x) => x.name === name && x.depth === 1 && !x.label?.startsWith('device:'))
       need(tops.length, `nobody called ${name} in this room`)
@@ -240,7 +242,8 @@ export function serve ({ app }) {
       if (reason !== 'banned' && tops.some((x) => x.scope.includes('delegate')) && tops.some((x) => !x.scope.includes('delegate'))) tops = tops.filter((x) => !x.scope.includes('delegate'))
       if (cfg.participants[name] && !room.isOwner) { await room.leave(name); return { ok: true } }
       for (const m of tops) await room.revoke(m.ref, reason)
-      return { ok: true, revoked: tops.map((m) => m.ref) }
+      const devices = await room.pruneDevices(reason)
+      return { ok: true, revoked: tops.map((m) => m.ref), devices }
     },
 
     // NDJSON stream of turns for a stream-bridged agent, across all rooms
@@ -401,6 +404,18 @@ export function serve ({ app }) {
 
     'POST /api/stop': () => { setTimeout(() => process.kill(process.pid, 'SIGTERM'), 100); return { ok: true } },
 
+    // ---- logging a new device in (see login.js) ----
+    'POST /api/login/offer': async (req) => {
+      need(!isRemote(req), 'start this from the device that holds the account', 403)
+      const o = await app.login.offer()
+      return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 1, color: { dark: '#ececf1', light: '#00000000' } }) }
+    },
+    'POST /api/login/claim': async (req) => {
+      const { code } = await body(req)
+      need(code, 'paste or scan a login code')
+      return app.login.claim(code)
+    },
+    'GET /api/login': () => ({ pending: app.login.pending() }),
     'GET /api/debug/agent': (req, res, url) => {
       const name = url.searchParams.get('name')
       return [...app.rooms.values()].map(({ room, runners }) => {

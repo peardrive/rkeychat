@@ -237,8 +237,10 @@ switch (cmd) {
     const cfg = cfgOrDie()
     if (pos[0] === 'new') {
       const name = pos[1] ?? die('usage: rkeychat identity new NAME')
+      const before = cfg.participants[name]?.ref
       const { account, session } = newIdentity(cfg, name); saveConfig(cfg)
-      console.log(`new identity for @${name}\n  account: ${account}\n  session: ${session}\nrestart the daemon, then rejoin rooms with the new keys: rkeychat request --room ROOM (the owner approves it, then revokes the old ones).`)
+      console.log(`new identity for @${name}\n  account: ${account}\n  session: ${session}\n  previous session: ${before} (kept; it keeps signing in every room until the new key is approved there)`)
+      if (cfg.rooms.length) console.log(`rooms to re-enter with the new keys: ${cfg.rooms.map((r) => r.name).join(', ')}\n  for each: restart the daemon, rkeychat request --room ROOM > req.txt, the owner approves it; nothing to revoke unless you want the old key gone.`)
       break
     }
     for (const [name, p] of Object.entries(cfg.participants)) {

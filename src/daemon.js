@@ -11,6 +11,7 @@ import { Room, joinRequest } from './room.js'
 import { AgentRunner } from './agents.js'
 import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
+import { Login } from './login.js'
 
 async function openCore (cfg) {
   const core = await createCore({ rootPath: join(dataDir(), 'pearcore') })
@@ -214,6 +215,7 @@ export async function runDaemon ({ createRoomName } = {}) {
   const { core, device } = await openCore(cfg)
   const app = new App({ cfg, core, device })
   await app.init()
+  app.login = new Login(app)
   if (createRoomName && !cfg.rooms.some((r) => r.name === createRoomName)) await app.createRoom(createRoomName)
 
   const server = await serve({ app }).catch((err) => {
