@@ -74,9 +74,18 @@ export function roomSnapshot (room) {
 export function serve ({ app }) {
   const { cfg, device } = app
   const sse = new Set()
+  // Long-lived responses (event stream, agent wait): a write after the client has
+  // gone must never throw. On Bare's HTTP server it surfaces as an 'error' event
+  // that, unhandled, aborts the whole process; Node just drops it.
+  const streamer = (res, cleanup) => {
+    let gone = false
+    const done = () => { if (gone) return; gone = true; try { cleanup() } catch {} }
+    res.on('close', done); res.on('error', done); res.on('finish', done)
+    return (data) => { if (gone) return false; try { return res.write(data) } catch { done(); return false } }
+  }
   const push = (event, data) => {
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-    for (const res of sse) res.write(frame)
+    for (const w of sse) w(frame)
   }
 
   const wire = ({ room }) => {
@@ -129,11 +138,10 @@ export function serve ({ app }) {
     },
     'GET /api/events': (req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
-      res.write(': hi\n\n')
-      sse.add(res)
-      const ka = setInterval(() => res.write(': ka\n\n'), 15000)
-      // on Bare the request stream closes as soon as the (empty) body is read; the response closes with the connection
-      res.on('close', () => { clearInterval(ka); sse.delete(res) })
+      const w = streamer(res, () => { clearInterval(ka); sse.delete(w) })
+      w(': hi\n\n')
+      sse.add(w)
+      const ka = setInterval(() => w(': ka\n\n'), 15000)
     },
 
     'GET /api/rooms': () => app.list(),
@@ -253,17 +261,18 @@ export function serve ({ app }) {
       const only = url.searchParams.get('room')
       need(cfg.participants[as]?.role === 'agent' && (cfg.participants[as].bridge?.kind ?? 'stream') === 'stream', `${as} is not a stream agent on this device`)
       res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-cache' })
-      res.write(JSON.stringify({ type: 'ready', name: as }) + '\n')
       const offs = []
+      let ka = null
+      const w = streamer(res, () => { clearInterval(ka); app.off('room-added', attach); offs.forEach((off) => off()) })
+      w(JSON.stringify({ type: 'ready', name: as }) + '\n')
       const attach = ({ room, runners }) => {
         if (only && room.topic !== only && room.cfg.name !== only) return
         const runner = runners.get(as)
-        if (runner) offs.push(runner.listen((turn) => res.write(JSON.stringify({ type: 'turn', room: room.cfg.name, topic: room.topic, ...turn }) + '\n')))
+        if (runner) offs.push(runner.listen((turn) => w(JSON.stringify({ type: 'turn', room: room.cfg.name, topic: room.topic, ...turn }) + '\n')))
       }
       for (const r of app.rooms.values()) attach(r)
       app.on('room-added', attach)
-      const ka = setInterval(() => res.write(JSON.stringify({ type: 'ka' }) + '\n'), 30000)
-      res.on('close', () => { clearInterval(ka); app.off('room-added', attach); offs.forEach((off) => off()) })
+      ka = setInterval(() => w(JSON.stringify({ type: 'ka' }) + '\n'), 30000)
     },
 
     // Dictation: audio in, text out. Transcribed on this machine; fixes applied.
