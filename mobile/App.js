@@ -2,7 +2,7 @@
 // runs on this device in a Bare worklet; the UI is the same web UI as the
 // desktop app, served by that backend on 127.0.0.1 and shown full screen.
 import { useEffect, useRef, useState } from 'react'
-import { AppState, StyleSheet, Text, View } from 'react-native'
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { WebView } from 'react-native-webview'
 import { Worklet } from 'react-native-bare-kit'
@@ -37,6 +37,7 @@ export default function App () {
   const [url, setUrl] = useState(null)
   const [status, setStatus] = useState('Starting…')
   const [error, setError] = useState(null)
+  const [strayed, setStrayed] = useState(false) // the page left the chat; offer a way back
   const web = useRef(null)
 
   useEffect(() => {
@@ -70,6 +71,15 @@ export default function App () {
             allowsBackForwardNavigationGestures={false}
             bounces={false}
             onContentProcessDidTerminate={() => web.current?.reload()}
+            // The chat page is the app. Nothing may replace it: a file link, a download,
+            // an external URL. Those are handled inside the page (or not at all) so there is
+            // never a screen without a way back.
+            onShouldStartLoadWithRequest={(req) => {
+              if (!req.isTopFrame) return true
+              return isChatPage(req.url, url)
+            }}
+            onNavigationStateChange={(nav) => setStrayed(!nav.loading && !isChatPage(nav.url, url))}
+            onError={() => setStrayed(true)}
           />
           )
         : (
@@ -79,8 +89,23 @@ export default function App () {
             {error ? <Text style={styles.err} selectable>{error}</Text> : null}
           </View>
           )}
+      {strayed && url
+        ? (
+          <Pressable style={styles.escape} onPress={() => { setStrayed(false); web.current?.injectJavaScript(`location.replace(${JSON.stringify(url)}); true`) }}>
+            <Text style={styles.escapeText}>✕  back to chat</Text>
+          </Pressable>
+          )
+        : null}
     </View>
   )
+}
+
+// Same origin, and the path is the page itself (the hash can be anything).
+function isChatPage (candidate, home) {
+  try {
+    const a = new URL(candidate); const b = new URL(home)
+    return a.origin === b.origin && (a.pathname === '/' || a.pathname === b.pathname) && !a.search.includes('dl=1')
+  } catch { return false }
 }
 
 const styles = StyleSheet.create({
@@ -88,5 +113,7 @@ const styles = StyleSheet.create({
   boot: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: BG },
   word: { color: '#ececf1', fontSize: 22, fontWeight: '600', letterSpacing: 0.5, marginBottom: 10 },
   status: { color: '#8b8d98', fontSize: 14 },
-  err: { color: '#f07a7a', fontSize: 11, marginTop: 16, fontFamily: 'Menlo' }
+  err: { color: '#f07a7a', fontSize: 11, marginTop: 16, fontFamily: 'Menlo' },
+  escape: { position: 'absolute', top: 54, right: 16, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, backgroundColor: 'rgba(24,24,28,0.92)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
+  escapeText: { color: '#ececf1', fontSize: 14, fontWeight: '600' }
 })
