@@ -165,6 +165,13 @@ export function serve ({ app }) {
       local: Object.entries(cfg.participants).filter(([, p]) => p.role === 'agent').map(([name]) => ({ name, role: 'agent', local: true })),
       known: app.knownPeople()
     }),
+    // bring every device of yours (known from your other rooms) into this room
+    'POST /api/rooms/devices': async (req) => {
+      const { room: key } = await body(req)
+      const { room } = pick(key)
+      need(room.isOwner, 'only the room\'s owner can do that')
+      return { added: await app.enrollOwnDevices(room) }
+    },
     'POST /api/rooms/add': async (req) => {
       const { room: key, name } = await body(req)
       const { room } = pick(key)

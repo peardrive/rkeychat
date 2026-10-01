@@ -47,7 +47,8 @@ agents
   rkeychat rename --room ROOM NAME             rename a room for everyone in it
   rkeychat revoke NAME [--key PREFIX]          remove (they can be invited back later); --key for one key
   rkeychat ban NAME [--key PREFIX]             keep them out until you lift it; rkeychat unban PREFIX lifts it
-  rkeychat readopt --room ROOM PREFIX          bring back a removed account's orphaned keys`
+  rkeychat readopt --room ROOM PREFIX          bring back a removed account's orphaned keys
+rkeychat devices --room ROOM                 bring your other devices into a room you own (new rooms do this themselves)`
 
 const { values: opt, positionals: pos } = parseArgs({
   allowPositionals: true,
@@ -199,6 +200,7 @@ switch (cmd) {
     die('use: rkeychat room join INVITE')
     break
   case 'invite': console.log((await api('GET', '/api/invite' + q({ room: opt.room }))).invite); break
+  case 'devices': { const r = await api('POST', '/api/rooms/devices', { room: opt.room }); console.log(r.added.length ? `added ${r.added.join(', ')}` : 'all your devices are already in'); break }
   case 'request': console.log((await api('GET', '/api/request' + q({ room: opt.room }))).request); break
   case 'approve': console.log(`enrolled ${(await api('POST', '/api/approve', { room: opt.room, code: pos[0] })).enrolled} keys`); break
   case 'send': {
