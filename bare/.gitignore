@@ -1,1 +1,3 @@
 core/
+assets.js
+*.bundle.mjs

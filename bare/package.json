@@ -9,28 +9,29 @@
     "spike": "bare spike.js"
   },
   "dependencies": {
-    "pearcore": "file:../../pearcore-mobile",
-    "bare-sqlite": "^0.1.4",
-    "bare-process": "^4.2.1",
-    "bare-encoding": "^1.0.0",
-    "fs": "npm:bare-fs@^4.8.2",
-    "path": "npm:bare-path@^3.1.2",
-    "os": "npm:bare-os@^3.9.3",
-    "events": "npm:bare-events@^2.9.2",
-    "zlib": "file:./shims/zlib",
-    "url": "npm:bare-url@^2.5.4",
-    "crypto": "npm:bare-crypto@^1.12.0",
-    "http": "npm:bare-http1@^4",
-    "child_process": "file:./shims/child_process",
-    "module": "file:./shims/module",
-    "rkey": "file:../../rKey",
-    "qrcode": "file:./shims/qrcode",
-    "@noble/hashes": "^2.0.1",
     "@noble/curves": "^2.0.1",
-    "ws": "file:./shims/ws"
+    "@noble/hashes": "^2.0.1",
+    "bare-encoding": "^1.0.0",
+    "bare-process": "^4.2.1",
+    "bare-sqlite": "^0.1.4",
+    "child_process": "file:./shims/child_process",
+    "crypto": "npm:bare-crypto@^1.12.0",
+    "events": "npm:bare-events@^2.9.2",
+    "fs": "npm:bare-fs@^4.8.2",
+    "http": "npm:bare-http1@^4",
+    "module": "file:./shims/module",
+    "os": "npm:bare-os@^3.9.3",
+    "path": "npm:bare-path@^3.1.2",
+    "pearcore": "file:../../pearcore-mobile",
+    "qrcode": "file:./shims/qrcode",
+    "rkey": "file:../../rKey",
+    "url": "npm:bare-url@^2.5.4",
+    "ws": "file:./shims/ws",
+    "zlib": "file:./shims/zlib"
   },
   "devDependencies": {
-    "bare": "^1.34.0"
+    "bare": "^1.34.0",
+    "bare-pack": "^2.2.2"
   },
   "overrides": {
     "better-sqlite3": "file:./shims/better-sqlite3",

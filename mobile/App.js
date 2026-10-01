@@ -1,0 +1,92 @@
+// rKeyChat for iPhone/Android. The whole backend (pearcore, rooms, rKey keys)
+// runs on this device in a Bare worklet; the UI is the same web UI as the
+// desktop app, served by that backend on 127.0.0.1 and shown full screen.
+import { useEffect, useRef, useState } from 'react'
+import { AppState, StyleSheet, Text, View } from 'react-native'
+import { StatusBar } from 'expo-status-bar'
+import { WebView } from 'react-native-webview'
+import { Worklet } from 'react-native-bare-kit'
+import { Paths } from 'expo-file-system'
+import b4a from 'b4a'
+import bundle from './app.bundle.mjs'
+
+const NAME = 'guy-phone' // how you appear to others from this device (see README)
+const BG = '#09090b'
+
+let worklet = null // one backend per app process, even if the component remounts
+
+function startBackend (onEvent) {
+  if (worklet) return worklet
+  const docs = decodeURI(Paths.document.uri.replace(/^file:\/\//, '')).replace(/\/$/, '')
+  worklet = new Worklet()
+  worklet.start('/app.bundle', bundle, [docs, NAME])
+  let buf = ''
+  worklet.IPC.on('data', (data) => {
+    buf += b4a.toString(data)
+    let i
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i)
+      buf = buf.slice(i + 1)
+      try { onEvent(JSON.parse(line)) } catch {}
+    }
+  })
+  return worklet
+}
+
+export default function App () {
+  const [url, setUrl] = useState(null)
+  const [status, setStatus] = useState('Starting…')
+  const [error, setError] = useState(null)
+  const web = useRef(null)
+
+  useEffect(() => {
+    startBackend((e) => {
+      if (e.event === 'created') setStatus('Made your keys for this phone…')
+      if (e.event === 'ready') setUrl(e.url)
+      if (e.event === 'error') setError(e.message)
+    })
+    // let the backend pause and resume with the app
+    const sub = AppState.addEventListener('change', (state) => Worklet.update(state))
+    return () => sub.remove()
+  }, [])
+
+  return (
+    <View style={styles.root}>
+      <StatusBar style='light' />
+      {url
+        ? (
+          <WebView
+            ref={web}
+            source={{ uri: url }}
+            style={styles.root}
+            originWhitelist={['http://127.0.0.1*']}
+            contentInsetAdjustmentBehavior='never'
+            automaticallyAdjustContentInsets={false}
+            hideKeyboardAccessoryView
+            keyboardDisplayRequiresUserAction={false}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            mediaCapturePermissionGrantType='grant'
+            allowsBackForwardNavigationGestures={false}
+            bounces={false}
+            onContentProcessDidTerminate={() => web.current?.reload()}
+          />
+          )
+        : (
+          <View style={styles.boot}>
+            <Text style={styles.word}>rkeychat</Text>
+            <Text style={styles.status}>{error ? 'Something went wrong starting up' : status}</Text>
+            {error ? <Text style={styles.err} selectable>{error}</Text> : null}
+          </View>
+          )}
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: BG },
+  boot: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: BG },
+  word: { color: '#ececf1', fontSize: 22, fontWeight: '600', letterSpacing: 0.5, marginBottom: 10 },
+  status: { color: '#8b8d98', fontSize: 14 },
+  err: { color: '#f07a7a', fontSize: 11, marginTop: 16, fontFamily: 'Menlo' }
+})

@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "rKeyChat",
+    "slug": "rkeychat",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bitcoinaudible.rkeychat",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "rKeyChat records voice memos and dictation. Audio stays on your devices.",
+        "NSLocalNetworkUsageDescription": "rKeyChat connects directly to your other devices and people you chat with.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#09090b",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.bitcoinaudible.rkeychat"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "backgroundColor": "#09090b",
+    "splash": {
+      "backgroundColor": "#09090b"
+    }
+  }
+}
