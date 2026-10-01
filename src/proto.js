@@ -51,13 +51,32 @@ export async function makeMessage (signer, { room, text, mentions = [], re = [],
 // A control: budget and pause changes. Only admins' controls count.
 //   action: 'extend' (n) | 'unlimited' | 'until' (until: ms epoch) | 'pause' | 'resume' | 'reset'
 //   with agent set: 'pause' | 'resume' | 'limit' (n) for that one agent
-// Besides the round controls: 'charter' (text = the room's purpose and the agents'
-// roles, order = which agent answers an open-floor message first) and 'rename'.
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, name, ts = Date.now() }) {
+// Besides the round controls: 'charter' (text = the room's purpose, order = which
+// agent answers an open-floor message first, agents = per-agent rules for THIS room:
+// { [name]: { role, wake, backupFor } } where wake is 'order' (in the turn order),
+// 'mention' (only when named or replied to) or 'backup' (silent until backupFor is
+// quiet past its window or offline, then plays its part)) and 'rename'.
+export const WAKE_MODES = ['order', 'mention', 'backup']
+export function cleanAgentRules (agents) {
+  if (!agents || typeof agents !== 'object') return undefined
+  const out = {}
+  for (const [name, r] of Object.entries(agents).slice(0, 32)) {
+    if (!r || typeof r !== 'object') continue
+    const rule = {}
+    if (r.role) rule.role = String(r.role).slice(0, 4000)
+    if (WAKE_MODES.includes(r.wake) && r.wake !== 'order') rule.wake = r.wake
+    if (rule.wake === 'backup' && r.backupFor) rule.backupFor = String(r.backupFor).slice(0, 80)
+    if (rule.wake === 'backup' && !rule.backupFor) delete rule.wake
+    if (Object.keys(rule).length) out[String(name).slice(0, 80)] = rule
+  }
+  return out
+}
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
     order: Array.isArray(order) ? order.map(String).slice(0, 32) : undefined,
+    agents: cleanAgentRules(agents),
     name: name === undefined ? undefined : String(name).trim().slice(0, 80)
   })
 }

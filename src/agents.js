@@ -41,6 +41,10 @@ export function renderTurn (room, name, { intro = false } = {}) {
   const charter = room.charter()
   if (charter.text) lines.push(`Room purpose (set by the room's owner):\n${charter.text}`, '')
   if (charter.order.length > 1) lines.push(`Turn order for messages that name nobody: ${charter.order.map((n) => '@' + n).join(' → ')}. The first in line answers; the next steps in only if the one before stays silent for ${Math.round(TURN_WINDOW / 1000)}s.`)
+  const rule = room.ruleFor(name)
+  if (rule.role) lines.push(`Your role in this room (set by the owner): ${rule.role}`)
+  if (rule.wake === 'mention') lines.push('You are woken only when @mentioned or replied to; the open floor is not yours here.')
+  if (rule.wake === 'backup' && rule.backupFor) lines.push(`You are the backup for @${rule.backupFor}: you are woken when named, or when @${rule.backupFor} has left something unanswered or is offline; then you cover for them until they are back.`)
   lines.push(room.style() === 'verbose'
     ? '(This room is set to verbose: full detail is welcome here.)'
     : '(This room is set to concise: keep messages short and put detail behind files or Thinking. Other agents pay for every token you post.)')

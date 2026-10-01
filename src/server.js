@@ -21,7 +21,8 @@ const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
-export { encodeInvite, decodeInvite } from './invite.js'
+import { encodeInvite, decodeInvite } from './invite.js'
+export { encodeInvite, decodeInvite }
 export const encodeRequest = (req) => 'rkr1.' + b64(req)
 export function decodeRequest (code) {
   const s = String(code ?? '').trim()
@@ -164,6 +165,13 @@ export function serve ({ app }) {
       local: Object.entries(cfg.participants).filter(([, p]) => p.role === 'agent').map(([name]) => ({ name, role: 'agent', local: true })),
       known: app.knownPeople()
     }),
+    // bring every device of yours (known from your other rooms) into this room
+    'POST /api/rooms/devices': async (req) => {
+      const { room: key } = await body(req)
+      const { room } = pick(key)
+      need(room.isOwner, 'only the room\'s owner can do that')
+      return { added: await app.enrollOwnDevices(room) }
+    },
     'POST /api/rooms/add': async (req) => {
       const { room: key, name } = await body(req)
       const { room } = pick(key)
@@ -197,14 +205,19 @@ export function serve ({ app }) {
       return { ...rec, roomName: room.cfg.name, fixes: fixed.fixes }
     },
     'POST /api/control': async (req) => {
-      const { room: key, action, n, until, hours, agent, style, text, order, name } = await body(req)
+      const { room: key, action, n, until, hours, agent, style, text, order, agents, name } = await body(req)
       const { room } = pick(key)
       const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename']
       if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
       if (action === 'charter' && order !== undefined) need(Array.isArray(order) && order.every((o) => room.participantsList().some((p) => p.name === o && p.role === 'agent')), 'order must list agents in this room')
+      if (action === 'charter' && agents !== undefined) {
+        const isAgent = (x) => room.participantsList().some((p) => p.name === x && p.role === 'agent')
+        need(agents && typeof agents === 'object' && Object.keys(agents).every(isAgent), 'agent rules must name agents in this room')
+        for (const [x, r] of Object.entries(agents)) if (r?.wake === 'backup') need(r.backupFor && r.backupFor !== x && isAgent(r.backupFor), `${x}: backup for whom?`)
+      }
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
-      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, name })
+      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name })
     },
 
     'GET /api/invite': (req, res, url) => {

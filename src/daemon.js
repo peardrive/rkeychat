@@ -153,7 +153,40 @@ export class App extends EventEmitter {
     for (const m of members.filter((m) => !this.participants[m])) {
       try { await this.addMember(room.topic, m) } catch (err) { console.error(`[${name}] couldn't add ${m}:`, err.message) }
     }
+    // your other devices are you: a room you make here is theirs too
+    try { await this.enrollOwnDevices(room) } catch (err) { console.error(`[${name}] couldn't add your other devices:`, err.message) }
     return room
+  }
+
+  // Every device of ours known from another room we own (its device key and the human's
+  // session key on it, both under our root) gets enrolled into `target` and sent the
+  // invite through a room it already shares with us. Nothing is asked of the device:
+  // its consents are the ones it gave when it first joined. (Oct 1: a room made on the
+  // Mac never appeared on the phone.)
+  async enrollOwnDevices (target) {
+    if (!target?.isOwner) return []
+    const human = Object.entries(this.participants).find(([, p]) => p.role === 'human')?.[0]
+    if (!human) return []
+    const mine = new Set(target.members().filter((m) => m.status === 'active').map((m) => m.ref))
+    const added = []
+    for (const { room: source } of this.rooms.values()) {
+      if (!source.isOwner || source === target || source.cfg.root !== target.cfg.root || !source.chain) continue
+      const st = source.state
+      const active = (op) => op && st.isActive(op.key)
+      const devices = source.chain.entries.map((x) => x.op).filter((op) => op?.t === 'enroll' && op.label?.startsWith('device:') && active(op) && op.key !== this.device.ref && !mine.has(op.key))
+      for (const d of devices) {
+        const devName = d.label.replace(/^device:/, '')
+        const session = source.chain.entries.map((x) => x.op).findLast((op) => op?.t === 'enroll' && op.label === `${human}@${devName}` && active(op) && op.parent === source.cfg.root)
+        if (!session) continue
+        try {
+          await target.approve({ device: { ref: d.key, name: devName, consent: d.consent }, participants: [{ ref: session.key, name: human, role: 'human', consent: session.consent }] })
+          await source.sendInvite(d.key, encodeInvite(target.cfg), target.cfg.name)
+          mine.add(d.key); added.push(devName)
+        } catch (err) { console.error(`[${target.cfg.name}] ${devName}:`, err.message) }
+      }
+    }
+    if (added.length) console.log(`[${target.cfg.name}] added your other device${added.length === 1 ? '' : 's'}: ${added.join(', ')}`)
+    return added
   }
 
   // People you've approved anywhere, who could be added to other rooms you own.
