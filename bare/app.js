@@ -12,7 +12,9 @@ const args = typeof BareKit !== 'undefined' ? Bare.argv : Bare.argv.slice(2)
 const docs = String(args[0] ?? '').trim()
 if (!docs) throw new Error('the app must pass its documents folder')
 const name = String(args[1] ?? 'me').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'me'
-const PORT = Number(args[2]) || 4455 // argv[2]: only for testing on a Mac that already runs rKeyChat
+// the iOS simulator shares the Mac's network, where the desktop app owns 4455: pick another port there
+const sim = /CoreSimulator/.test(docs)
+const PORT = Number(args[2]) || (sim ? 24455 : 4455)
 
 const data = path.join(docs, 'rkeychat')
 const assetDir = path.join(docs, 'assets')
@@ -32,7 +34,9 @@ const tell = (msg) => { try { ipc?.write(Buffer.from(JSON.stringify(msg) + '\n')
 
 try {
   const { loadConfig, newConfig, addParticipant, saveConfig } = await import('./core/config.js')
-  if (!loadConfig()) {
+  const existing = loadConfig()
+  if (existing && existing.port !== PORT) { existing.port = PORT; saveConfig(existing) }
+  if (!existing) {
     const cfg = newConfig({ name: `${name}-phone`, port: PORT })
     addParticipant(cfg, name, { role: 'human' })
     saveConfig(cfg)

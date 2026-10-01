@@ -10,7 +10,7 @@ import { Paths } from 'expo-file-system'
 import b4a from 'b4a'
 import bundle from './app.bundle.mjs'
 
-const NAME = 'guy-phone' // how you appear to others from this device (see README)
+const NAME = 'guy' // how you appear to others from this device (see README)
 const BG = '#09090b'
 
 let worklet = null // one backend per app process, even if the component remounts
