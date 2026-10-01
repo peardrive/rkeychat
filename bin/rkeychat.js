@@ -2,9 +2,9 @@
 import { parseArgs } from 'node:util'
 import { spawn, execFile } from 'node:child_process'
 import { openSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir } from '../src/config.js'
+import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir, newIdentity, accountSigner } from '../src/config.js'
 import { decodeInvite } from '../src/server.js'
 
 const USAGE = `rkeychat — a room for you and your agents, on pearcore + rKey
@@ -40,7 +40,14 @@ agents
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
-  rkeychat revoke NAME                         cut a key (and anything under it) out of the room`
+  rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
+  rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
+  rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
+  rkeychat rename --room ROOM NAME             rename a room for everyone in it
+  rkeychat revoke NAME [--key PREFIX]          remove (they can be invited back later); --key for one key
+  rkeychat ban NAME [--key PREFIX]             keep them out until you lift it; rkeychat unban PREFIX lifts it
+  rkeychat readopt --room ROOM PREFIX          bring back a removed account's orphaned keys`
 
 const { values: opt, positionals: pos } = parseArgs({
   allowPositionals: true,
@@ -54,6 +61,9 @@ const { values: opt, positionals: pos } = parseArgs({
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
+    order: { type: 'string' },
+    key: { type: 'string' },
+    file: { type: 'string' },
     pass: { type: 'boolean' },
     background: { type: 'boolean' },
     voice: { type: 'boolean' },
@@ -192,7 +202,9 @@ switch (cmd) {
   case 'request': console.log((await api('GET', '/api/request' + q({ room: opt.room }))).request); break
   case 'approve': console.log(`enrolled ${(await api('POST', '/api/approve', { room: opt.room, code: pos[0] })).enrolled} keys`); break
   case 'send': {
-    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined })
+    // --file PATH shares a file from this device by hash (no copy; the original is the source)
+    const att = opt.file ? [await api('POST', '/api/share', { room: opt.room, path: resolve(opt.file) })] : undefined
+    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined, att })
     console.log(out.passed ? `passed (${out.room})` : fmt(out))
     if (out.fixes?.length) console.log(`  fixed: ${out.fixes.map(([a, b]) => `${a} → ${b}`).join(', ')}`)
     break
@@ -207,9 +219,66 @@ switch (cmd) {
     console.log(fmt({ ...(await api('POST', '/api/control', payload)), name: 'you' }))
     break
   }
+  case 'files': {
+    const list = await api('GET', '/api/files' + q({ room: opt.room }))
+    if (!list.length) { console.log('no files shared here yet'); break }
+    for (const f of list) console.log(`${f.hash.slice(0, 12)}  ${String(f.size).padStart(11)}  ${f.local ? 'here   ' : `${f.providers} online`}  ${f.name}  (${f.by})`)
+    break
+  }
+  case 'get': {
+    // fetch a shared file by (a prefix of) its root; prints the local path
+    const root = pos[0] ?? die('usage: rkeychat get --room ROOM ROOT')
+    const out = await api('POST', '/api/fetch', { room: opt.room, root })
+    console.log(out.path)
+    break
+  }
+  case 'identity': {
+    // who this device's participants are: account (root) and session key. `identity new NAME` re-mints NAME.
+    const cfg = cfgOrDie()
+    if (pos[0] === 'new') {
+      const name = pos[1] ?? die('usage: rkeychat identity new NAME')
+      const { account, session } = newIdentity(cfg, name); saveConfig(cfg)
+      console.log(`new identity for @${name}\n  account: ${account}\n  session: ${session}\nrestart the daemon, then rejoin rooms with the new keys: rkeychat request --room ROOM (the owner approves it, then revokes the old ones).`)
+      break
+    }
+    for (const [name, p] of Object.entries(cfg.participants)) {
+      const acct = accountSigner(cfg, name)
+      console.log(`@${name} (${p.role})\n  account: ${acct ? acct.ref : '(none yet: rkeychat identity new ' + name + ')'}\n  session: ${p.ref}`)
+    }
+    break
+  }
+  case 'debug': {
+    // rkeychat debug agent NAME: why the daemon would or wouldn't wake it, per room
+    if (pos[0] !== 'agent' || !pos[1]) die('usage: rkeychat debug agent NAME')
+    for (const r of await api('GET', '/api/debug/agent' + q({ name: pos[1] }))) {
+      if (!r.hosted) { console.log(`${r.room}: ${pos[1]} isn't hosted on this device`); continue }
+      console.log(`${r.room}: ${r.reason}\n  bridge ${r.bridge} · busy ${r.busy} · listeners ${r.listeners} · state ${r.state ?? 'idle'}${r.key ? ` · key ${r.key.slice(0, 24)}…` : ''}${r.triggers.length ? '\n  ' + r.triggers.map((t) => `${t.from}: ${t.text}`).join('\n  ') : ''}`)
+    }
+    break
+  }
+  case 'purpose': {
+    // the room's standing prompt for agents, plus who answers first
+    const text = pos.join(' ')
+    if (!text && !opt.order) {
+      const c = (await api('GET', '/api/state' + q({ room: opt.room }))).current?.charter
+      console.log(c?.text ? c.text : '(no purpose set)'); if (c?.order?.length) console.log(`order: ${c.order.join(' → ')}`)
+      break
+    }
+    const cur = (await api('GET', '/api/state' + q({ room: opt.room }))).current?.charter ?? {}
+    await api('POST', '/api/control', { room: opt.room, action: 'charter', text: text || cur.text || '', order: opt.order ? String(opt.order).split(',').map((x) => x.trim()).filter(Boolean) : cur.order })
+    console.log('purpose set; every agent gets it with its next turn')
+    break
+  }
+  case 'rename': {
+    const name = pos[0] ?? die('usage: rkeychat rename --room ROOM NEW-NAME')
+    await api('POST', '/api/control', { room: opt.room, action: 'rename', name })
+    console.log(`renamed to "${name}"`)
+    break
+  }
   case 'status': {
     const s = await api('GET', '/api/state' + q({ room: opt.room }))
     const c = s.current
+    if (c && c.admitted && c.participants.some((p) => p.status === 'active' && !p.local) && c.connections === 0) console.log('DEAF: no live connections to anyone in this room (people may show online from stale state)')
     if (!c) { console.log(`device ${s.device.name}, no rooms yet`); break }
     const b = c.budget
     console.log(`room ${c.name}${c.owner ? ' (owner)' : ''}${c.admitted ? '' : ' — waiting for approval'}   [${s.rooms.map((r) => r.name).join(', ')}]`)
@@ -253,7 +322,10 @@ switch (cmd) {
     for (const [k, v] of Object.entries(g).sort()) console.log(`${k.padEnd(18)} → ${v}`)
     break
   }
-  case 'revoke': await api('POST', '/api/revoke', { room: opt.room, name: pos[0] }); console.log('revoked'); break
+  case 'readopt': { const r = await api('POST', '/api/readopt', { room: opt.room, ref: pos[0] ?? die('usage: rkeychat readopt --room ROOM KEYPREFIX') }); console.log(`re-adopted (${r.appended} entries)`); break }
+  case 'ban': { const r = await api('POST', '/api/revoke', { room: opt.room, name: pos[0], ref: opt.key, reason: 'banned' }); console.log(`banned ${(r.revoked ?? []).map((x) => x.slice(0, 20)).join(', ') || pos[0]} (only you can lift it: rkeychat unban)`); break }
+  case 'unban': { const r = await api('POST', '/api/unban', { room: opt.room, ref: pos[0] ?? die('usage: rkeychat unban --room ROOM KEYPREFIX') }); console.log(`ban lifted on ${r.unbanned.slice(0, 20)}; they come back through a fresh invite`); break }
+  case 'revoke': { const r = await api('POST', '/api/revoke', { room: opt.room, name: pos[0], ref: opt.key }); console.log(`revoked ${(r.revoked ?? []).map((x) => x.slice(0, 20)).join(', ') || pos[0]}`); break }
   case 'wait': {
     // Stays up across daemon restarts: reconnects quietly and says so once.
     const as = opt.as ?? die('usage: rkeychat wait --as NAME')

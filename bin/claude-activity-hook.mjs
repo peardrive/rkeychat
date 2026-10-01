@@ -86,7 +86,14 @@ try {
   try { for (const t of newNarration(ev.transcript_path)) await post(t) } catch {}
   // don't echo the agent's own rkeychat traffic back into its feed
   if (ev.tool_name === 'Bash' && /rkeychat(\.js)? (send|activity|wait)/.test(ev.tool_input?.command ?? '')) process.exit(0)
-  const text = describe(ev)
+  let text = describe(ev)
+  // what a command printed, trimmed: the terminal's output, behind Thinking
+  if (text && ev.tool_name === 'Bash') {
+    const r = ev.tool_response
+    const out = typeof r === 'string' ? r : [r?.stdout, r?.stderr].filter(Boolean).join('\n') || (r?.output ?? '')
+    const lines = String(out ?? '').split('\n').map((l) => l.trimEnd()).filter(Boolean)
+    if (lines.length) text += '\n' + lines.slice(0, 12).map((l) => '  ' + l.slice(0, 200)).join('\n') + (lines.length > 12 ? `\n  … ${lines.length - 12} more lines` : '')
+  }
   if (text) await post(text)
 } catch {}
 process.exit(0)

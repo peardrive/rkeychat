@@ -8,9 +8,12 @@
 //            Code via `rkeychat wait`), who replies with `rkeychat send`.
 
 import { replyDepth } from './turns.js'
+import { TURN_WINDOW } from './room.js'
 
 const PASS = /^\s*PASS\s*$/i
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
+
+const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
 
 export function renderTurn (room, name, { intro = false } = {}) {
   const log = room.log()
@@ -29,11 +32,15 @@ export function renderTurn (room, name, { intro = false } = {}) {
       `You are @${name}, a participant in rKeyChat room "${room.cfg.name}" — a live group chat between Guy (the human who runs these projects) and his AI agents, working together on PearDrive/pearcore.`,
       'Whatever you reply is posted to the room verbatim under your name. Keep it conversational and concise; put long material in files and reference paths.',
       'Agents only get woken when @mentioned (or when Guy posts without mentioning anyone). To hand someone the floor, @mention them. To stay silent, reply exactly PASS.',
+      'Files: share one with rkeychat send --file PATH (it becomes available to everyone in the room by hash); read one someone shared with rkeychat get ROOT, which prints its local path.',
       'Agent-to-agent exchanges are limited by a round budget that Guy controls; when it runs out, everyone waits for Guy.',
       'Messages marked (dictated) were spoken and transcribed. Expect misheard words, especially project names (pearcore, PearDrive, Kimi, Hermes, Hyperbee, rKey). Read by context and meaning, not spelling. A dictated message can also catch a stray sentence that was said to someone else in the room; if part of it clearly isn\'t addressed to this conversation, ignore that part rather than act on it.',
       ''
     )
   }
+  const charter = room.charter()
+  if (charter.text) lines.push(`Room purpose (set by the room's owner):\n${charter.text}`, '')
+  if (charter.order.length > 1) lines.push(`Turn order for messages that name nobody: ${charter.order.map((n) => '@' + n).join(' → ')}. The first in line answers; the next steps in only if the one before stays silent for ${Math.round(TURN_WINDOW / 1000)}s.`)
   lines.push(room.style() === 'verbose'
     ? '(This room is set to verbose: full detail is welcome here.)'
     : '(This room is set to concise: keep messages short and put detail behind files or Thinking. Other agents pay for every token you post.)')
@@ -48,7 +55,8 @@ export function renderTurn (room, name, { intro = false } = {}) {
       const len = sec ? ` ${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}` : ''
       return a.transcript ? ` [voice memo${len}, transcript: ${a.transcript}]` : ` [voice memo${len}, no transcript available]`
     }).join('')
-    lines.push(`[${fmtTime(r.ts)}] ${r.name}${r.via === 'voice' || memos ? ' (dictated)' : ''}${to}: ${r.text}${memos}`)
+    const files = (r.att ?? []).filter((a) => a.kind === 'file').map((a) => ` [file: ${a.name}, ${fmtSize(a.size)}, root ${a.hash.slice(0, 12)}… — read it with: rkeychat get --room "${room.cfg.name}" ${a.hash.slice(0, 12)}]`).join('')
+    lines.push(`[${fmtTime(r.ts)}] ${r.name}${r.via === 'voice' || memos ? ' (dictated)' : ''}${to}: ${r.text}${memos}${files}`)
   }
   if (reacts.length) {
     const byId = new Map(log.map((r) => [r.id, r]))
@@ -76,12 +84,23 @@ export class AgentRunner {
     if (bridge.kind === 'stream') this.room.agentState.set(name, 'offline')
   }
 
-  due () {
-    const me = this.room.local[this.name]?.signer.ref
-    if (!me || !this.room.state?.isActive(me)) return null // not (or no longer) in this room
+  due () { return this.why().triggers }
+
+  // Why this agent would or wouldn't be woken right now (rkeychat debug agent NAME).
+  why () {
+    const p = this.room.local[this.name]
+    const me = p?.signer.ref
+    if (!me) return { triggers: null, reason: 'no local signer for this name' }
+    if (!this.room.state) return { triggers: null, reason: 'room chain not loaded (not admitted yet)' }
+    if (!this.room.state.isActive(me)) {
+      const st = this.room.state.status(me)
+      return { triggers: null, reason: `this device's key for ${this.name} (${me.slice(0, 24)}…) is ${st} in this room: the config key isn't the enrolled one; approve a new request, or rkeychat readopt`, key: me }
+    }
     const triggers = this.room.triggersFor(this.name)
-    if (!triggers.length) return null
-    return this.room.budget().allows(replyDepth(triggers), this.name) ? triggers : null
+    if (!triggers.length) return { triggers: null, reason: 'nothing addressed to me that I haven\'t answered or passed on', key: me }
+    const depth = replyDepth(triggers)
+    if (!this.room.budget().allows(depth, this.name)) return { triggers: null, reason: `budget refuses depth ${depth} (paused, per-agent limit, or out of rounds)`, key: me, waiting: triggers.map((t) => t.id) }
+    return { triggers, reason: 'due', key: me }
   }
 
   poke () {
@@ -108,7 +127,7 @@ export class AgentRunner {
     this.busy = true
     this.room.setAgentState(this.name, 'thinking')
     this.offered = turn.triggers.map((t) => t.id)
-    this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`).catch(() => {})
+    this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`, { claim: this.offered }).catch(() => {})
     for (const fn of this.listeners) fn({ name: this.name, re: this.offered, prompt: turn.text })
     // if nobody answers within the window, free the slot so newer turns flow
     clearTimeout(this.offerTimer)
@@ -141,7 +160,7 @@ export class AgentRunner {
     this.busy = true
     this.room.setAgentState(this.name, 'thinking')
     const turn = renderTurn(this.room, this.name, { intro: !this.introduced })
-    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}; asking Hermes`).catch(() => {})
+    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}; asking Hermes`, { claim: turn.triggers.map((t) => t.id) }).catch(() => {})
     const { url = 'http://127.0.0.1:8642', key, model = 'hermes-agent' } = this.bridge
     const res = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',

@@ -6,7 +6,9 @@
 // chain; everyone else merges the copies they receive.
 
 import { EventEmitter } from 'node:events'
-import { Chain, enroll, revoke, consent } from 'rkey'
+import * as fsSync from 'node:fs'
+import { extname } from 'node:path'
+import { Chain, enroll, revoke, unban, consent } from 'rkey'
 import { SCOPES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
 
@@ -15,6 +17,9 @@ const PRESENCE_EVERY = 20_000
 const PRESENCE_STALE = 60_000
 const DEBUG = !!process.env.RKEYCHAT_DEBUG
 const SYNC_EVERY = 60_000
+const MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', m4a: 'audio/mp4', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', pdf: 'application/pdf', md: 'text/markdown', txt: 'text/plain', json: 'application/json', js: 'text/javascript', mjs: 'text/javascript', html: 'text/html', css: 'text/css', zip: 'application/zip' }
+export const mimeOf = (name) => MIMES[extname(String(name)).slice(1).toLowerCase()] ?? 'application/octet-stream'
+export const TURN_WINDOW = 45_000 // how long the next agent in line waits before taking an unclaimed turn
 export const MAX_BLOB = 8 * 1024 * 1024 // one pearcore message; ~40 min of voice
 const RECENT = 48 * 3600_000 // history sync compares ids within this window
 
@@ -26,11 +31,22 @@ export class Room extends EventEmitter {
     this.cfg = room // { name, topic, sharelink, root }
     this.device = device // rKey signer for this machine's pearcore key
     this.rootSigner = root // only on the owner device
-    this.local = participants // name -> { signer, role, bridge? }
+    // name -> { signer, previous?, role, bridge?, account? }. In a room that hasn't
+    // enrolled a re-minted session key yet, the previous key keeps signing.
+    this.local = new Proxy(participants, {
+      get: (t, name) => {
+        const p = t[name]
+        if (!p || typeof name !== 'string' || !p.previous) return p
+        const s = this.state
+        if (!s || s.isActive(p.signer.ref) || !s.isActive(p.previous.ref)) return p
+        return { ...p, signer: p.previous }
+      }
+    })
     this.pending = store.readJSON('pending.json', [])
     this.presence = new Map() // deviceRef -> { ts, participants: [{ name, state }] }
     this.agentState = new Map() // name -> 'idle' | 'thinking' | ...
     this.passed = new Map() // name -> Set of record ids it chose not to answer
+    this.fetching = new Map() // root -> in-flight fetch
     const entries = store.readJSON('chain.json', null)
     this.chain = entries ? new Chain(entries) : null
   }
@@ -43,8 +59,8 @@ export class Room extends EventEmitter {
   async start () {
     const { emitter } = this.core
     emitter.on('SpaceMessage', (e) => this.#onSpaceMessage(e).catch((err) => this.emit('error', err)))
-    emitter.on('Connection', ({ topics }) => { if (topics.includes(this.topic)) this.#hello() })
-    emitter.on('SpaceHashList', ({ topics }) => { if (topics.includes(this.topic)) this.#hello() })
+    emitter.on('Connection', ({ topics }) => { if (topics.includes(this.topic)) { this.#hello(); this.announceFiles() } })
+    emitter.on('SpaceHashList', ({ topics }) => { if (topics.includes(this.topic)) { this.#hello(); this.announceFiles() } })
     emitter.on('SpaceSync', () => this.#hello())
     if (DEBUG) {
       emitter.on('Reject', (ctx) => console.error('[pearcore reject]', JSON.stringify(ctx).slice(0, 300)))
@@ -66,12 +82,14 @@ export class Room extends EventEmitter {
         }
       }
     }
-    this.timer = setInterval(() => { this.#healSockets(); this.#sendPresence() }, PRESENCE_EVERY)
+    this.timer = setInterval(() => { this.#healSockets(); this.#sendPresence(); this.#deafCheck() }, PRESENCE_EVERY)
     this.timer.unref()
     // anti-entropy: even if a live message is lost, everything converges
     this.syncTimer = setInterval(() => this.#hello(), SYNC_EVERY)
     this.syncTimer.unref()
     if (this.isOwner) await this.#syncWhitelist()
+    this.applyRename()
+    this.startedAt = Date.now()
     this.#hello()
   }
 
@@ -98,6 +116,38 @@ export class Room extends EventEmitter {
       await this.#send('hist-req', { since: Math.min(since, this.store.lastTs), have: this.store.since(since, Infinity).map((r) => r.id) })
       await this.#sendPresence()
     }, 300)
+  }
+
+  // Live transport view: how many swarm connections we hold to members of this room.
+  connections () {
+    const swarm = this.core.managers.connection.swarmInstance
+    if (!swarm || !this.state) return 0
+    let n = 0
+    for (const c of swarm.connections) {
+      if (c.destroyed || !c.remotePublicKey) continue
+      if (this.state.can(edRef(Buffer.from(c.remotePublicKey).toString('hex')), SCOPES.host)) n++
+    }
+    return n
+  }
+
+  // A daemon can come up looking healthy and never hear the room again (seen
+  // on the Mini: 17 minutes of silence after a peer restarted). If others are
+  // expected but nothing has arrived for a while and we hold no connections,
+  // refresh discovery so Hyperswarm looks for them again.
+  #deafCheck () {
+    const others = this.members().some((m) => m.status === 'active' && m.scope.includes(SCOPES.host) && m.ref !== this.device.ref)
+    if (!others) return
+    const quiet = Date.now() - (this.lastRx ?? this.startedAt ?? 0)
+    if (quiet < 3 * PRESENCE_STALE || this.connections() > 0) return
+    if (this.lastRefresh && Date.now() - this.lastRefresh < 2 * PRESENCE_STALE) return
+    this.lastRefresh = Date.now()
+    console.error(`[${this.cfg.name}] no traffic for ${Math.round(quiet / 1000)}s and no connections: refreshing discovery`)
+    try {
+      const cm = this.core.managers.connection
+      const d = cm.discoveryMap?.[this.topic]
+      if (d?.refresh) d.refresh({ server: true, client: true }).catch(() => {})
+      else cm.join(this.topic).catch?.(() => {})
+    } catch (err) { console.error('[deaf-check]', err.message) }
   }
 
   // Workaround for a pearcore bug: its SocketManager keeps one socket per peer,
@@ -128,7 +178,7 @@ export class Room extends EventEmitter {
   members () {
     const s = this.state
     if (!s) return []
-    return s.members().filter((m) => m.depth > 0).map((m) => ({ ...m, name: m.label }))
+    return s.members().filter((m) => m.depth > 0).map((m) => ({ ...m, name: nameOf(m.label), device: deviceOf(m.label) }))
   }
 
   participantsList () {
@@ -138,17 +188,29 @@ export class Room extends EventEmitter {
       if (now - p.ts < PRESENCE_STALE) p.participants.forEach((x) => online.add(x.name))
     }
     Object.keys(this.local).forEach((n) => online.add(n))
-    return this.members()
-      .filter((m) => m.scope.includes(SCOPES.chat))
-      .map((m) => ({
-        name: m.name,
-        ref: m.ref,
-        status: m.status,
-        role: m.scope.includes(SCOPES.admin) ? 'human' : 'agent',
-        local: !!this.local[m.name],
-        online: online.has(m.name),
-        state: this.agentState.get(m.name) ?? this.#remoteState(m.name) ?? 'idle'
-      }))
+    // one row per account: its root and its device/session keys share a name
+    const byName = new Map()
+    for (const m of this.members()) {
+      if (!m.scope.includes(SCOPES.chat)) continue
+      const row = byName.get(m.name) ?? { name: m.name, ref: m.ref, status: 'revoked', role: m.scope.includes(SCOPES.admin) ? 'human' : 'agent', keys: [], devices: [], local: !!this.local[m.name], online: online.has(m.name), state: this.#stateOf(m.name), busy: this.#recentActivity(m.name) }
+      row.keys.push({ ref: m.ref, device: m.device, status: m.status, reason: m.reason, parent: m.parent, account: !m.device && m.scope.includes('delegate') })
+      if (m.status === 'active') { row.status = 'active'; if (m.device && !row.devices.includes(m.device)) row.devices.push(m.device) }
+      if (!m.device) row.ref = m.ref // the account root, if there is one
+      byName.set(m.name, row)
+    }
+    return [...byName.values()]
+  }
+
+  #stateOf (name) { return this.agentState.get(name) ?? this.#remoteState(name) ?? 'idle' }
+
+  // an agent that reported activity in the last while is working, even between turns
+  #recentActivity (name) {
+    const a = this.store.activity
+    for (let i = a.length - 1; i >= 0 && i >= a.length - 200; i--) {
+      if (a[i].ts < Date.now() - 90_000) return null
+      if (this.view(a[i]).name === name) return a[i].text
+    }
+    return null
   }
 
   #remoteState (name) {
@@ -166,7 +228,7 @@ export class Room extends EventEmitter {
     const s = this.state
     const node = s?.get(rec.author)
     const scope = node ? s.scopeOf(rec.author) : []
-    return { ...rec, name: node?.label ?? rec.author.slice(0, 16), human: scope.includes(SCOPES.admin) }
+    return { ...rec, name: node ? nameOf(node.label) : rec.author.slice(0, 16), device: node ? deviceOf(node.label) : '', human: scope.includes(SCOPES.admin) }
   }
 
   // What admins removed: message ids and blocked content hashes.
@@ -216,6 +278,7 @@ export class Room extends EventEmitter {
 
   async #onSpaceMessage ({ message, content }) {
     if (message.topic !== this.topic || !isOurs(content)) return
+    this.lastRx = Date.now()
     const fromDevice = edRef(message.publicKey)
     if (DEBUG) console.error('[rx]', content.type, 'from', message.publicKey.slice(0, 8), content.rec ? `${content.rec.kind} ${this.#admitReason(content.rec)}` : '')
     switch (content.type) {
@@ -235,6 +298,7 @@ export class Room extends EventEmitter {
         const s = this.state
         if (rec?.kind === 'activity' && rec.room === this.topic && s?.can(rec.author, SCOPES.chat) && verifyRecord(rec) && this.store.addActivity(rec)) {
           this.emit('activity', this.view(rec))
+          this.#busyTick()
         }
         return
       }
@@ -259,9 +323,18 @@ export class Room extends EventEmitter {
   #ingest (rec, { quiet = false } = {}) {
     if (this.store.has(rec?.id) || !this.#admits(rec)) return false
     this.store.add(rec)
+    if (rec.kind === 'control' && rec.action === 'rename') this.applyRename()
     if (rec.kind === 'invite' && rec.to === this.device.ref) this.emit('invite', { code: rec.code, from: this.cfg.name })
     if (!quiet) this.emit('record', this.view(rec))
     return true
+  }
+
+  // presence rows change when activity starts and when it goes quiet
+  #busyTick () {
+    this.emit('changed')
+    clearTimeout(this.busyTimer)
+    this.busyTimer = setTimeout(() => this.emit('changed'), 95_000)
+    this.busyTimer.unref?.()
   }
 
   #onChain (entries, pending = []) {
@@ -336,19 +409,32 @@ export class Room extends EventEmitter {
   async approve (request) {
     if (!this.isOwner) throw new Error('only the room owner can approve')
     const root = this.chain.root
-    const taken = new Set(this.members().filter((m) => m.status !== 'revoked').map((m) => m.name))
+    const taken = new Set(this.members().filter((m) => m.status !== 'revoked' && !m.device).map((m) => m.name))
     const ops = []
     const d = request.device
-    if (d && !this.state.isActive(d.ref)) {
-      ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
+    // a device already in the room may roll its keys under the same names; a new device may not take a name in use
+    const rolling = !!(d && this.state.isActive(d.ref))
+    if (d && !this.state.isActive(d.ref) && !this.#burned(d.ref)) {
+      ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, consentAfter: d.after, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
     }
     for (const p of request.participants ?? []) {
       if (this.state.isActive(p.ref)) continue
-      if (this.state.get(p.ref)?.revoked) continue // revoked keys stay out; the rest of the request still counts
+      if (this.#burned(p.ref)) continue // compromised or banned keys stay out; the rest of the request still counts
       const name = String(p.name).toLowerCase()
-      if (taken.has(name)) throw new Error(`name already in use: ${name}`)
       const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
-      ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, scope: ['bind', SCOPES.chat, role], label: name }))
+      const a = p.account
+      if (a && a.ref !== root) {
+        // an account root: same account joining from another device is fine, a different account with a taken name is not
+        const existing = this.state.get(a.ref)
+        if (!existing && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (existing?.revoked && this.#burned(a.ref)) continue
+        if (!existing || existing.revoked) ops.push(await enroll(this.rootSigner, { root, key: a.ref, consent: a.consent, consentAfter: a.after, scope: ['bind', SCOPES.chat, role, 'delegate'], label: name }))
+        if (a.enroll?.key === p.ref) ops.push(a.enroll) // the account enrolls its own session key (signed by it)
+      } else {
+        // a key under this room's own root: another device of the owner (label name@device), or a legacy key
+        if (a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, consentAfter: p.after, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
+      }
       taken.add(name)
     }
     for (const op of ops) await this.chain.append(op, this.rootSigner)
@@ -356,9 +442,52 @@ export class Room extends EventEmitter {
     return ops.length
   }
 
+  // Bring a revoked account back: re-enroll its root with the consent it gave
+  // before, then replay the enrollments it signed for its own session keys.
+  async readopt (ref) {
+    if (!this.isOwner) throw new Error('only the room owner can re-adopt')
+    const root = this.chain.root
+    const last = this.chain.entries.findLast((x) => x.op?.t === 'enroll' && x.op.key === ref)?.op
+    if (!last) throw new Error('no enrollment on record for that key')
+    const ops = []
+    const node = this.state.get(ref)
+    if (node?.revoked) {
+      // a revoked key stays revoked (rKey); its orphaned children can be adopted under us directly
+      const seen = new Set()
+      for (const e of this.chain.entries) {
+        const op = e.op
+        if (op?.t !== 'enroll' || op.parent !== ref || seen.has(op.key)) continue
+        seen.add(op.key)
+        const child = this.state.get(op.key)
+        if (child?.revoked || this.state.isActive(op.key)) continue
+        ops.push(await enroll(this.rootSigner, { root, key: op.key, consent: op.consent, scope: op.scope.filter((s) => s !== 'delegate'), label: op.label }))
+      }
+      if (!ops.length) throw new Error('that key is revoked and has nothing to bring back')
+    } else {
+      ops.push(await enroll(this.rootSigner, { root, key: ref, consent: last.consent, scope: last.scope, label: last.label }))
+      const seen = new Set()
+      for (const e of this.chain.entries) {
+        const op = e.op
+        if (op?.t === 'enroll' && op.parent === ref && !seen.has(op.key)) { seen.add(op.key); ops.push(op) }
+      }
+    }
+    for (const op of ops) await this.chain.append(op, this.rootSigner)
+    this.#chainChanged()
+    return ops.length
+  }
+
+  // compromised: never back. banned: not until the owner lifts it.
+  #burned (ref) { const r = this.state?.get(ref)?.revoked; return !!r && (r.reason === 'compromised' || r.reason === 'banned') }
+
   async revoke (ref, reason = 'removed') {
     if (!this.isOwner) throw new Error('only the room owner can revoke others')
     await this.chain.append(await revoke(this.rootSigner, { root: this.chain.root, key: ref, reason }), this.rootSigner)
+    this.#chainChanged()
+  }
+
+  async unban (ref) {
+    if (!this.isOwner) throw new Error('only the room owner can lift a ban')
+    await this.chain.append(await unban(this.rootSigner, { root: this.chain.root, key: ref }), this.rootSigner)
     this.#chainChanged()
   }
 
@@ -373,12 +502,13 @@ export class Room extends EventEmitter {
 
   // ---------- activity (people can watch it; agents never read it) ----------
 
-  async activity (name, text) {
+  async activity (name, text, { claim } = {}) {
     const p = this.local[name]
     if (!p || !this.state?.can(p.signer.ref, SCOPES.chat)) return null
-    const rec = await makeActivity(p.signer, { room: this.topic, text })
+    const rec = await makeActivity(p.signer, { room: this.topic, text, claim })
     this.store.addActivity(rec)
     this.emit('activity', this.view(rec))
+    this.#busyTick()
     await this.#send('act', { rec })
     return rec
   }
@@ -411,6 +541,9 @@ export class Room extends EventEmitter {
     att = Array.isArray(att) && att.length
       ? att.slice(0, 4).map((a) => ({
           hash: String(a.hash),
+          kind: a.kind === 'file' ? 'file' : undefined,
+          name: a.kind === 'file' ? String(a.name).slice(0, 255) : undefined,
+          path: a.kind === 'file' ? String(a.path).slice(0, 1024) : undefined,
           mime: String(a.mime ?? 'application/octet-stream'),
           size: Math.round(Number(a.size) || 0),
           ms: a.ms != null ? Math.round(Number(a.ms)) : a.duration != null ? Math.round(Number(a.duration) * 1000) : undefined,
@@ -419,7 +552,7 @@ export class Room extends EventEmitter {
         }))
       : undefined
     if (!text && !att) throw new Error('empty message')
-    for (const a of att ?? []) if (!this.store.hasBlob(a.hash)) throw new Error('attachment not found on this device')
+    for (const a of att ?? []) if (a.kind !== 'file' && !this.store.hasBlob(a.hash)) throw new Error('attachment not found on this device')
     if ((att ?? []).some((a) => this.blocked().hashes.has(a.hash))) throw new Error('that file was removed from this room by an admin')
     const triggers = re.map((id) => this.store.get(id)).filter(Boolean).map((r) => this.view(r))
     const human = p.role === 'human'
@@ -460,11 +593,130 @@ export class Room extends EventEmitter {
     return st
   }
 
+  // The room's purpose (a standing prompt every agent gets) and the order in
+  // which agents answer a message that names nobody. Latest admin record wins.
+  charter () {
+    let c = { text: '', order: [] }
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'charter') c = { text: r.text ?? '', order: r.order ?? [] }
+    return c
+  }
+
+  // A rename is a control record, so it reaches every member and survives
+  // restarts. The config name follows the latest one.
+  applyRename () {
+    let name = null
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'rename' && r.name) name = r.name
+    if (name && name !== this.cfg.name) { this.cfg.name = name; this.emit('renamed', name) }
+  }
+
+  // ---------- files, by hash, on pearcore's drive ----------
+  // A shared file lives in this space at a virtual path (/chat/<name>) as a
+  // signed provider record (path → Merkle root → who has it). Anyone in the
+  // space fetches it by root from whoever is online; once fetched, this device
+  // registers as a provider too, so files get more available as they spread.
+
+  async #browser () {
+    const space = (await this.core.space.list()).find((s) => s.topicHash === this.topic)
+    if (!space) throw new Error('space not found')
+    return this.core.drives.get(space)
+  }
+
+  // pearcore only sends its file list during a space sync, so a peer that
+  // connects later never learns what we hold. Re-announce our own records
+  // (already signed) through pearcore's broadcaster when someone connects.
+  announceFiles () {
+    try {
+      const me = this.device.ref.slice(8)
+      const files = this.core.managers.spaceFileList.get(this.topic)
+      const b = this.core.managers.spaceFiles.fileEventBroadcaster
+      let n = 0
+      for (const [path, variants] of Object.entries(files)) {
+        for (const [rootHash, v] of Object.entries(variants)) {
+          const mine = v.peers?.[me]
+          if (!mine) continue
+          b.add('add', { topic: this.topic, path, publicKey: me, timestamp: mine.timestamp, rootHash, signature: mine.signature })
+          n++
+        }
+      }
+      if (DEBUG && n) console.error('[files] re-announced', n, 'records')
+    } catch (err) { if (DEBUG) console.error('[files] announce failed', err.message) }
+  }
+
+  // Share a file that already exists on this device. Returns the attachment.
+  async shareFile (localPath, { name } = {}) {
+    const { statSync } = await import('node:fs')
+    const { basename } = await import('node:path')
+    const st = statSync(localPath)
+    if (!st.isFile()) throw new Error('not a file')
+    name = String(name ?? basename(localPath)).replace(/[\/\\]/g, '_').trim() || 'file'
+    const path = `/chat/${name}`
+    const browser = await this.#browser()
+    let root
+    try {
+      const entry = await browser.addFile(`chat/${name}`, localPath)
+      root = await new Promise((resolve, reject) => {
+        entry.onError(reject)
+        entry.onComplete(() => resolve(entry.rootHash))
+      })
+    } catch (err) {
+      // the same file on disk was shared before: reuse our existing record
+      const me = this.device.ref.slice(8)
+      const variants = this.core.managers.spaceFileList.get(this.topic)[path] ?? {}
+      root = Object.entries(variants).find(([, v]) => v.peers?.[me])?.[0]
+      if (!root) throw err
+    }
+    if (!root) throw new Error('indexing produced no root')
+    this.store.rememberFile(root, localPath)
+    return { kind: 'file', hash: root, name, path, size: st.size, mime: mimeOf(name) }
+  }
+
+  // Where a shared file is on this device, if it is (our own, or fetched).
+  localFile (root) {
+    const p = this.store.fileIndex()[root]
+    return p && fsSync.existsSync(p) ? p : null
+  }
+
+  // Everyone the space knows has this file right now.
+  providersOf (att) {
+    try {
+      const recs = this.core.managers?.spaceFileList?.get(this.topic)?.[att.path]?.[att.hash]?.peers ?? {}
+      return Object.keys(recs)
+    } catch { return [] }
+  }
+
+  // Fetch a shared file from the space. Resolves to the local path.
+  async fetchFile (att) {
+    const have = this.localFile(att.hash)
+    if (have) return have
+    if (this.blocked().hashes.has(att.hash)) throw new Error('that file was removed from this room by an admin')
+    if (this.fetching.has(att.hash)) return this.fetching.get(att.hash)
+    const job = (async () => {
+      const browser = await this.#browser()
+      const entry = await browser.getFile(att.path)
+      if (!entry || !entry.exists) throw new Error('nobody online has this file right now')
+      const dir = this.store.filePath(att.hash)
+      fsSync.mkdirSync(dir, { recursive: true })
+      const dest = `${dir}/${att.name}`
+      const task = await entry.download(att.hash, dest)
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('download timed out')), 6 * 3600_000); t.unref()
+        task.onComplete(() => { clearTimeout(t); resolve() })
+      })
+      this.store.rememberFile(att.hash, dest)
+      // become a provider too (fire and forget)
+      browser.addFile(att.name, dest).catch(() => {})
+      this.emit('file', { hash: att.hash, path: dest })
+      return dest
+    })()
+    this.fetching.set(att.hash, job)
+    try { return await job } finally { this.fetching.delete(att.hash) }
+  }
+
   // Everything this room knows about a key: its enroll op (with the key's own
   // consent), so the same root can sign it into another room without asking again.
   enrollmentOf (name) {
     const s = this.state
-    const e = this.chain?.entries.findLast((x) => x.op?.t === 'enroll' && x.op.label === name && s.isActive(x.op.key))
+    const e = this.chain?.entries.findLast((x) => x.op?.t === 'enroll' && nameOf(x.op.label) === name && !x.op.label.startsWith('device:') && s.isActive(x.op.key))
     if (!e) return null
     const deviceRef = [...this.presence.entries()].find(([, p]) => p.participants.some((x) => x.name === name))?.[0] ??
       this.chain.entries.filter((x) => x.op?.t === 'enroll' && x.op.label?.startsWith('device:') && s.isActive(x.op.key))
@@ -526,7 +778,33 @@ export class Room extends EventEmitter {
     log.forEach((r, i) => { if (r.kind === 'msg' && r.name === name) lastOwn = i })
     const answered = new Set(log.filter((r) => r.name === name).flatMap((r) => r.re ?? []))
     const passed = this.passed.get(name) ?? new Set()
-    return log.slice(lastOwn + 1).filter((r) => addressedTo(r, name) && !answered.has(r.id) && !passed.has(r.id))
+    const byId = new Map(log.map((r) => [r.id, r]))
+    const mine = log.slice(lastOwn + 1).filter((r) => addressedTo(r, name, byId) && !answered.has(r.id) && !passed.has(r.id))
+    // turn order: a message that names nobody goes to the first agent in the
+    // charter's list; the next in line waits one window, then takes it unless
+    // an earlier agent has claimed or answered it. Mentions bypass the order.
+    const order = this.charter().order
+    const i = order.indexOf(name)
+    if (i <= 0) return mine
+    const earlier = new Set(order.slice(0, i))
+    const taken = (t) => log.some((r) => r.kind === 'msg' && earlier.has(r.name) && (r.re ?? []).includes(t.id)) ||
+      this.store.activity.some((a) => a.ts >= t.ts && Array.isArray(a.claim) && a.claim.includes(t.id) && earlier.has(this.view(a).name))
+    const now = Date.now()
+    return mine.filter((t) => {
+      if (!t.human || t.mentions.length) return true
+      if (taken(t)) { if (!this.passed.has(name)) this.passed.set(name, new Set()); this.passed.get(name).add(t.id); return false }
+      const dueAt = t.ts + i * TURN_WINDOW
+      if (now < dueAt) { this.#pokeAt(dueAt); return false }
+      return true
+    })
+  }
+
+  #pokeAt (when) {
+    const delay = Math.max(50, when - Date.now() + 20)
+    if (this.pokeTimer && this.pokeAtTs <= when) return
+    clearTimeout(this.pokeTimer)
+    this.pokeAtTs = when
+    this.pokeTimer = setTimeout(() => { this.pokeTimer = null; this.emit('changed') }, delay)
   }
 
   // An agent chose to stay silent on these; don't wake it for them again.
@@ -549,11 +827,35 @@ export class Room extends EventEmitter {
 }
 
 // Build the join request a new device hands to the owner.
-export async function joinRequest ({ root, deviceName, device, participants }) {
+// A join request carries this device, and each participant with its account:
+// the account root's consent to the room, plus the account's own enrollment
+// of the session key (pre-signed; the owner appends it after enrolling the root).
+// `state` (the room's current key state, if this device has it) lets a key that
+// was removed earlier anchor its consent to that revocation, which is what lets
+// it back in.
+export async function joinRequest ({ root, deviceName, device, participants, state = null }) {
+  const after = (ref) => state?.get(ref)?.revoked?.sig
+  const fresh = async (signer) => { const a = after(signer.ref); return { consent: await consent(signer, root, a ? { after: a } : {}), after: a } }
+  const dev = await fresh(device)
   return {
-    device: { ref: device.ref, name: deviceName, consent: await consent(device, root) },
-    participants: await Promise.all(Object.entries(participants).map(async ([name, p]) => ({
-      ref: p.signer.ref, name, role: p.role, consent: await consent(p.signer, root)
-    })))
+    device: { ref: device.ref, name: deviceName, consent: dev.consent, after: dev.after },
+    participants: await Promise.all(Object.entries(participants).map(async ([name, p]) => {
+      const c = await fresh(p.signer)
+      const out = { ref: p.signer.ref, name, role: p.role, consent: c.consent, after: c.after }
+      if (p.account && p.account.ref !== p.signer.ref) {
+        const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
+        const ac = await fresh(p.account)
+        out.account = {
+          ref: p.account.ref,
+          consent: ac.consent,
+          after: ac.after,
+          enroll: await enroll(p.account, { root, key: p.signer.ref, consent: out.consent, consentAfter: c.after, scope: ['bind', SCOPES.chat, role], label: `${name}@${deviceName}` })
+        }
+      }
+      return out
+    }))
   }
 }
+
+export const nameOf = (label = '') => String(label).split('@')[0]
+export const deviceOf = (label = '') => String(label).split('@')[1] ?? ''

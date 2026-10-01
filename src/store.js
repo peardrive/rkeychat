@@ -76,6 +76,18 @@ export class RoomStore {
 
   // Content-addressed attachments (voice memos, later any file): blobs/<sha256>.
   blobPath (hash) { return join(this.dir, 'blobs', hash) }
+  // files shared by hash (pearcore roots) land in files/<root>/<name>
+  filePath (root) { return join(this.dir, 'files', String(root).replace(/[^0-9a-f]/g, '')) }
+  // root -> local path, for files we shared from elsewhere on disk or fetched
+  fileIndex () {
+    if (!this._files) { try { this._files = JSON.parse(readFileSync(join(this.dir, 'files', 'index.json'), 'utf8')) } catch { this._files = {} } }
+    return this._files
+  }
+  rememberFile (root, path) {
+    const idx = this.fileIndex(); idx[root] = path
+    mkdirSync(join(this.dir, 'files'), { recursive: true })
+    writeFileSync(join(this.dir, 'files', 'index.json'), JSON.stringify(idx, null, 2))
+  }
   hasBlob (hash) { return /^[0-9a-f]{64}$/.test(hash) && existsSync(this.blobPath(hash)) }
   putBlob (bytes, expected) {
     const hash = createHash('sha256').update(bytes).digest('hex')

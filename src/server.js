@@ -71,6 +71,8 @@ export function roomSnapshot (room) {
     budget: serializeBudget(room.budget()),
     reactions: room.reactions(),
     style: room.style(),
+    charter: room.charter(),
+    connections: room.connections(),
     log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
   }
 }
@@ -98,8 +100,14 @@ export function serve ({ app }) {
     room.on('activity', (rec) => push('activity', { topic: t, rec }))
     room.on('fork', (f) => push('fork', { topic: t, seq: f.seq }))
   }
+  // pearcore-level counters for the debug route (what arrives, what gets rejected)
+  const pcEvents = {}
+  for (const ev of ['SpaceFileEvent', 'SpaceSync', 'Reject', 'SpaceFileTreeResponse', 'Connection']) {
+    app.core.emitter.on(ev, (e) => { pcEvents[ev] = (pcEvents[ev] ?? 0) + 1; if (ev === 'Reject') pcEvents.lastRejection = { reason: e?.message?.payload?.reason ?? e?.message?.reason, of: e?.message?.payload?.type ?? e?.message?.payload?.original?.type } })
+  }
   for (const r of app.rooms.values()) wire(r)
   app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
+  app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
 
   const need = (cond, msg, status = 400) => { if (!cond) { const e = new Error(msg); e.status = status; throw e } }
   const pick = (key) => { const r = app.find(key); need(r, key ? `no room "${key}"` : 'no rooms yet. Create one first', 404); return r }
@@ -169,12 +177,14 @@ export function serve ({ app }) {
       return { ...rec, roomName: room.cfg.name, fixes: fixed.fixes }
     },
     'POST /api/control': async (req) => {
-      const { room: key, action, n, until, hours, agent, style } = await body(req)
+      const { room: key, action, n, until, hours, agent, style, text, order, name } = await body(req)
       const { room } = pick(key)
-      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style']
+      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename']
+      if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
+      if (action === 'charter' && order !== undefined) need(Array.isArray(order) && order.every((o) => room.participantsList().some((p) => p.name === o && p.role === 'agent')), 'order must list agents in this room')
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
-      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined })
+      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, name })
     },
 
     'GET /api/invite': (req, res, url) => {
@@ -192,14 +202,44 @@ export function serve ({ app }) {
       need(room.isOwner, 'only the room\'s owner can approve')
       return { enrolled: await room.approve(decodeRequest(code)), room: room.cfg.name }
     },
-    'POST /api/revoke': async (req) => {
-      const { room: key, name, reason = 'removed' } = await body(req)
+    'POST /api/unban': async (req) => {
+      const { room: key, ref } = await body(req)
       const { room } = pick(key)
-      const m = room.members().find((x) => x.name === name)
-      need(m, `nobody called ${name} in this room`)
-      if (cfg.participants[name]) await room.leave(name)
-      else await room.revoke(m.ref, reason)
-      return { ok: true }
+      need(room.isOwner, 'only the room owner can lift a ban')
+      const m = room.members().find((x) => x.reason === 'banned' && (x.ref === ref || x.ref.slice(8).startsWith(ref) || x.ref.includes(ref)))
+      need(m, `no banned key matching ${ref}`)
+      await room.unban(m.ref)
+      return { ok: true, unbanned: m.ref }
+    },
+    'POST /api/readopt': async (req) => {
+      const { room: key, ref } = await body(req)
+      const { room } = pick(key)
+      need(room.isOwner, 'only the room owner can re-adopt')
+      const m = room.members().find((x) => x.status === 'revoked' && (x.ref === ref || x.ref.slice(8).startsWith(ref) || x.ref.includes(ref)))
+      need(m, `no revoked key matching ${ref}`)
+      return { ok: true, appended: await room.readopt(m.ref) }
+    },
+    'POST /api/revoke': async (req) => {
+      // by name: the whole account (every top-level key with that name, children cascade);
+      // with `key` (a ref or prefix): just that key, e.g. the old one after a key roll
+      const { room: key, name, ref, reason = 'removed' } = await body(req)
+      need(['removed', 'banned', 'compromised'].includes(reason), 'reason is removed, banned or compromised')
+      const { room } = pick(key)
+      const active = room.members().filter((x) => x.status === 'active')
+      if (ref) {
+        const m = active.find((x) => x.ref === ref || x.ref.includes(ref) || x.ref.slice(8).startsWith(ref))
+        need(m, `no active key matching ${ref}`)
+        await room.revoke(m.ref, reason)
+        return { ok: true, revoked: [m.ref] }
+      }
+      let tops = active.filter((x) => x.name === name && x.depth === 1 && !x.label?.startsWith('device:'))
+      need(tops.length, `nobody called ${name} in this room`)
+      // after a key roll the name has an account root (delegate) and old flat keys: by name means the old keys
+      // ...unless it's a ban: that must take the account root, or the root could just enroll a new session
+      if (reason !== 'banned' && tops.some((x) => x.scope.includes('delegate')) && tops.some((x) => !x.scope.includes('delegate'))) tops = tops.filter((x) => !x.scope.includes('delegate'))
+      if (cfg.participants[name] && !room.isOwner) { await room.leave(name); return { ok: true } }
+      for (const m of tops) await room.revoke(m.ref, reason)
+      return { ok: true, revoked: tops.map((m) => m.ref) }
     },
 
     // NDJSON stream of turns for a stream-bridged agent, across all rooms
@@ -236,6 +276,39 @@ export function serve ({ app }) {
       } finally { rmSync(file, { force: true }) }
     },
     // Attachments: store by content hash in the room; voice gets a local transcript.
+    // ---- files by hash (pearcore drive) ----
+    // Upload from the GUI: streamed to disk (any size), then shared into the space.
+    'POST /api/upload': async (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const name = String(url.searchParams.get('name') ?? 'file').replace(/[\/\\]/g, '_').trim() || 'file'
+      const dir = join(room.store.dir, 'files', 'incoming', randomBytes(6).toString('hex')); mkdirSync(dir, { recursive: true })
+      const file = join(dir, name)
+      const { createWriteStream } = await import('node:fs')
+      await new Promise((resolve, reject) => { const w = createWriteStream(file); req.pipe(w); w.on('finish', resolve); w.on('error', reject); req.on('error', reject) })
+      return room.shareFile(file)
+    },
+    // Share a file already on this device (CLI, agents): no copy, the original is the source.
+    'POST /api/share': async (req) => {
+      const { room: key, path, name } = await body(req)
+      const { room } = pick(key)
+      need(path, 'path is required')
+      return room.shareFile(path, { name })
+    },
+    // Fetch a shared file from the room; answers when it's on this device.
+    'POST /api/fetch': async (req) => {
+      const { room: key, hash, root } = await body(req)
+      const { room } = pick(key)
+      const att = fileAtt(room, String(root ?? hash ?? ''))
+      need(att, 'no such file in this room', 404)
+      return { ...att, path: await room.fetchFile(att) }
+    },
+    'GET /api/files': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const seen = new Map()
+      for (const r of room.log()) for (const a of r.att ?? []) if (a.kind === 'file' && !seen.has(a.hash)) seen.set(a.hash, { ...a, by: r.name, ts: r.ts, local: !!room.localFile(a.hash), providers: room.providersOf(a).length })
+      return [...seen.values()]
+    },
+
     'POST /api/blob': async (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))
       const mime = String(req.headers['content-type'] ?? 'application/octet-stream').split(';')[0].trim()
@@ -327,13 +400,52 @@ export function serve ({ app }) {
 
     'POST /api/stop': () => { setTimeout(() => process.kill(process.pid, 'SIGTERM'), 100); return { ok: true } },
 
+    'GET /api/debug/agent': (req, res, url) => {
+      const name = url.searchParams.get('name')
+      return [...app.rooms.values()].map(({ room, runners }) => {
+        const r = runners.get(name)
+        if (!r) return { room: room.cfg.name, hosted: false }
+        const w = r.why()
+        return { room: room.cfg.name, hosted: true, bridge: r.bridge.kind, busy: r.busy, listeners: r.listeners?.size ?? 0, state: room.agentState.get(name), ...w, triggers: (w.triggers ?? []).map((t) => ({ id: t.id, from: t.name, text: String(t.text).slice(0, 80) })) }
+      })
+    },
     'GET /api/debug': () => {
       const swarm = app.core.managers.connection.swarmInstance
       return {
         swarmConnections: [...(swarm?.connections ?? [])].map((c) => Buffer.from(c.remotePublicKey).toString('hex').slice(0, 12)),
-        peers: [...app.core.managers.sockets.peers.keys()].map((k) => k.slice(0, 12))
+        peers: [...app.core.managers.sockets.peers.keys()].map((k) => k.slice(0, 12)),
+        pcEvents,
+        files: Object.fromEntries([...app.rooms.values()].map(({ room }) => [room.cfg.name, app.core.managers.spaceFileList.get(room.topic)]))
       }
     }
+  }
+  // A file attachment by (prefix of) its root, from the room's messages.
+  function fileAtt (room, root) {
+    if (root.length < 8) return null
+    for (const r of room.log()) for (const a of r.att ?? []) if (a.kind === 'file' && a.hash.startsWith(root) && !r.redacted) return a
+    return null
+  }
+  // Serve a shared file from disk (fetching it first if needed), with range support for media.
+  async function serveFile (req, res, url) {
+    const root = url.pathname.slice('/api/file/'.length).split('/')[0]
+    const r = app.find(url.searchParams.get('room'))
+    const att = r && fileAtt(r.room, root)
+    if (!att) { res.writeHead(404); return res.end() }
+    if (r.room.blocked().hashes.has(att.hash)) { res.writeHead(410); return res.end('removed from this room') }
+    let path
+    try { path = await r.room.fetchFile(att) } catch (err) { res.writeHead(404); return res.end(err.message) }
+    const { statSync, createReadStream } = await import('node:fs')
+    const size = statSync(path).size
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '')
+    const headers = { 'content-type': att.mime, 'accept-ranges': 'bytes', 'content-disposition': `${url.searchParams.get('dl') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(att.name)}` }
+    if (m) {
+      const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]))
+      const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1
+      res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 })
+      return createReadStream(path, { start, end }).pipe(res)
+    }
+    res.writeHead(200, { ...headers, 'content-length': size })
+    createReadStream(path).pipe(res)
   }
   // Serve an attachment; if this device doesn't have it yet, ask the room and wait briefly.
   async function serveBlob (req, res, url) {
@@ -379,6 +491,7 @@ export function serve ({ app }) {
       res.writeHead(401, { 'content-type': 'text/html' }); return res.end(PAIR_PAGE('This device isn\'t paired yet. On your Mac, open rKeyChat → Settings (gear) → Phone, and scan the code.'))
     }
     if (req.method === 'GET' && url.pathname.startsWith('/api/blob/')) return serveBlob(req, res, url)
+    if (req.method === 'GET' && url.pathname.startsWith('/api/file/')) return serveFile(req, res, url)
     const route = routes[`${req.method} ${url.pathname}`]
     if (!route) { res.writeHead(404); return res.end('not found') }
     try {
