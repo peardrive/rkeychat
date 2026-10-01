@@ -787,6 +787,7 @@ function closeOverlay () { $('overlay')?.remove() }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeOverlay(); closePicker(); if (replyTo && document.activeElement === ta) clearReply() } })
 
 function renderNoRooms () {
+  delete $('feed').dataset.sig
   $('feed').innerHTML = `<div class="hero">
     <div class="hero-icon">${icon('rooms')}</div>
     <h2>Start a room</h2>
@@ -811,6 +812,7 @@ async function claimLogin (code) {
 document.addEventListener('submit', (e) => { if (e.target.id === 'heroLogin') { e.preventDefault(); claimLogin(new FormData(e.target).get('code')) } })
 function renderWaiting () {
   const c = cur()
+  delete $('feed').dataset.sig // the feed no longer shows a conversation; the next room must repaint even if its log is unchanged
   $('feed').innerHTML = `<div class="hero">
     <div class="hero-icon">${icon('key')}</div>
     <h2>Waiting to be let in</h2>
