@@ -102,6 +102,8 @@ export function serve ({ app }) {
     room.on('agent-error', (e) => push('agent-error', { topic: t, ...e }))
     room.on('activity', (rec) => push('activity', { topic: t, rec }))
     room.on('fork', (f) => push('fork', { topic: t, seq: f.seq }))
+    room.on('file-progress', (p) => push('file-progress', { topic: t, ...p }))
+    room.on('file', (f) => push('file-progress', { topic: t, hash: f.hash, percent: 100, done: true }))
   }
   // pearcore-level counters for the debug route (what arrives, what gets rejected)
   const pcEvents = { rejections: {} }

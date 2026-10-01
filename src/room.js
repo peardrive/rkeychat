@@ -728,10 +728,15 @@ export class Room extends EventEmitter {
       fsSync.mkdirSync(dir, { recursive: true })
       const dest = `${dir}/${att.name}`
       const task = await entry.download(att.hash, dest)
-      await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('download timed out')), 6 * 3600_000); t.unref()
-        task.onComplete(() => { clearTimeout(t); resolve() })
-      })
+      this.emit('file-progress', { hash: att.hash, percent: 0 })
+      const onProgress = () => { const p = task.getProgress?.()?.percent; if (typeof p === 'number') this.emit('file-progress', { hash: att.hash, percent: p }) }
+      task.onProgress?.(onProgress)
+      try {
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(() => reject(new Error('download timed out')), 6 * 3600_000); t.unref()
+          task.onComplete(() => { clearTimeout(t); resolve() })
+        })
+      } finally { task.offProgress?.(onProgress) }
       this.store.rememberFile(att.hash, dest)
       // become a provider too (fire and forget)
       browser.addFile(att.name, dest).catch(() => {})
