@@ -21,13 +21,7 @@ const UI = join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
-export function encodeInvite (room) { return 'rkc1.' + b64({ n: room.name, s: room.sharelink, r: room.root, t: room.topic }) }
-export function decodeInvite (code) {
-  const s = String(code ?? '').trim()
-  if (!s.startsWith('rkc1.')) throw new Error('that isn\'t an rKeyChat invite (they start with rkc1.)')
-  const { n, s: sharelink, r: root, t: topic } = unb64(s.slice(5))
-  return { name: n, sharelink, root, topic }
-}
+export { encodeInvite, decodeInvite } from './invite.js'
 export const encodeRequest = (req) => 'rkr1.' + b64(req)
 export function decodeRequest (code) {
   const s = String(code ?? '').trim()
@@ -409,6 +403,18 @@ export function serve ({ app }) {
 
     'POST /api/stop': () => { setTimeout(() => process.kill(process.pid, 'SIGTERM'), 100); return { ok: true } },
 
+    // ---- logging a new device in (see login.js) ----
+    'POST /api/login/offer': async (req) => {
+      need(!isRemote(req), 'start this from the device that holds the account', 403)
+      const o = await app.login.offer()
+      return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 1, color: { dark: '#ececf1', light: '#00000000' } }) }
+    },
+    'POST /api/login/claim': async (req) => {
+      const { code } = await body(req)
+      need(code, 'paste or scan a login code')
+      return app.login.claim(code)
+    },
+    'GET /api/login': () => ({ pending: app.login.pending() }),
     'GET /api/debug/agent': (req, res, url) => {
       const name = url.searchParams.get('name')
       return [...app.rooms.values()].map(({ room, runners }) => {
