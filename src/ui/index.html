@@ -246,6 +246,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .apply-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; animation: tip-in 0.12s var(--ease); }
 .order-item .grip { color: var(--text-3); font-size: 14px; letter-spacing: -2px; } .order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
 .order-item .nm { flex: 1; font-weight: 600; } .order-item .wait { font-size: 11px; color: var(--text-3); }
+.sheet-tabs { display: none; gap: 4px; padding: 8px 10px 0; }
+.sheet-tabs button { flex: 1; padding: 7px 0; border-radius: 10px; font-size: 12.5px; font-weight: 600; color: var(--text-2); background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; }
+.sheet-tabs button.is-on { color: var(--accent-ink); background: var(--accent); box-shadow: none; }
+@media (max-width: 720px) { .sheet-tabs { display: flex; } }
 .panel-grip { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 5; }
 .panel-grip:hover, .panel-grip.is-active { background: linear-gradient(90deg, var(--accent), transparent); opacity: 0.5; }
 .section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -523,6 +527,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
     <div class="panel-grip" id="panelGrip" title="Drag to resize"></div>
     <header class="panel-head"><svg class="ico" id="panelIcon"><use href="#i-people"/></svg><h2 id="panelTitle">People</h2>
       <button class="icon-btn" id="panelClose" title="Close"><svg class="ico"><use href="#i-x"/></svg></button></header>
+    <div class="sheet-tabs" id="sheetTabs"></div>
     <div class="panel-body" id="panelBody"></div>
   </aside>
 </div>
@@ -935,6 +940,9 @@ function renderPanel () {
   panel.hidden = false
   $('panelTitle').textContent = page === 'activity' && activityAgent ? `${activityAgent} · activity` : PAGES[page].title
   $('panelIcon').innerHTML = `<use href="#i-${PAGES[page].icon}"/>`
+  // phone: a tab strip on top of the sheet, so the main pages are one tap apart
+  const tabs = [['room', 'Room'], ['contacts', 'Contacts'], ['profile', 'Profile'], ['settings', 'Settings']]
+  $('sheetTabs').innerHTML = tabs.some(([k]) => k === page) ? tabs.map(([k, t]) => `<button data-go="${k}" class="${k === page ? 'is-on' : ''}">${t}</button>`).join('') : ''
   $('panelBody').innerHTML = PAGES[page].render()
   bindRoomForms($('panelBody'))
 }
