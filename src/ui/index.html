@@ -1121,7 +1121,7 @@ function renderProfilePage () {
   const tree = mine.map((m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`).join('')
   return `<div class="room-profile"><div class="big" style="border-radius:50%">${esc(meName.slice(0, 1).toUpperCase())}</div><h2>${esc(meName)}</h2><div class="meta">on ${esc(d.name ?? 'this device')}</div>
       <div class="inline"><button class="btn btn-primary btn-sm" id="loginOffer">${icon('qr')}Log in a new device</button><button class="btn btn-soft btn-sm" data-go="settings">${icon('gear')}Settings</button></div></div>
-    ${loginOffer ? `<section class="section" style="text-align:center"><div style="display:inline-grid;place-items:center;padding:10px;background:rgba(0,0,0,0.35);border-radius:14px;max-width:260px">${loginOffer.qr}</div><p class="note" style="margin-top:8px">Scan this on the new device. Good once, for 10 minutes.</p><details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(loginOffer.code)}</div></details></section>` : ''}
+    ${loginOffer ? `<section class="section" style="text-align:center"><div style="display:inline-grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px)">${loginOffer.qr}</div><p class="note" style="margin-top:8px">Scan this on the new device. Good once, for 10 minutes.</p><details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(loginOffer.code)}</div></details></section>` : ''}
     <section class="section"><h3 class="section-title">Your account</h3>
       <dl class="kv"><dt>Root</dt><dd class="mono">${esc(rootRef ?? 'none yet')}</dd><dt>This device</dt><dd class="mono">${esc(d.ref ?? '')}</dd></dl>
       <p class="note">One account, a key per device, all shown as you. The root lives on this Mac for now; it moves to an NFC card later.</p></section>
@@ -1235,14 +1235,21 @@ async function openScanner (onResult) {
   el.querySelector('#scanClose').onclick = close
   try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false }) } catch (err) { close(); toast(`Camera: ${err.message}`); return }
   video.srcObject = stream
+  try { await video.play() } catch {}
+  const status = el.querySelector('#scanStatus')
+  if (typeof window.jsQR !== 'function') { status.textContent = 'Scanner code didn\'t load; paste the code instead' }
+  let frames = 0
   const tick = () => {
     if (!scan) return
-    if (video.readyState >= 2) {
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight
-      ctx.drawImage(video, 0, 0)
+    if (video.readyState >= 2 && video.videoWidth > 0 && typeof window.jsQR === 'function') {
+      // decode at most ~800px wide: faster, and jsQR likes a few pixels per module, not many
+      const scale = Math.min(1, 800 / video.videoWidth)
+      canvas.width = Math.round(video.videoWidth * scale); canvas.height = Math.round(video.videoHeight * scale)
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const r = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' })
+      const r = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'attemptBoth' })
       if (r?.data) { close(); onResult(String(r.data).trim()); return }
+      if (++frames === 60) status.textContent = 'Looking… fill the frame with the code'
     }
     raf = requestAnimationFrame(tick)
   }
