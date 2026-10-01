@@ -626,9 +626,15 @@ export class Room extends EventEmitter {
   // The room's purpose (a standing prompt every agent gets) and the order in
   // which agents answer a message that names nobody. Latest admin record wins.
   charter () {
-    let c = { text: '', order: [] }
-    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'charter') c = { text: r.text ?? '', order: r.order ?? [] }
+    let c = { text: '', order: [], agents: {} }
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'charter') c = { text: r.text ?? '', order: r.order ?? [], agents: r.agents ?? {} }
     return c
+  }
+
+  // This agent's rule in this room: { role, wake: 'order' | 'mention' | 'backup', backupFor }
+  ruleFor (name) {
+    const r = this.charter().agents?.[name] ?? {}
+    return { role: r.role ?? '', wake: r.wake ?? 'order', backupFor: r.backupFor ?? null }
   }
 
   // A rename is a control record, so it reaches every member and survives
@@ -815,16 +821,38 @@ export class Room extends EventEmitter {
     const passed = this.passed.get(name) ?? new Set()
     const byId = new Map(log.map((r) => [r.id, r]))
     const mine = log.slice(lastOwn + 1).filter((r) => addressedTo(r, name, byId) && !answered.has(r.id) && !passed.has(r.id))
+    const direct = (t) => t.mentions.includes(name) || (t.human && t.re?.length > 0) // named, or a reply to this agent
+    const rule = this.ruleFor(name)
+    const now = Date.now()
+    // mentioned only: the open floor never wakes this agent
+    if (rule.wake === 'mention') return mine.filter(direct)
+    // backup for X: direct mentions as usual; otherwise only what X was due to answer
+    // and hasn't, one window after X's own slot (or one window flat if X is offline)
+    if (rule.wake === 'backup' && rule.backupFor && rule.backupFor !== name) {
+      const x = rule.backupFor
+      const xOnline = this.participantsList().some((p) => p.name === x && p.online)
+      const xAnswered = new Set(log.filter((r) => r.name === x).flatMap((r) => r.re ?? []))
+      const xClaimed = (t) => this.store.activity.some((a) => a.ts >= t.ts && Array.isArray(a.claim) && a.claim.includes(t.id) && this.view(a).name === x)
+      const xSlot = Math.max(0, this.charter().order.indexOf(x)) * TURN_WINDOW
+      const forX = log.slice(lastOwn + 1).filter((r) => addressedTo(r, x, byId) && !xAnswered.has(r.id) && !passed.has(r.id) && !direct(r))
+      const out = mine.filter(direct)
+      for (const t of forX) {
+        if (xClaimed(t)) continue
+        const dueAt = t.ts + (xOnline ? xSlot + 2 * TURN_WINDOW : TURN_WINDOW)
+        if (now < dueAt) { this.#pokeAt(dueAt); continue }
+        if (!out.includes(t)) out.push(t)
+      }
+      return out.sort((a, b) => a.ts - b.ts)
+    }
     // turn order: a message that names nobody goes to the first agent in the
     // charter's list; the next in line waits one window, then takes it unless
     // an earlier agent has claimed or answered it. Mentions bypass the order.
-    const order = this.charter().order
+    const order = this.charter().order.filter((n) => this.ruleFor(n).wake === 'order')
     const i = order.indexOf(name)
     if (i <= 0) return mine
     const earlier = new Set(order.slice(0, i))
     const taken = (t) => log.some((r) => r.kind === 'msg' && earlier.has(r.name) && (r.re ?? []).includes(t.id)) ||
       this.store.activity.some((a) => a.ts >= t.ts && Array.isArray(a.claim) && a.claim.includes(t.id) && earlier.has(this.view(a).name))
-    const now = Date.now()
     return mine.filter((t) => {
       if (!t.human || t.mentions.length) return true
       if (taken(t)) { if (!this.passed.has(name)) this.passed.set(name, new Set()); this.passed.get(name).add(t.id); this.#savePassed(); return false }

@@ -198,14 +198,19 @@ export function serve ({ app }) {
       return { ...rec, roomName: room.cfg.name, fixes: fixed.fixes }
     },
     'POST /api/control': async (req) => {
-      const { room: key, action, n, until, hours, agent, style, text, order, name } = await body(req)
+      const { room: key, action, n, until, hours, agent, style, text, order, agents, name } = await body(req)
       const { room } = pick(key)
       const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename']
       if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
       if (action === 'charter' && order !== undefined) need(Array.isArray(order) && order.every((o) => room.participantsList().some((p) => p.name === o && p.role === 'agent')), 'order must list agents in this room')
+      if (action === 'charter' && agents !== undefined) {
+        const isAgent = (x) => room.participantsList().some((p) => p.name === x && p.role === 'agent')
+        need(agents && typeof agents === 'object' && Object.keys(agents).every(isAgent), 'agent rules must name agents in this room')
+        for (const [x, r] of Object.entries(agents)) if (r?.wake === 'backup') need(r.backupFor && r.backupFor !== x && isAgent(r.backupFor), `${x}: backup for whom?`)
+      }
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
-      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, name })
+      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name })
     },
 
     'GET /api/invite': (req, res, url) => {
