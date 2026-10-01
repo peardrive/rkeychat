@@ -104,13 +104,21 @@ export function serve ({ app }) {
     room.on('fork', (f) => push('fork', { topic: t, seq: f.seq }))
   }
   // pearcore-level counters for the debug route (what arrives, what gets rejected)
-  const pcEvents = {}
-  for (const ev of ['SpaceFileEvent', 'SpaceSync', 'Reject', 'SpaceFileTreeResponse', 'Connection']) {
-    app.core.emitter.on(ev, (e) => { pcEvents[ev] = (pcEvents[ev] ?? 0) + 1; if (ev === 'Reject') pcEvents.lastRejection = { reason: e?.message?.payload?.reason ?? e?.message?.reason, of: e?.message?.payload?.type ?? e?.message?.payload?.original?.type } })
+  const pcEvents = { rejections: {} }
+  {
+    // count everything pearcore emits, and tally the reasons peers reject our messages with
+    const em = app.core.emitter; const emit = em.emit.bind(em)
+    em.emit = (ev, e, ...rest) => {
+      pcEvents[ev] = (pcEvents[ev] ?? 0) + 1
+      if (ev === 'Reject') { const k = `${e?.reason ?? "?"} (${e?.message?.payload?.linkedMessageType ?? e?.message?.payload?.type ?? "?"})`; pcEvents.rejections[k] = (pcEvents.rejections[k] ?? 0) + 1 }
+      return emit(ev, e, ...rest)
+    }
   }
   for (const r of app.rooms.values()) wire(r)
   app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
   app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
+  app.on('login-progress', (p) => push('login-progress', p))
+  app.on('login', (p) => push('login', p))
 
   const need = (cond, msg, status = 400) => { if (!cond) { const e = new Error(msg); e.status = status; throw e } }
   const pick = (key) => { const r = app.find(key); need(r, key ? `no room "${key}"` : 'no rooms yet. Create one first', 404); return r }
@@ -439,6 +447,9 @@ export function serve ({ app }) {
       return {
         swarmConnections: [...(swarm?.connections ?? [])].map((c) => Buffer.from(c.remotePublicKey).toString('hex').slice(0, 12)),
         peers: [...app.core.managers.sockets.peers.keys()].map((k) => k.slice(0, 12)),
+        // which spaces each connected peer says it holds (what we can send them on)
+        peerTopics: Object.fromEntries(Object.entries(app.core.managers.sockets.getSnapShot({ sortByPeers: true })).map(([k, v]) => [k.slice(0, 12), v.map((t) => t.slice(0, 8))])),
+        spaces: app.cfg.rooms.map((r) => [r.name, r.topic.slice(0, 8)]),
         pcEvents,
         files: Object.fromEntries([...app.rooms.values()].map(({ room }) => [room.cfg.name, app.core.managers.spaceFileList.get(room.topic)]))
       }
