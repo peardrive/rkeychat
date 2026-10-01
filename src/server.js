@@ -137,7 +137,8 @@ export function serve ({ app }) {
       res.write(': hi\n\n')
       sse.add(res)
       const ka = setInterval(() => res.write(': ka\n\n'), 15000)
-      req.on('close', () => { clearInterval(ka); sse.delete(res) })
+      // on Bare the request stream closes as soon as the (empty) body is read; the response closes with the connection
+      res.on('close', () => { clearInterval(ka); sse.delete(res) })
     },
 
     'GET /api/rooms': () => app.list(),
@@ -267,7 +268,7 @@ export function serve ({ app }) {
       for (const r of app.rooms.values()) attach(r)
       app.on('room-added', attach)
       const ka = setInterval(() => res.write(JSON.stringify({ type: 'ka' }) + '\n'), 30000)
-      req.on('close', () => { clearInterval(ka); app.off('room-added', attach); offs.forEach((off) => off()) })
+      res.on('close', () => { clearInterval(ka); app.off('room-added', attach); offs.forEach((off) => off()) })
     },
 
     // Dictation: audio in, text out. Transcribed on this machine; fixes applied.

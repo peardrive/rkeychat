@@ -423,7 +423,10 @@ export class Room extends EventEmitter {
       if (this.#burned(p.ref)) continue // compromised or banned keys stay out; the rest of the request still counts
       const name = String(p.name).toLowerCase()
       const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
-      const a = p.account
+      // the owner's own name arriving from another device is the owner's device: a key under
+      // the owner's root, not a second account (that's how a phone becomes "you")
+      const ownDevice = p.role === 'human' && this.local[name]?.role === 'human'
+      const a = ownDevice ? null : p.account
       if (a && a.ref !== root) {
         // an account root: same account joining from another device is fine, a different account with a taken name is not
         const existing = this.state.get(a.ref)
@@ -433,7 +436,7 @@ export class Room extends EventEmitter {
         if (a.enroll?.key === p.ref) ops.push(a.enroll) // the account enrolls its own session key (signed by it)
       } else {
         // a key under this room's own root: another device of the owner (label name@device), or a legacy key
-        if (a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (!ownDevice && a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
         ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, consentAfter: p.after, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
       }
       taken.add(name)
