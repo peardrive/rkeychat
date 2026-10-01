@@ -14,7 +14,8 @@
         "NSLocalNetworkUsageDescription": "rKeyChat connects directly to your other devices and people you chat with.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
-        }
+        },
+        "NSCameraUsageDescription": "rKeyChat uses the camera to scan login codes and room invites."
       }
     },
     "android": {
