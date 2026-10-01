@@ -1094,7 +1094,7 @@ function renderProfilePage () {
   const hosted = (d.participants ?? []).filter((p) => p.role === 'agent')
   const mine = c ? c.members.filter((m) => m.status !== 'orphaned' && (m.ref === d.ref || m.name === meName)) : []
   const glyph = (m) => m.label?.startsWith('device:') ? 'device' : m.device ? 'human' : 'root'
-  const tree = mine.map((m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + (m.depth - 1) * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`).join('')
+  const tree = mine.map((m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`).join('')
   return `<div class="room-profile"><div class="big" style="border-radius:50%">${esc(meName.slice(0, 1).toUpperCase())}</div><h2>${esc(meName)}</h2><div class="meta">on ${esc(d.name ?? 'this device')}</div>
       <div class="inline"><button class="btn btn-soft btn-sm" data-go="settings">${icon('gear')}Settings</button></div></div>
     <section class="section"><h3 class="section-title">Your account</h3>
@@ -1102,7 +1102,7 @@ function renderProfilePage () {
       <p class="note">One account, a key per device, all shown as you. The root lives on this Mac for now; it moves to an NFC card later.</p></section>
     ${c ? `<section class="section"><div class="section-title-row"><h3 class="section-title">Your keys in ${esc(c.name)}</h3><span class="pill tone-dim">${mine.filter((m) => m.status === 'active').length} active</span></div>
       <div class="tree"><div class="tree-row" title="${esc(c.root)}">${icon('root', 'tree-glyph')}<span class="tree-label">root</span><span class="tree-ref">${esc((c.root ?? '').split(':')[1]?.slice(0, 6) ?? '')}</span>${c.owner ? '<span class="pill tone-accent">yours</span>' : ''}</div>${tree}</div>
-      <p class="note">Indented under whatever signed it in. Revoke a key and everything under it goes too.</p></section>` : ''}
+      <p class="note">Each key sits under the key that signed it in (your root signs your devices and chat keys; an agent's root signs its sessions). Revoke a key and everything under it goes too.</p></section>` : ''}
     <section class="section"><h3 class="section-title">Agents you host</h3>${hosted.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub mono">${esc(p.ref.slice(0, 26))}… · ${esc(p.bridge ?? 'stream')}</span></div></div>`).join('') || '<p class="note">None on this device. <b>rkeychat add NAME</b> adds one.</p>'}</section>
     ${c?.owner ? `<section class="section"><h3 class="section-title">Approve a device or agent into ${esc(c.name)}</h3>
       <textarea class="text-input mono" id="reqIn" rows="3" placeholder="Paste a join request (rkr1.…)"></textarea>
@@ -1164,7 +1164,7 @@ function renderKeysPage () {
     const [suite, hex] = m.ref.split(':')
     const label = m.label?.replace(/^device:/, '') ?? '?'
     const can = c.owner && m.status === 'active'
-    return `<div class="tree-row is-${m.status}${hl.has(m.ref) ? ' is-hl' : ''}" style="padding-left:${4 + (m.depth - 1) * 16}px" title="${esc(m.ref)}">
+    return `<div class="tree-row is-${m.status}${hl.has(m.ref) ? ' is-hl' : ''}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">
       ${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(label)}</span><span class="tree-ref">${suite === 'bip340' ? 'nostr' : 'ed'}·${esc(hex.slice(0, 6))}</span>
       ${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}
       ${can ? `<button class="tree-x" data-revoke="${esc(m.label)}" title="Revoke">${icon('x')}</button>` : ''}</div>`
