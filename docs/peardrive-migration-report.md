@@ -8,7 +8,7 @@ PearDrive runs on the drive-service generation of pearcore (upstream `c8633de` +
 
 | Repo | Branch | Base | Commits |
 |---|---|---|---|
-| pearcore (`~/Anjou/pearcore-mobile`) | `peardrive-phase1` | `mobile-bare` (= upstream `c8633de` + migrations env, watcher bind, tree spaceId) | 13, listed below |
+| pearcore (`~/Anjou/pearcore-mobile`) | `peardrive-phase1` | `mobile-bare` (= upstream `c8633de` + migrations env, watcher bind, tree spaceId) | 16, listed below |
 | PearDrive (`~/Claude/Projects/pearsync`) | `pearcore-drive` | `master` `7b9c718` (build .127) | 1 (`645880f`) |
 
 PearDrive's `package.json` points at `file:../../../Anjou/pearcore-mobile` for development. **Pin a commit before anything ships.**
@@ -29,6 +29,8 @@ The four §9 must-fix items, then the rest of the still-applying patch set, then
 | `c4a5b5b` | §W | `files.watchLocalChanges` session config (default `true`). PearDrive sets `false` and drives `onChangeEvent/onDeleteEvent` from its own recursive watcher. |
 | `1997f24` | §V | Native Ed25519 via `sodium-native` when importable (0.04 ms/verify vs 1.65 ms), `@noble` fallback. Signatures cross-verify both ways (checked in-session). 90 crypto/protocol tests pass. |
 | `35f476e` | **new** | **Mux: a sync frame handler threw `TypeError` (`handler(...).catch` on a non-promise), which escaped `_process()` and dropped every frame after it in the buffer.** Found in the lab on the first boot: PearDrive's `0x03` control handler is sync. Handlers are now awaited inside try/catch and the error message is logged. |
+| `5b1a44f` | Kimi #1 | tree request for an offline source rejects with `FILE_NOT_ACCESSIBLE` (test). |
+| `8535156` | Kimi #2 | failing-handler warning throttled per peer. |
 | `c07441b` | | empty list is not "sent"; test rewritten with fresh nonces (the first version was dropped by the nonce dedupe before the handler and passed vacuously). |
 
 Test suite: **no new failures** against baseline (20 pre-existing failures are DHT/network tests that time out in this environment, identical before and after), 396 pass.
@@ -86,9 +88,9 @@ Not seen: any `Reject`, any `handler failed`, any FK or sqlite error.
 - **Once-per-socket file list (`c60b6bb`, `c07441b`).** An empty list is not counted as sent (a peer that syncs before our first registration gets the list on a later sync; test proves the pre-fix handler replays and the fixed one doesn't). After that one push a peer stays current only through SpaceFileEvents, which §K's `peerFilter` can suppress. Today PearDrive's filter excludes only `gossip.deltaPeers` (peers that spoke `cat*`), so a plain pearcore peer such as rKeyChat still gets events, but **this is the seam**: a PearDrive node that mis-classifies a peer as a delta peer would starve it. Also note: receivers drop repeated nonces, so a sender re-using a content-derived nonce was already limited to one delivery per receiver session; PearDrive deliberately sends fresh nonces (engine.js ~1643), which is the storm case this fixes.
 - **Non-blocking join (`2fc0e8f`).** `space.create()` now returns before the DHT announce lands. Anything that assumed "created ⇒ discoverable" (tests, rKeyChat login) should be re-read. The lab's join-by-sharelink still worked because the connected peer hands over the record; cold DHT-only discovery wasn't timed.
 - **Native Ed25519 (`1997f24`).** Same primitives, but a mixed network (one side native, one noble) is now real. Cross-verification checked in-session for one vector; a fuzz over sizes (32/64-byte secret, hex vs bytes publicKey) is the test to add.
-- **Offline rows (`31e4ff7`).** A row kept for a missing file is still *served* if asked? No: `spaceFileListManager.add(record)` is skipped for missing sources, so we never advertise it; but `queryFileRegistryRecords({rootHash})` on the serve path still returns the row. PearDrive's own serve path stats the file; pearcore's `files.protocol` tree/chunk handlers may try to open it and fail. Check what the requester sees (a reject, a hang?).
-- **`attachThrowingAdd`.** It converts `onError` into a throw and *also* calls the caller's `onError`. If a future PearDrive site passes `onError` and expects no throw, it gets both. Grep before adding one.
-- **Mux (`35f476e`).** With the loop no longer aborting, a *malicious* frame that makes a handler throw repeatedly now costs one warning per frame instead of a dropped buffer. Rate of `logger.warn` under attack: there's no throttle on that log line.
+- **Offline rows (`31e4ff7`, `5b1a44f`).** Measured, Kimi's #1. On PearDrive's lanes the requester never asks: the provider's catalog marks the folder offline and rides that to peers (`providers 1, online 0` on a fresh node; no task created, no timeout, no bench). On pearcore's own lanes the content handler already rejected with `FILE_NOT_ACCESSIBLE`; the tree handler answered from the database first, so `5b1a44f` makes it reject with the same reason at the tree stage (test added). Neither path hangs; the reason is "file not accessible", distinct from a misbehaving peer.
+- **`attachThrowingAdd`** (Kimi's #3, done `5191184`): throw-only; passing `onError` through the adapter now throws at once, so the two contracts cannot both run.
+- **Mux (`35f476e`, `8535156`)** (Kimi's #2, done): the failing-handler warning is one line per peer per minute with an occurrence count.
 - Items from the coupling map §7.4 **not** fixed here, still open upstream: #1 `removeLocalFile` bare id, #6 SpaceSync deletes *all* pending sharelinks (PearDrive's `_askedTopics` still defends), #12 no registry indexes (PearDrive creates `pd_file_registry_*`), #14 §S warnings, and the new `frameSizeLimit` is fine for PearDrive (one 256 KiB leaf per STREAM frame, limit 1.5× that).
 
 ## 7. How to run it
