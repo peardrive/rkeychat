@@ -45,7 +45,8 @@ export class Room extends EventEmitter {
     this.pending = store.readJSON('pending.json', [])
     this.presence = new Map() // deviceRef -> { ts, participants: [{ name, state }] }
     this.agentState = new Map() // name -> 'idle' | 'thinking' | ...
-    this.passed = new Map() // name -> Set of record ids it chose not to answer
+    // name -> Set of record ids it chose not to answer; kept on disk so a restart doesn't re-offer them
+    this.passed = new Map(Object.entries(store.readJSON('passed.json', {})).map(([n, ids]) => [n, new Set(ids)]))
     this.fetching = new Map() // root -> in-flight fetch
     const entries = store.readJSON('chain.json', null)
     this.chain = entries ? new Chain(entries) : null
@@ -792,7 +793,7 @@ export class Room extends EventEmitter {
     const now = Date.now()
     return mine.filter((t) => {
       if (!t.human || t.mentions.length) return true
-      if (taken(t)) { if (!this.passed.has(name)) this.passed.set(name, new Set()); this.passed.get(name).add(t.id); return false }
+      if (taken(t)) { if (!this.passed.has(name)) this.passed.set(name, new Set()); this.passed.get(name).add(t.id); this.#savePassed(); return false }
       const dueAt = t.ts + i * TURN_WINDOW
       if (now < dueAt) { this.#pokeAt(dueAt); return false }
       return true
@@ -811,7 +812,14 @@ export class Room extends EventEmitter {
   markPassed (name, ids) {
     if (!this.passed.has(name)) this.passed.set(name, new Set())
     ids.forEach((id) => this.passed.get(name).add(id))
+    this.#savePassed()
     this.emit('changed')
+  }
+
+  #savePassed () {
+    const out = {}
+    for (const [n, ids] of this.passed) out[n] = [...ids].slice(-500)
+    try { this.store.writeJSON('passed.json', out) } catch {}
   }
 
   setAgentState (name, state) {
