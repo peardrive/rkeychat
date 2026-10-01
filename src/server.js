@@ -417,7 +417,7 @@ export function serve ({ app }) {
     'POST /api/login/offer': async (req) => {
       need(!isRemote(req), 'start this from the device that holds the account', 403)
       const o = await app.login.offer()
-      return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 1, color: { dark: '#ececf1', light: '#00000000' } }) }
+      return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 2, errorCorrectionLevel: 'L', color: { dark: '#000000', light: '#ffffff' } }) }
     },
     'POST /api/login/claim': async (req) => {
       const { code } = await body(req)

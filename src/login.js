@@ -26,9 +26,9 @@ export const encodeLogin = (o) => 'rkl1.' + b64(o)
 export function decodeLogin (code) {
   const s = String(code ?? '').trim()
   if (!s.startsWith('rkl1.')) throw new Error('that isn\'t a login code (they start with rkl1.)')
-  const { r: root, n: name, s: sharelink, t: topic, k: token } = unb64(s.slice(5))
-  if (!root || !name || !sharelink || !topic || !token) throw new Error('login code is incomplete')
-  return { root, name, sharelink, topic, token }
+  const { r: root, n: name, s: sharelink, k: token } = unb64(s.slice(5))
+  if (!root || !name || !sharelink || !token) throw new Error('login code is incomplete')
+  return { root, name, sharelink, token }
 }
 
 export class Login {
@@ -46,18 +46,18 @@ export class Login {
     if (!name) throw new Error('this device has no account to log another device into')
     if (!cfg.root) throw new Error('only the device that holds the account root can log other devices in')
     const root = this.app.root().ref
-    const token = randomBytes(16).toString('base64url')
+    const token = randomBytes(12).toString('base64url')
     const space = await this.app.core.space.create({ spaceName: `rkeychat-login:${token.slice(0, 6)}`, permissionRead: true, permissionBroadcast: true })
     const expires = Date.now() + TTL
     this.offers.set(space.topicHash, { token, space, expires, name, done: false })
     const timer = setTimeout(() => this.#close(space.topicHash), TTL)
     timer.unref?.()
-    return { code: encodeLogin({ r: root, n: name, s: space.sharelink, t: space.topicHash, k: token }), expires, name }
+    return { code: encodeLogin({ r: root, n: name, s: space.sharelink, k: token }), expires, name }
   }
 
   // B: claim an offer. Resolves with the rooms joined once A has answered.
   async claim (code) {
-    const { root, name, sharelink, topic, token } = decodeLogin(code)
+    const { root, name, sharelink, token } = decodeLogin(code)
     const app = this.app
     const { addParticipant, saveConfig } = await import('./config.js')
     if (!app.cfg.participants[name]) {
@@ -66,9 +66,11 @@ export class Login {
       addParticipant(app.cfg, name, { role: 'human' })
       saveConfig(app.cfg)
     }
-    const list = await app.core.space.list()
-    const space = list.find((s) => s.topicHash === topic) ?? (await app.core.space.join(sharelink), (await app.core.space.list()).find((s) => s.topicHash === topic))
+    const before = new Set((await app.core.space.list()).map((s) => s.topicHash))
+    await app.core.space.join(sharelink).catch(() => {})
+    const space = (await app.core.space.list()).find((s) => !before.has(s.topicHash)) ?? (await app.core.space.list()).find((s) => String(s.spaceName ?? '').startsWith('rkeychat-login:'))
     if (!space) throw new Error('couldn\'t join the login space')
+    const topic = space.topicHash
     const request = await joinRequest({ root, deviceName: app.cfg.deviceName, device: app.device, participants: app.participants })
     const answer = new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.claims.delete(topic); reject(new Error('no answer from the other device (is it still showing the code?)')) }, 90_000)
