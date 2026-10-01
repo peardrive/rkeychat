@@ -574,7 +574,8 @@ const isAgent = (name) => cur()?.participants.find((p) => p.name === name)?.role
 let toastTimer
 function toast (text, tone) {
   const el = $('toast'); el.textContent = text; el.className = `toast is-on${tone ? ` tone-${tone}` : ''}`
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('is-on'), 3600)
+  clearTimeout(toastTimer)
+  if (tone !== 'hold') toastTimer = setTimeout(() => el.classList.remove('is-on'), 3600) // 'hold' stays until the next toast
 }
 async function api (method, path, body) {
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
@@ -759,12 +760,12 @@ function renderNoRooms () {
 }
 async function claimLogin (code) {
   if (!code) return
-  toast('Logging in…')
+  toast('Logging in…', 'hold')
   try {
     const r = await api('POST', '/api/login/claim', { code: code.trim() })
     toast(`Logged in as ${r.name}: ${r.joined.length ? r.joined.join(', ') : 'no rooms yet'}`)
     await load()
-  } catch (err) { toast(err.message) }
+  } catch (err) { toast(`Login failed: ${err.message}`, 'bad') }
 }
 document.addEventListener('submit', (e) => { if (e.target.id === 'heroLogin') { e.preventDefault(); claimLogin(new FormData(e.target).get('code')) } })
 function renderWaiting () {
@@ -1309,6 +1310,10 @@ es.addEventListener('activity', (e) => {
   if (page === 'activity') { const el = $('panelBody'); const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60; renderPanel(); if (atEnd) scrollActivity() }
 })
 es.addEventListener('agent-error', (e) => { const x = JSON.parse(e.data); toast(`${x.name}: ${x.error}`, 'bad') })
+// the new device's login, step by step, while it waits for the other side
+es.addEventListener('login-progress', (e) => { const p = JSON.parse(e.data); if (!/^failed/.test(p.text)) toast(`Logging in: ${p.text}`, 'hold') })
+// this device just let another one in
+es.addEventListener('login', (e) => { const p = JSON.parse(e.data); toast(`${p.device || 'A new device'} logged in to ${p.rooms} room${p.rooms === 1 ? '' : 's'}`); loginOffer = null; if (page === 'profile') renderPanel() })
 es.addEventListener('fork', () => toast('The key chain forked: a writer key signed two different histories. Check your keys.', 'bad'))
 es.onerror = () => { const cs = $('connStatus'); cs.className = 'status tone-bad'; cs.textContent = 'daemon unreachable, retrying' }
 

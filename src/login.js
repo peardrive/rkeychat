@@ -36,7 +36,21 @@ export class Login {
     this.app = app
     this.offers = new Map() // topic -> { token, space, expires, name, done }
     this.claims = new Map() // topic -> { resolve, reject, timer }
+    this.progress = null // what the running claim is doing, for the UI
     app.core.emitter.on('SpaceMessage', (e) => this.#onMessage(e).catch((err) => console.error('[login]', err.message)))
+    if (process.env.RKEYCHAT_LOGIN_TRACE) app.core.emitter.on('SpaceMessage', (e) => { if (this.claims.size || this.offers.size) console.log(`[login] trace ${e.message.topic.slice(0, 8)} ${typeof e.content} ${e.content?.type ?? e.content?.app ?? String(e.content).slice(0, 30)} from ${Buffer.from(e.info?.publicKey ?? '').toString('hex').slice(0, 8)}`) })
+  }
+
+  // This pearcore instance holds rooms and login spaces, nothing else: anything that
+  // isn't a room is a login space left behind by a daemon that stopped mid-login.
+  // Never the one in use: leaving and rejoining the same topic in one process leaves
+  // the swarm confused (seen as: the other side's answers never arrive).
+  async #sweep (keep) {
+    const rooms = new Set(this.app.cfg.rooms.map((r) => r.topic))
+    for (const s of await this.app.core.space.list()) {
+      if (rooms.has(s.topicHash) || s.topicHash === keep || this.offers.has(s.topicHash) || this.claims.has(s.topicHash)) continue
+      try { await this.app.core.space.leave(s) } catch {}
+    }
   }
 
   // A: make an offer. Returns the code to show as a QR and as text.
@@ -50,6 +64,7 @@ export class Login {
     const space = await this.app.core.space.create({ spaceName: `rkeychat-login:${token.slice(0, 6)}`, permissionRead: true, permissionBroadcast: true })
     const expires = Date.now() + TTL
     this.offers.set(space.topicHash, { token, space, expires, name, done: false })
+    this.#sweep(space.topicHash).catch(() => {})
     const timer = setTimeout(() => this.#close(space.topicHash), TTL)
     timer.unref?.()
     return { code: encodeLogin({ r: root, n: name, s: space.sharelink, k: token }), expires, name }
@@ -66,21 +81,29 @@ export class Login {
       addParticipant(app.cfg, name, { role: 'human' })
       saveConfig(app.cfg)
     }
-    const before = new Set((await app.core.space.list()).map((s) => s.topicHash))
-    await app.core.space.join(sharelink).catch(() => {})
-    const space = (await app.core.space.list()).find((s) => !before.has(s.topicHash)) ?? (await app.core.space.list()).find((s) => String(s.spaceName ?? '').startsWith('rkeychat-login:'))
-    if (!space) throw new Error('couldn\'t join the login space')
+    const step = (text) => { this.progress = { text, at: Date.now() }; console.log('[login]', text); app.emit('login-progress', this.progress) }
+    step('joining the login space')
+    // a retry, or a relaunch mid-login: reuse what we have rather than leave and rejoin
+    let space = (await app.core.space.list()).find((s) => s.sharelink === sharelink)
+    if (!space) {
+      try { space = await app.core.space.join(sharelink) } catch (err) { throw new Error(`couldn't join the login space: ${err.message}`) }
+    }
     const topic = space.topicHash
+    clearTimeout(this.leaving?.get(topic))
+    this.#sweep(topic).catch(() => {})
+    step(`looking for the other device (space ${topic.slice(0, 8)}, ${space.sharelink === sharelink ? 'same' : 'DIFFERENT'} link)`)
     const request = await joinRequest({ root, deviceName: app.cfg.deviceName, device: app.device, participants: app.participants })
     const answer = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.claims.delete(topic); reject(new Error('no answer from the other device (is it still showing the code?)')) }, 90_000)
+      const timer = setTimeout(() => { this.claims.delete(topic); reject(new Error(`no answer from the other device after 3 minutes (${this.#peers()} peers connected; is it still showing the code?)`)) }, 180_000)
       this.claims.set(topic, { resolve, reject, timer })
     })
     // keep sending until answered: the connection may still be forming
     const send = () => app.core.messages.send(space, envelope('login-req', { token, request })).catch(() => {})
-    const every = setInterval(send, 3000); send()
+    let sent = 0
+    const every = setInterval(() => { send(); if (++sent % 5 === 0) step(`waiting for the other device (${this.#peers(topic)} on the login space of ${this.#peers()} peers, ${sent * 3}s)`) }, 3000); send()
     try {
       const { invites } = await answer
+      step(`enrolled; joining ${invites.length} room${invites.length === 1 ? '' : 's'}`)
       const joined = []
       for (const code of invites) {
         try {
@@ -91,34 +114,61 @@ export class Login {
         } catch (err) { console.error('[login] join', err.message) }
       }
       return { name, joined }
+    } catch (err) {
+      step(`failed: ${err.message}`)
+      throw err
     } finally {
       clearInterval(every)
-      try { await app.core.space.leave(space) } catch {}
+      this.progress = null
+      // keep the login space a little longer: a rescan of the same code reuses it
+      this.leaving ??= new Map()
+      const t = setTimeout(() => { this.leaving.delete(topic); app.core.space.leave(space).catch(() => {}) }, 120_000)
+      t.unref?.(); this.leaving.set(topic, t)
     }
   }
 
+  // peers we hold a connection to; with a topic, only those that announced that space
+  #peers (topic) {
+    const sockets = this.app.core.managers?.sockets
+    if (!sockets) return 0
+    try { return sockets.getConnectedSockets(topic ? { topics: [topic] } : {}).length } catch { return 0 }
+  }
+
   async #onMessage ({ message, content }) {
-    if (!isOurs(content)) return
     const topic = message.topic
+    if (!isOurs(content)) {
+      if (this.claims.has(topic) || this.offers.has(topic)) console.log(`[login] odd message on login space ${topic.slice(0, 8)}: ${typeof content} ${String(content?.type ?? content).slice(0, 40)}`)
+      return
+    }
     if (content.type === 'login-req') {
       const o = this.offers.get(topic)
-      if (!o || o.done) return
+      console.log(`[login] request from ${content.request?.device?.name ?? '?'}: ${o ? 'offer open' : 'no such offer'}`)
+      if (!o) return
       const given = Buffer.from(String(content.token ?? '')); const want = Buffer.from(o.token)
       if (given.length !== want.length || !timingSafeEqual(given, want)) return
       if (Date.now() > o.expires) return this.#close(topic)
-      o.done = true
+      // The new device repeats its request every few seconds until it hears back, so a
+      // lost answer (or an app killed mid-login and relaunched) just means we answer again.
+      // approve() skips keys that are already in, so repeating it changes nothing.
+      const device = content.request?.device?.ref
+      const first = !o.done || o.device !== device
+      o.done = true; o.device = device
       const invites = []
       for (const { room } of this.app.rooms.values()) {
         if (!room.isOwner) continue // rooms owned by others: their owner must approve the new device (later: forward the request)
         try { await room.approve(content.request); invites.push(encodeInvite(room.cfg)) } catch (err) { console.error(`[login] ${room.cfg.name}:`, err.message) }
       }
       await this.app.core.messages.send(o.space, envelope('login-ok', { invites, name: o.name }))
-      setTimeout(() => this.#close(topic), 15_000).unref?.()
-      this.app.emit('login', { device: content.request?.device?.name, rooms: invites.length })
+      if (first) {
+        console.log(`[login] ${content.request?.device?.name ?? 'a device'} logged in to ${invites.length} room(s)`)
+        this.app.emit('login', { device: content.request?.device?.name, rooms: invites.length })
+      }
+      // stay a while: the same device may still be asking, or come back after a restart
+      clearTimeout(o.linger); o.linger = setTimeout(() => this.#close(topic), 90_000); o.linger.unref?.()
     }
     if (content.type === 'login-ok') {
       const c = this.claims.get(topic)
-      if (!c) return
+      if (!c) { console.log(`[login] answer for ${topic.slice(0, 8)} but waiting on ${[...this.claims.keys()].map((k) => k.slice(0, 8)).join(',') || 'nothing'}`); return }
       clearTimeout(c.timer); this.claims.delete(topic)
       c.resolve({ invites: content.invites ?? [] })
     }
@@ -128,10 +178,15 @@ export class Login {
     const o = this.offers.get(topic)
     if (!o) return
     this.offers.delete(topic)
+    clearTimeout(o.linger)
     try { await this.app.core.space.leave(o.space) } catch {}
   }
 
   pending () {
     return [...this.offers.values()].filter((o) => !o.done && o.expires > Date.now()).map((o) => ({ expires: o.expires }))
+  }
+
+  claiming () {
+    return this.progress
   }
 }
