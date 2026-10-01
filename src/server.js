@@ -236,7 +236,8 @@ export function serve ({ app }) {
         const m = active.find((x) => x.ref === ref || x.ref.includes(ref) || x.ref.slice(8).startsWith(ref))
         need(m, `no active key matching ${ref}`)
         await room.revoke(m.ref, reason)
-        return { ok: true, revoked: [m.ref] }
+        const devices = await room.pruneDevices(reason)
+        return { ok: true, revoked: [m.ref], devices }
       }
       let tops = active.filter((x) => x.name === name && x.depth === 1 && !x.label?.startsWith('device:'))
       need(tops.length, `nobody called ${name} in this room`)
@@ -245,7 +246,8 @@ export function serve ({ app }) {
       if (reason !== 'banned' && tops.some((x) => x.scope.includes('delegate')) && tops.some((x) => !x.scope.includes('delegate'))) tops = tops.filter((x) => !x.scope.includes('delegate'))
       if (cfg.participants[name] && !room.isOwner) { await room.leave(name); return { ok: true } }
       for (const m of tops) await room.revoke(m.ref, reason)
-      return { ok: true, revoked: tops.map((m) => m.ref) }
+      const devices = await room.pruneDevices(reason)
+      return { ok: true, revoked: tops.map((m) => m.ref), devices }
     },
 
     // NDJSON stream of turns for a stream-bridged agent, across all rooms

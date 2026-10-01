@@ -486,6 +486,32 @@ export class Room extends EventEmitter {
     this.#chainChanged()
   }
 
+  // A device whose every account in this room is gone must go too, or it keeps
+  // reading: pearcore's read whitelist is the room's active host keys. Devices are
+  // matched to accounts by the name@device labels and by what each device announced.
+  async pruneDevices (reason = 'removed') {
+    if (!this.isOwner) return 0
+    const s = this.state
+    const members = this.members()
+    const activeChat = members.filter((m) => m.status === 'active' && m.scope.includes(SCOPES.chat) && !m.label?.startsWith('device:'))
+    const hostedOn = new Map() // device name -> count of active accounts there
+    for (const m of activeChat) if (m.device) hostedOn.set(m.device, (hostedOn.get(m.device) ?? 0) + 1)
+    for (const [deviceRef, p] of this.presence) {
+      for (const x of p.participants ?? []) if (activeChat.some((m) => m.name === x.name)) hostedOn.set(`ref:${deviceRef}`, (hostedOn.get(`ref:${deviceRef}`) ?? 0) + 1)
+    }
+    let n = 0
+    for (const d of members.filter((m) => m.status === 'active' && m.label?.startsWith('device:') && m.ref !== this.device.ref)) {
+      const name = d.label.slice(7)
+      if (hostedOn.get(name) || hostedOn.get(`ref:${d.ref}`)) continue
+      // legacy keys without a device label: keep the device if it announced them recently
+      if (!activeChat.some((m) => m.device) && this.presence.has(d.ref)) continue
+      await this.chain.append(await revoke(this.rootSigner, { root: this.chain.root, key: d.ref, reason }), this.rootSigner)
+      n++
+    }
+    if (n) this.#chainChanged()
+    return n
+  }
+
   async unban (ref) {
     if (!this.isOwner) throw new Error('only the room owner can lift a ban')
     await this.chain.append(await unban(this.rootSigner, { root: this.chain.root, key: ref }), this.rootSigner)
