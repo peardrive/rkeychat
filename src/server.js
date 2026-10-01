@@ -111,7 +111,12 @@ export function serve ({ app }) {
 
   const need = (cond, msg, status = 400) => { if (!cond) { const e = new Error(msg); e.status = status; throw e } }
   const pick = (key) => { const r = app.find(key); need(r, key ? `no room "${key}"` : 'no rooms yet. Create one first', 404); return r }
-  const localHuman = () => Object.entries(cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+  // the default `as`: the local human; on a device with none, the only local participant; else say what's available
+  const localHuman = () => {
+    const names = Object.keys(cfg.participants)
+    return Object.entries(cfg.participants).find(([, p]) => p.role === 'human')?.[0] ?? (names.length === 1 ? names[0] : undefined)
+  }
+  const nameOrDie = (as) => { need(as, `say who's posting: --as NAME (on this device: ${Object.keys(cfg.participants).join(', ') || 'nobody yet'})`); return as }
   // an agent replying without naming a room answers wherever it was given a turn
   const roomForAgent = (as, key) => key ? pick(key) : ([...app.rooms.values()].find((r) => r.runners.get(as)?.busy) ?? pick())
 
@@ -164,6 +169,7 @@ export function serve ({ app }) {
 
     'POST /api/send': async (req) => {
       const { room: key, as = localHuman(), text, re = [], pass = false, via, att } = await body(req)
+      nameOrDie(as)
       const { room, runners } = runners0(as, key)
       // a mirrored terminal exchange is just recorded: no turns, no rounds, no glossary
       if (via === 'mirror') return { ...(await room.post(as, text, { via })), roomName: room.cfg.name }
