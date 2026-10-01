@@ -343,7 +343,7 @@ switch (cmd) {
           while ((i = buf.indexOf('\n')) >= 0) {
             const line = buf.slice(0, i); buf = buf.slice(i + 1)
             const ev = JSON.parse(line)
-            if (ev.type === 'ready' && !announced) { console.log(`[rkeychat] listening as @${ev.name}`); announced = true }
+            if (ev.type === 'ready' && !announced) { console.log(`[rkeychat] listening as @${ev.name} (streams forever: in Claude Code run this under the Monitor tool, not as a plain command)`); announced = true }
             if (ev.type === 'turn') {
               console.log(`=== rkeychat turn for @${ev.name} in "${ev.room}" — reply: rkeychat send --room "${ev.room}" --as ${ev.name} "..."  (or --pass) ===`)
               console.log(ev.prompt)
