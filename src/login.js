@@ -44,6 +44,7 @@ export class Login {
     const cfg = this.app.cfg
     const [name] = Object.entries(cfg.participants).find(([, p]) => p.role === 'human') ?? []
     if (!name) throw new Error('this device has no account to log another device into')
+    if (!cfg.root) throw new Error('only the device that holds the account root can log other devices in')
     const root = this.app.root().ref
     const token = randomBytes(16).toString('base64url')
     const space = await this.app.core.space.create({ spaceName: `rkeychat-login:${token.slice(0, 6)}`, permissionRead: true, permissionBroadcast: true })

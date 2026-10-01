@@ -116,6 +116,7 @@ export function serve ({ app }) {
 
   const routes = {
     'GET /': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(readFileSync(UI)) },
+    'GET /jsQR.js': (req, res) => { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'max-age=86400' }); res.end(readFileSync(join(dirname(UI), 'jsQR.js'))) },
 
     'GET /api/state': (req, res, url) => {
       const r = app.find(url.searchParams.get('room'))
