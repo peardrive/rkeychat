@@ -218,6 +218,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .room-name .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .room-name .count { font-weight: 550; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .room-last { font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* unread: a dot in the corner, the latest line in full brightness */
+.room-row { position: relative; }
+.room-row .unread { position: absolute; top: 7px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface-1), 0 0 10px rgba(168,206,56,0.6); }
+.room-row.is-unread .room-last { color: var(--text-1); }
+.room-row.is-unread .room-name .n { font-weight: 700; }
+.side.is-collapsed .room-row .unread { top: 4px; right: 6px; }
 .room-people { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 8px 22px; margin-left: 18px; border-left: 1px solid var(--line-strong); }
 .person-row { text-align: left; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 12.5px; }
 .person-row:hover { background: rgba(255,255,255,0.05); }
@@ -585,6 +591,12 @@ const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minu
 const day = (ts) => new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
 const icon = (id, cls = '') => `<svg class="ico ${cls}"><use href="#i-${id}"/></svg>`
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+// what you've seen per room (this device only): the ts of the last message on screen
+const seenAt = (topic) => Number(store.get(`rk.seen.${topic}`, 0))
+const markSeen = (topic, ts) => { if (topic && ts && ts > seenAt(topic)) store.set(`rk.seen.${topic}`, String(ts)) }
+const isUnread = (r) => !!(r.last && r.last.ts > seenAt(r.topic) && r.last.name !== me())
+// coming back to the tab counts as reading the open room
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cur()) { const l = cur().log.filter((r) => r.kind === 'msg').at(-1); markSeen(cur().topic, l?.ts); renderSide() } })
 
 let S = null // { device, rooms, current }
 let page = store.get('rk.page', '')
@@ -616,7 +628,7 @@ const control = (payload) => api('POST', '/api/control', { room: roomArg(), ...p
 
 async function load (topic) {
   S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
-  if (S.current) store.set('rk.room', S.current.topic)
+  if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
   if (S.current) api('GET', `/api/files?room=${encodeURIComponent(S.current.topic)}`).then((list) => { let changed = false; for (const f of list ?? []) if (f.local && !haveFile.has(f.hash)) { haveFile.add(f.hash); changed = true }; if (changed) renderFeed() }).catch(() => {})
   renderAll()
   requestAnimationFrame(() => { const f = $('feed'); f.scrollTop = f.scrollHeight })
@@ -846,11 +858,12 @@ function renderSide () {
     const open = r.topic === c?.topic
     const others = (r.people ?? []).filter((p) => p.name !== me())
     const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
+    const unread = !open && isUnread(r)
     const peopleRows = open && c ? c.participants.filter((p) => p.status === 'active').map((p) => {
       const [tone, label] = personStatus(p, c.budget)
       return `<div class="person-row${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}>${faceHTML(p)}<span class="nm">${esc(p.name === me() ? `${p.name} (you)` : p.name)}${p.devices?.length ? ` <span class="pill tone-dim" title="devices">${esc(p.devices.join(', '))}</span>` : ''}</span><span class="status ${tone}">${esc(label)}</span></div>`
     }).join('') : ''
-    return `<button class="room-row${open ? ' is-open' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${stackHTML(others.length ? others : r.people)}
+    return `<button class="room-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${unread ? '<span class="unread" title="New since you looked"></span>' : ''}${stackHTML(others.length ? others : r.people)}
         <div class="room-main"><span class="room-name"><span class="n">${esc(r.name)}</span><span class="count">${r.members}</span></span><span class="room-last">${esc(last)}</span></div></button>
       ${open ? `<div class="room-people">${peopleRows}${c?.owner ? `<button class="person-row" data-open-invite style="color:var(--text-3)"><div class="avatar" style="background:none;box-shadow:0 0 0 1px var(--line-strong) inset">${icon('plus')}</div><span class="nm">Invite</span></button>` : ''}</div>` : ''}`
   }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>'
@@ -1336,7 +1349,8 @@ es.addEventListener('record', (e) => {
   const { topic, rec, budget } = JSON.parse(e.data)
   const c = cur(); if (!c || topic !== c.topic) return
   if (!c.log.some((x) => x.id === rec.id)) { c.log.push(rec); c.log.sort((a, b) => a.ts - b.ts) }
-  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); if (page === 'agents') renderPanel()
+  if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
+  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'agents') renderPanel()
 })
 es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'agents') renderPanel() } })
 es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
