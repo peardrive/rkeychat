@@ -602,6 +602,11 @@ function renderFeed () {
   if (!S.rooms.length) return renderNoRooms()
   if (!c.admitted) return renderWaiting()
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
+  // nothing visible changed: leave the reader exactly where they are
+  const sig = c.topic + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me()
+  if (feed.dataset.sig === sig) return
+  feed.dataset.sig = sig
+  const fromBottom = feed.scrollHeight - feed.scrollTop // keep this distance when re-rendering mid-read
   if (!c.log.length) {
     feed.innerHTML = `<div class="hero"><div class="hero-icon">${icon('rooms')}</div><h2>${esc(c.name)}</h2><p>Nothing said yet. Write to everyone, or @mention someone to hand them the floor.</p></div>`
     return
@@ -638,6 +643,7 @@ function renderFeed () {
   }
   feed.innerHTML = html
   if (atBottom) feed.scrollTop = feed.scrollHeight
+  else feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
 }
 // One row on the message's bottom edge, right side:
 //   [add emoji] [reaction chips] [reply]
