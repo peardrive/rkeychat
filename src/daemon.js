@@ -49,13 +49,15 @@ export class App extends EventEmitter {
   }
 
   async init () {
+    // Every room must have its pearcore space (or pending link) under it. A record can
+    // go missing after the join (pearcore used to delete every pending link on any sync),
+    // and a room without a space is deaf: it opens, but hears and sends nothing.
+    const list = await this.core.space.list()
     for (const rcfg of this.cfg.rooms) {
-      if (rcfg.pendingJoin) {
-        const list = await this.core.space.list()
-        if (!list.some((s) => s.topicHash === rcfg.topic)) await this.core.space.join(rcfg.sharelink)
-        delete rcfg.pendingJoin
-        saveConfig(this.cfg)
+      if (!list.some((s) => s.topicHash === rcfg.topic)) {
+        try { await this.core.space.join(rcfg.sharelink); console.log(`[${rcfg.name}] re-joined its space`) } catch (err) { console.error(`[${rcfg.name}] couldn't join its space:`, err.message) }
       }
+      if (rcfg.pendingJoin) { delete rcfg.pendingJoin; saveConfig(this.cfg) }
       await this.#open(rcfg)
     }
   }
