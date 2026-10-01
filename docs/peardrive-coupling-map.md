@@ -490,3 +490,17 @@ That doc is accurate and should be the base; three corrections for `35dfca1`:
 3. **§3.7 "check whether `registry.add` forwards `tree`"** — answer: **it does not**. §Q2 is a mandatory re-target, not an optional one, or the whole prepare→commit quarantine silently doubles every hash.
 
 Also worth adding to its §4 table: `registry.stop()`'s `for…in` bug (item 15 above), and the new mux's `frameSizeLimit` + `_penalty(socket)` as a risk to PearDrive's `0x03` control frames and 2 MiB STREAM ranges.
+
+## 9. Phase 1 plan (proposed 2026-09-30 20:45, Claude + Kimi; awaiting Guy)
+
+Kimi's ranking of the still-applying patches by blast radius, and the sequence:
+
+**Must fix before any real testing, and fix them in pearcore (our `mobile-bare` branch, offered upstream to Farzam), not in PearDrive:**
+1. §1 merkleTree import case: dies on Linux. One rename.
+2. §I registry deletes rows whose source isn't on disk at boot: an unmounted volume becomes a mass REMOVE to every peer. Mark offline instead of deleting (this is also the space-directories "offline, not missing" rule).
+3. §D full file-list replay on every reconnect; §D2 re-sign + rebroadcast of the whole registry at boot. Send the list on first encounter or explicit request only.
+4. §Q2 `add()` must accept `tree`/`metaHash` so files aren't hashed twice.
+
+**Then the adapter in PearDrive:** one module exposing the deleted StorageManager surface (29 call sites) over new pearcore's free functions, carrying the remaining patches (§W watcher stand-in, §V sodium verify, §J non-blocking join, §P logging never fatal, §S, §N, §K, item 15) as notes until each is upstream.
+
+**Reframing (Kimi):** PearDrive's catalog, gossip, agent mesh, swarm manager and thumbnails have no pearcore equivalent and stay as they are. The migration is "swap the storage layer and absorb ~15 known upstream bugs", not a rewrite.
