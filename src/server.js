@@ -21,7 +21,8 @@ const UI = join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
-export { encodeInvite, decodeInvite } from './invite.js'
+import { encodeInvite, decodeInvite } from './invite.js'
+export { encodeInvite, decodeInvite }
 export const encodeRequest = (req) => 'rkr1.' + b64(req)
 export function decodeRequest (code) {
   const s = String(code ?? '').trim()

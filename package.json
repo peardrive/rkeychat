@@ -16,7 +16,7 @@
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "hyperdht": "^6.34.0",
-    "pearcore": "github:peardrive/pearcore#c8633de",
+    "pearcore": "file:vendor/pearcore-8535156.tgz",
     "qrcode": "^1.5.4",
     "rkey": "file:../rKey",
     "sherpa-onnx-node": "^1.13.8",
