@@ -847,7 +847,9 @@ export class Room extends EventEmitter {
     // turn order: a message that names nobody goes to the first agent in the
     // charter's list; the next in line waits one window, then takes it unless
     // an earlier agent has claimed or answered it. Mentions bypass the order.
-    const order = this.charter().order.filter((n) => this.ruleFor(n).wake === 'order')
+    // a paused agent is out of the line, not a 45 s hole in it
+    const pausedAgents = new Set(this.budget().agents?.paused ?? [])
+    const order = this.charter().order.filter((n) => this.ruleFor(n).wake === 'order' && !pausedAgents.has(n))
     const i = order.indexOf(name)
     if (i <= 0) return mine
     const earlier = new Set(order.slice(0, i))

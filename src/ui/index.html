@@ -269,7 +269,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .room-profile .meta { font-size: 12.5px; color: var(--text-3); }
 .order-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .order-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; cursor: grab; user-select: none; }
-.order-item { transition: transform 0.18s var(--ease); touch-action: none; } .order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
+.order-item { transition: transform 0.18s var(--ease); touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; }
+.order-list { touch-action: none; } .order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
 .apply-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; animation: tip-in 0.12s var(--ease); }
 .order-item .grip { color: var(--text-3); font-size: 14px; letter-spacing: -2px; } .order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
 .order-item .nm { flex: 1; font-weight: 600; } .order-item .wait { font-size: 11px; color: var(--text-3); }
@@ -1814,8 +1815,9 @@ document.addEventListener('change', (e) => {
     e.preventDefault()
     const list = it.parentElement
     drag = { it, list, startY: e.clientY, offset: 0 }
-    it.classList.add('is-drag'); it.setPointerCapture(e.pointerId)
+    it.classList.add('is-drag'); try { it.setPointerCapture(e.pointerId) } catch {}
   })
+  document.addEventListener('pointercancel', () => { if (!drag) return; drag.it.classList.remove('is-drag'); drag.it.style.transform = ''; relabel(drag.list); drag = null })
   document.addEventListener('pointermove', (e) => {
     if (!drag) return
     const { it, list } = drag
