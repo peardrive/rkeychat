@@ -559,7 +559,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
         <span class="rec-time" id="recTime">0:00</span>
         <button type="button" class="in-btn" id="recCancel" title="Discard"><svg class="ico"><use href="#i-x"/></svg></button>
       </div>
-      <button class="btn btn-primary" type="submit" title="Send (⌘Enter · Enter makes a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
+      <button class="btn btn-primary" type="submit" title="Send (Enter · Shift-Enter for a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
     </form>
   </main>
 
@@ -1432,9 +1432,9 @@ ta.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mention.items[mention.i].name); return }
     if (e.key === 'Escape') { e.preventDefault(); mention = null; $('mentionMenu').hidden = true; return }
   }
-  // Enter makes a line break. Only Send posts (⌘/Ctrl-Enter too, for the hands that want a shortcut), so a message
-  // can have paragraphs and half a thought is never sent by reflex.
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
+  // Desktop keeps the keyboard convention your hands already know: Enter sends, ⇧Enter makes a line break. The
+  // phone does the opposite (Enter breaks, the button sends), because there is no modifier to reach for there.
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
 })
 $('composer').addEventListener('submit', async (e) => {
   e.preventDefault()
