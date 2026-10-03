@@ -559,7 +559,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
         <span class="rec-time" id="recTime">0:00</span>
         <button type="button" class="in-btn" id="recCancel" title="Discard"><svg class="ico"><use href="#i-x"/></svg></button>
       </div>
-      <button class="btn btn-primary" type="submit" title="Send (Enter · Shift-Enter for a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
+      <button class="btn btn-primary" type="submit" title="Send (⌘Enter · Enter makes a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
     </form>
   </main>
 
@@ -591,7 +591,11 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 const day = (ts) => new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
 const icon = (id, cls = '') => `<svg class="ico ${cls}"><use href="#i-${id}"/></svg>`
-const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} }, del: (k) => { try { localStorage.removeItem(k) } catch {} } }
+// what you were part-way through typing, per room, on this device only. It outlives a refresh and a room switch,
+// so being pulled away mid-message costs nothing. Never sent, never signed, never leaves this browser.
+const draftOf = (topic) => store.get(`rk.draft.${topic}`, '')
+const setDraft = (topic, text) => { if (!topic) return; if (text) store.set(`rk.draft.${topic}`, text); else store.del(`rk.draft.${topic}`) }
 // what you've seen per room (this device only): the ts of the last message on screen
 const seenAt = (topic) => Number(store.get(`rk.seen.${topic}`, 0))
 const markSeen = (topic, ts) => { if (topic && ts && ts > seenAt(topic)) store.set(`rk.seen.${topic}`, String(ts)) }
@@ -628,7 +632,10 @@ const roomArg = () => cur()?.topic
 const control = (payload) => api('POST', '/api/control', { room: roomArg(), ...payload })
 
 async function load (topic) {
+  const leaving = cur()?.topic
+  if (leaving) setDraft(leaving, ta.value) // the room you are leaving keeps what you had typed
   S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  if (S.current && S.current.topic !== leaving) { ta.value = draftOf(S.current.topic); grow() } // and the one you arrive in gives its own back
   if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
   if (S.current) api('GET', `/api/files?room=${encodeURIComponent(S.current.topic)}`).then((list) => { let changed = false; for (const f of list ?? []) if (f.local && !haveFile.has(f.hash)) { haveFile.add(f.hash); changed = true }; if (changed) renderFeed() }).catch(() => {})
   renderAll()
@@ -1414,6 +1421,8 @@ function pickMention (name) {
   mention = null; $('mentionMenu').hidden = true; grow()
 }
 ta.addEventListener('input', updateMentions)
+ta.addEventListener('input', () => setDraft(cur()?.topic, ta.value)) // keep the draft current as you type
+addEventListener('beforeunload', () => setDraft(cur()?.topic, ta.value)) // and on the way out, however you leave
 ta.addEventListener('click', updateMentions)
 ta.addEventListener('blur', () => setTimeout(() => { $('mentionMenu').hidden = true; mention = null }, 150))
 $('mentionMenu').addEventListener('mousedown', (e) => { const b = e.target.closest('[data-mention]'); if (b) { e.preventDefault(); pickMention(b.dataset.mention) } })
@@ -1423,7 +1432,9 @@ ta.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mention.items[mention.i].name); return }
     if (e.key === 'Escape') { e.preventDefault(); mention = null; $('mentionMenu').hidden = true; return }
   }
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
+  // Enter makes a line break. Only Send posts (⌘/Ctrl-Enter too, for the hands that want a shortcut), so a message
+  // can have paragraphs and half a thought is never sent by reflex.
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
 })
 $('composer').addEventListener('submit', async (e) => {
   e.preventDefault()
@@ -1433,7 +1444,7 @@ $('composer').addEventListener('submit', async (e) => {
   const via = dictatedThisMessage ? 'voice' : undefined
   const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : pendingFile ? [pendingFile] : undefined
   await api('POST', '/api/send', { room: roomArg(), text, via, att, re: replyTo ? [replyTo] : undefined })
-  ta.value = ''; dictatedThisMessage = false; clearPending(); clearReply(); grow()
+  ta.value = ''; setDraft(roomArg(), ''); dictatedThisMessage = false; clearPending(); clearReply(); grow() // sent: the draft is spent
 })
 
 // ---------- learning: what you retype after dictating becomes a fix (autocorrect-style)
