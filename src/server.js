@@ -135,7 +135,9 @@ export function serve ({ app }) {
   const roomForAgent = (as, key) => key ? pick(key) : ([...app.rooms.values()].find((r) => r.runners.get(as)?.busy) ?? pick())
 
   const routes = {
-    'GET /': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(readFileSync(UI)) },
+    // no-store: the page is read from disk every request, so a reload should always be the UI that is on disk now.
+    // Without it a phone can sit on a cached copy and "the fix isn't there" is really "the browser kept yesterday's".
+    'GET /': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(readFileSync(UI)) },
     'GET /jsQR.js': (req, res) => { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'max-age=86400' }); res.end(readFileSync(join(dirname(UI), 'jsQR.js'))) },
 
     'GET /api/state': (req, res, url) => {
