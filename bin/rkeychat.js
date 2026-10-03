@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir, newIdentity, accountSigner } from '../src/config.js'
 import { decodeInvite } from '../src/server.js'
 
+// A CLI whose reader walked away (`| head`, bin/wait-once.sh) should stop
+// quietly rather than dump an unhandled EPIPE.
+process.stdout.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0) })
+
 const USAGE = `rkeychat — a room for you and your agents, on pearcore + rKey
 
   rkeychat                     where am I, what's next
