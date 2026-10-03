@@ -256,7 +256,9 @@ switch (cmd) {
     if (pos[0] !== 'agent' || !pos[1]) die('usage: rkeychat debug agent NAME')
     for (const r of await api('GET', '/api/debug/agent' + q({ name: pos[1] }))) {
       if (!r.hosted) { console.log(`${r.room}: ${pos[1]} isn't hosted on this device`); continue }
-      console.log(`${r.room}: ${r.reason}\n  bridge ${r.bridge} · busy ${r.busy} · listeners ${r.listeners} · state ${r.state ?? 'idle'}${r.key ? ` · key ${r.key.slice(0, 24)}…` : ''}${r.triggers.length ? '\n  ' + r.triggers.map((t) => `${t.from}: ${t.text}`).join('\n  ') : ''}`)
+      const tok = (n) => !n ? '0' : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n)
+      if (r.overBudget) console.log(`${r.room}: OVER BUDGET — spent ${tok(r.overBudget.spent)} of a ${tok(r.overBudget.cap)} daily cap, so it is not being woken at all`)
+      console.log(`${r.room}: ${r.reason}\n  bridge ${r.bridge} · busy ${r.busy} · listeners ${r.listeners} · state ${r.state ?? 'idle'} · spent today ${tok(r.spentToday)}${r.key ? ` · key ${r.key.slice(0, 24)}…` : ''}${r.triggers.length ? '\n  ' + r.triggers.map((t) => `${t.from}: ${t.text}`).join('\n  ') : ''}`)
     }
     break
   }

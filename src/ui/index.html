@@ -347,6 +347,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .rule-row .role { grid-column: 2 / -1; min-height: 34px; resize: vertical; font: inherit; font-size: 12.5px; }
 .rule-row .role-ro { grid-column: 2 / -1; font-size: 12.5px; color: var(--text-2); white-space: pre-wrap; }
 .rule-row.is-off { opacity: 0.6; }
+.rule-row .spend { font-size: 11.5px; color: var(--text-3); }
+.rule-row.is-over .spend { color: #ffb3ac; }
 @media (max-width: 720px) { .rule-row { grid-template-columns: 28px 1fr auto; } .rule-row .sel { max-width: 120px; } }
 
 /* reactions sit on the message's bottom edge, overlapping it: attached, not a new comment */
@@ -1135,16 +1137,19 @@ function renderRoomPage () {
       ${agents.length ? `<h4 class="section-title" style="margin-top:14px">Each agent in this room</h4><p class="note">On/off, when it wakes, and its role here. Roles are part of the room's purpose: every agent gets its own with each turn.</p>${agents.map((p) => {
         const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
         const r = c.charter?.agents?.[p.name] ?? {}; const wake = r.wake ?? 'order'
+        const sp = c.spend?.[p.name]; const over = c.overBudget?.[p.name]
         const others = agents.filter((a) => a.name !== p.name)
         const wakeSel = c.owner
           ? `<select class="sel" data-rule-wake="${esc(p.name)}" title="When this agent is woken"><option value="order" ${wake === 'order' ? 'selected' : ''}>In the turn order</option><option value="mention" ${wake === 'mention' ? 'selected' : ''}>Mentioned only</option><option value="backup" ${wake === 'backup' ? 'selected' : ''} ${others.length ? '' : 'disabled'}>Backup for…</option></select>${wake === 'backup' ? `<select class="sel" data-rule-backup="${esc(p.name)}">${others.map((a) => `<option value="${esc(a.name)}" ${r.backupFor === a.name ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}`
           : `<span class="note">${wake === 'mention' ? 'mentioned only' : wake === 'backup' ? `backup for ${esc(r.backupFor ?? '?')}` : 'in the turn order'}</span>`
-        return `<div class="rule-row${paused ? ' is-off' : ''}" data-rule-row="${esc(p.name)}"><div class="avatar" style="width:28px;height:28px;font-size:12px">${esc(p.name.slice(0, 1))}</div>
+        return `<div class="rule-row${paused ? ' is-off' : ''}${over ? ' is-over' : ''}" data-rule-row="${esc(p.name)}"><div class="avatar" style="width:28px;height:28px;font-size:12px">${esc(p.name.slice(0, 1))}</div>
           <span class="nm">${esc(p.name)}${paused ? ' <span class="pill tone-dim">off</span>' : ''}</span>
           <span class="inline" style="gap:6px;align-items:center">${wakeSel}</span>
           <label class="switch" title="${paused ? 'Let it speak' : 'Silence it in this room'}"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label>
           ${c.owner ? `<textarea class="text-input role" data-rule-role="${esc(p.name)}" rows="2" placeholder="Its role in this room (optional)">${esc(r.role ?? '')}</textarea>` : (r.role ? `<div class="role-ro">${esc(r.role)}</div>` : '')}
-          ${c.owner ? `<div class="agent-opts" style="grid-column:2 / -1;padding-left:0"><span>Max posts per human message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>` : ''}</div>`
+          ${c.owner ? `<div class="agent-opts" style="grid-column:2 / -1;padding-left:0"><span>Max posts per human message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>
+          <div class="agent-opts" style="grid-column:2 / -1;padding-left:0"><span>Token budget per day${over ? ` <span class="pill tone-bad">over</span>` : ''}</span><input class="num" style="width:76px" data-rule-cap="${esc(p.name)}" value="${esc(r.tokensPerDay || '')}" placeholder="none"></div>` : ''}
+          <div class="spend" style="grid-column:2 / -1">${sp ? `${fmtTok(sp.total)} tokens today · ${sp.wakes} wake${sp.wakes === 1 ? '' : 's'} · ${fmtTok(sp.cacheRead)} re-reading context${r.tokensPerDay ? ` · cap ${fmtTok(r.tokensPerDay)}` : ''}` : 'nothing spent today'}</div></div>`
       }).join('')}` : ''}
       </div></details></section>`
 }
@@ -1697,6 +1702,7 @@ function clearPending () { if (pendingMemo?.url) URL.revokeObjectURL(pendingMemo
 // media that finishes loading after render grows the feed: stay pinned to the bottom if we were there
 window.mediaLoaded = (el) => { const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 400 + el.offsetHeight) feed.scrollTop = feed.scrollHeight }
 const AUTO_FETCH = 25 * 1024 * 1024 // media up to this size shows inline; bigger files are a card you tap
+const fmtTok = (n) => !n ? '0' : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n)
 const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
 function fileHTML (a, r) {
   const src = `/api/file/${esc(a.hash)}/${encodeURIComponent(a.name)}?room=${encodeURIComponent(roomArg())}`
@@ -1811,7 +1817,7 @@ $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); a
 $('roomHead').addEventListener('click', (e) => { if (e.target.closest('[data-open-room]')) openPage(page === 'room' ? null : 'room') })
 // purpose + order: the Apply bar shows only once something changed
 function charterDirty () { const bar = document.getElementById('charterApply'); if (bar) bar.hidden = false }
-document.addEventListener('input', (e) => { if (e.target.id === 'charterText' || e.target.dataset.ruleRole !== undefined) charterDirty() })
+document.addEventListener('input', (e) => { if (e.target.id === 'charterText' || e.target.dataset.ruleRole !== undefined || e.target.dataset.ruleCap !== undefined) charterDirty() })
 // wake-mode selects: re-render the row's companion select, then mark dirty
 document.addEventListener('change', (e) => {
   if (e.target.dataset.ruleWake !== undefined) { charterDirty(); const row = e.target.closest('.rule-row'); const have = row.querySelector('[data-rule-backup]'); if (e.target.value === 'backup' && !have) { const name = e.target.dataset.ruleWake; const others = (cur()?.participants ?? []).filter((p) => p.role === 'agent' && p.status === 'active' && p.name !== name); e.target.insertAdjacentHTML('afterend', `<select class="sel" data-rule-backup="${esc(name)}">${others.map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join('')}</select>`) } else if (e.target.value !== 'backup' && have) have.remove() }
@@ -1974,7 +1980,9 @@ document.addEventListener('change', (e) => {
       const rule = { role: row.querySelector('[data-rule-role]')?.value?.trim() ?? '' }
       if (wake !== 'order') rule.wake = wake
       if (wake === 'backup') rule.backupFor = row.querySelector('[data-rule-backup]')?.value ?? ''
-      if (rule.role || rule.wake) agents[name] = rule
+      const cap = Number(row.querySelector('[data-rule-cap]')?.value) || 0
+      if (cap > 0) rule.tokensPerDay = cap
+      if (rule.role || rule.wake || rule.tokensPerDay) agents[name] = rule
     })
     control({ action: 'charter', text: $('charterText').value, order, agents }).then(() => { toast('Applied'); const bar = document.getElementById('charterApply'); if (bar) bar.hidden = true }).catch((err) => toast(err.message))
     return

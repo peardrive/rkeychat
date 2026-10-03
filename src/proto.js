@@ -66,6 +66,7 @@ export function cleanAgentRules (agents) {
     if (r.role) rule.role = String(r.role).slice(0, 4000)
     if (WAKE_MODES.includes(r.wake) && r.wake !== 'order') rule.wake = r.wake
     if (rule.wake === 'backup' && r.backupFor) rule.backupFor = String(r.backupFor).slice(0, 80)
+    if (Number(r.tokensPerDay) > 0) rule.tokensPerDay = Math.round(Number(r.tokensPerDay))
     if (rule.wake === 'backup' && !rule.backupFor) delete rule.wake
     if (Object.keys(rule).length) out[String(name).slice(0, 80)] = rule
   }
@@ -85,8 +86,18 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
 // Shown to people on request; never part of the conversation agents read.
 // `claim` lists the message ids this agent is now answering (turn order: the
 // next agent in line stands down when it sees an earlier one's claim).
-export async function makeActivity (signer, { room, text, claim, ts = Date.now() }) {
-  return signBody('rkeychat-activity', signer, { kind: 'activity', id: newId(), room, ts, text: String(text).slice(0, 2000), claim: Array.isArray(claim) && claim.length ? claim.map(String).slice(0, 64) : undefined })
+// `usage` is what one wake of this agent actually cost, as reported by the runtime
+// that spent it: { model, in, out, cacheRead, cacheWrite }. A wake is the unit of
+// spend (an agent pays for its whole context before it writes a word), so this is
+// what the caps in the room's charter are measured against.
+export const cleanUsage = (u) => {
+  if (!u || typeof u !== 'object') return undefined
+  const n = (x) => Number.isFinite(Number(x)) && Number(x) >= 0 ? Math.round(Number(x)) : 0
+  const out = { model: String(u.model ?? '').slice(0, 60), in: n(u.in), out: n(u.out), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite) }
+  return (out.in + out.out + out.cacheRead + out.cacheWrite) > 0 ? out : undefined
+}
+export async function makeActivity (signer, { room, text, claim, usage, ts = Date.now() }) {
+  return signBody('rkeychat-activity', signer, { kind: 'activity', id: newId(), room, ts, text: String(text).slice(0, 2000), claim: Array.isArray(claim) && claim.length ? claim.map(String).slice(0, 64) : undefined, usage: cleanUsage(usage) })
 }
 
 // A reaction: an emoji on a message, toggled on or off. Never wakes anyone.

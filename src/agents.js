@@ -179,6 +179,18 @@ export class AgentRunner {
     if (!res.ok) throw new Error(`hermes ${res.status}: ${(await res.text()).slice(0, 300)}`)
     const body = await res.json()
     this.introduced = true
+    const u = body?.usage
+    if (u) {
+      await this.room.activity(this.name, 'answered', {
+        usage: {
+          model: body.model ?? model,
+          in: u.prompt_tokens ?? u.input_tokens,
+          out: u.completion_tokens ?? u.output_tokens,
+          cacheRead: u.prompt_tokens_details?.cached_tokens ?? u.cache_read_input_tokens,
+          cacheWrite: u.cache_creation_input_tokens
+        }
+      }).catch(() => {})
+    }
     const reply = body?.choices?.[0]?.message?.content ?? ''
     await this.#deliver(reply, turn.triggers.map((t) => t.id))
   }

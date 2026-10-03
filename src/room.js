@@ -532,15 +532,42 @@ export class Room extends EventEmitter {
 
   // ---------- activity (people can watch it; agents never read it) ----------
 
-  async activity (name, text, { claim } = {}) {
+  async activity (name, text, { claim, usage } = {}) {
     const p = this.local[name]
     if (!p || !this.state?.can(p.signer.ref, SCOPES.chat)) return null
-    const rec = await makeActivity(p.signer, { room: this.topic, text, claim })
+    const rec = await makeActivity(p.signer, { room: this.topic, text, claim, usage })
     this.store.addActivity(rec)
     this.emit('activity', this.view(rec))
     this.#busyTick()
     await this.#send('act', { rec })
     return rec
+  }
+
+  // What each agent has actually spent, from the usage on its own activity records.
+  // A wake is the unit: an agent pays for its whole context before it writes a word,
+  // so this counts every token the runtime reported, not just output.
+  spend (sinceMs = Date.now() - 24 * 3600_000) {
+    const out = {}
+    for (const r of this.store.activity) {
+      const u = r.usage; if (!u) continue
+      const name = this.view(r).name; if (!name) continue
+      const e = out[name] ??= { wakes: 0, in: 0, out: 0, cacheRead: 0, cacheWrite: 0, total: 0, models: {} }
+      if (r.ts < sinceMs) continue
+      e.wakes++; e.in += u.in; e.out += u.out; e.cacheRead += u.cacheRead; e.cacheWrite += u.cacheWrite
+      e.total += u.in + u.out + u.cacheRead + u.cacheWrite
+      if (u.model) e.models[u.model] = (e.models[u.model] ?? 0) + 1
+    }
+    return out
+  }
+
+  // An agent is over budget when its measured day's spend passes the cap its room
+  // rule sets. Over budget means not woken at all, so the next wake costs nothing,
+  // which is the only control that actually stops the meter.
+  overBudget (name) {
+    const cap = Number(this.ruleFor(name).tokensPerDay) || 0
+    if (!cap) return null
+    const spent = this.spend()[name]?.total ?? 0
+    return spent >= cap ? { cap, spent } : null
   }
 
   activityFor (name, limit = 300) {
@@ -634,7 +661,7 @@ export class Room extends EventEmitter {
   // This agent's rule in this room: { role, wake: 'order' | 'mention' | 'backup', backupFor }
   ruleFor (name) {
     const r = this.charter().agents?.[name] ?? {}
-    return { role: r.role ?? '', wake: r.wake ?? 'order', backupFor: r.backupFor ?? null }
+    return { role: r.role ?? '', wake: r.wake ?? 'order', backupFor: r.backupFor ?? null, tokensPerDay: Number(r.tokensPerDay) || 0 }
   }
 
   // A rename is a control record, so it reaches every member and survives
@@ -823,6 +850,7 @@ export class Room extends EventEmitter {
     const mine = log.slice(lastOwn + 1).filter((r) => addressedTo(r, name, byId) && !answered.has(r.id) && !passed.has(r.id))
     const direct = (t) => t.mentions.includes(name) || (t.human && t.re?.length > 0) // named, or a reply to this agent
     const rule = this.ruleFor(name)
+    if (this.overBudget(name)) return [] // spent its allowance for the day: not woken, so it costs nothing
     const now = Date.now()
     // mentioned only: the open floor never wakes this agent
     if (rule.wake === 'mention') return mine.filter(direct)

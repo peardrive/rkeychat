@@ -67,6 +67,8 @@ export function roomSnapshot (room) {
     reactions: room.reactions(),
     style: room.style(),
     charter: room.charter(),
+    spend: room.spend(),
+    overBudget: Object.fromEntries(room.participantsList().filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
     connections: room.connections(),
     log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
   }
@@ -220,6 +222,24 @@ export function serve ({ app }) {
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
       return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name })
+    },
+
+    // what each agent in this room has spent in the last day, measured
+    'GET /api/spend': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const hours = Number(url.searchParams.get('hours')) || 24
+      return { spend: room.spend(Date.now() - hours * 3600_000), caps: Object.fromEntries(room.participantsList().filter((p) => p.role === 'agent').map((p) => [p.name, room.ruleFor(p.name).tokensPerDay])) }
+    },
+    // a CLI agent's runtime reports what a wake cost (Claude Code does this from its
+    // own transcript, where the tokens are recorded per turn)
+    'POST /api/usage': async (req) => {
+      const { room: key, as, usage, text } = await body(req)
+      const { room } = pick(key)
+      need(as, 'say which agent spent it: as')
+      need(usage && typeof usage === 'object', 'usage required')
+      const rec = await room.activity(as, String(text || 'answered').slice(0, 200), { usage })
+      need(rec, `${as} isn't an active agent on this device`)
+      return { ok: true, spend: room.spend()[as] ?? null, overBudget: room.overBudget(as) }
     },
 
     'GET /api/invite': (req, res, url) => {
@@ -451,12 +471,16 @@ export function serve ({ app }) {
     },
     'GET /api/login': () => ({ pending: app.login.pending() }),
     'GET /api/debug/agent': (req, res, url) => {
+      // budget first: an agent over its cap is not woken at all, which looks like silence
+
       const name = url.searchParams.get('name')
       return [...app.rooms.values()].map(({ room, runners }) => {
         const r = runners.get(name)
         if (!r) return { room: room.cfg.name, hosted: false }
         const w = r.why()
-        return { room: room.cfg.name, hosted: true, bridge: r.bridge.kind, busy: r.busy, listeners: r.listeners?.size ?? 0, state: room.agentState.get(name), ...w, triggers: (w.triggers ?? []).map((t) => ({ id: t.id, from: t.name, text: String(t.text).slice(0, 80) })) }
+        const over = room.overBudget(name)
+        const spent = room.spend()[name]
+        return { room: room.cfg.name, hosted: true, bridge: r.bridge.kind, busy: r.busy, listeners: r.listeners?.size ?? 0, state: room.agentState.get(name), overBudget: over, spentToday: spent?.total ?? 0, ...w, triggers: (w.triggers ?? []).map((t) => ({ id: t.id, from: t.name, text: String(t.text).slice(0, 80) })) }
       })
     },
     'GET /api/debug': () => {
