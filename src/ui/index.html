@@ -268,12 +268,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .room-profile h2 { font-size: 18px; font-weight: 650; }
 .room-profile .meta { font-size: 12.5px; color: var(--text-3); }
 .order-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.order-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; cursor: grab; user-select: none; }
-.order-item { transition: transform 0.18s var(--ease); touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; }
-.order-list { touch-action: none; } .order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
+/* the settings drawer lives inside its own row, so a drag carries it along */
+.order-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; user-select: none; }
+.order-item { transition: transform 0.18s var(--ease); -webkit-touch-callout: none; -webkit-user-select: none; }
+.order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
 .apply-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; animation: tip-in 0.12s var(--ease); }
-.order-item .grip { color: var(--text-3); font-size: 14px; letter-spacing: -2px; } .order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
-.order-item .nm { flex: 1; font-weight: 600; } .order-item .wait { font-size: 11px; color: var(--text-3); }
+/* only the grab pad drags, so the settings inside an agent stay usable on touch */
+.order-item .grip { color: var(--text-3); padding: 2px; cursor: grab; touch-action: none; display: grid; place-items: center; }
+.order-item .grip .ico { width: 16px; height: 16px; }
+.order-item .grip:hover { color: var(--text-1); }
+.order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); flex: none; }
+.order-item .idx.is-mention { background: rgba(255,255,255,0.09); color: var(--text-3); box-shadow: 0 0 0 1px var(--line-strong) inset; }
+.order-item .nm { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-item.is-off { opacity: 0.55; }
+.order-item .gear { color: var(--text-3); padding: 2px; display: grid; place-items: center; }
+.order-item .gear .ico { width: 16px; height: 16px; }
+.order-item .gear:hover, .order-item .gear.is-on { color: var(--accent); }
 .sheet-tabs { display: none; gap: 4px; padding: 8px 10px 0; }
 .sheet-tabs button { flex: 1; padding: 7px 0; border-radius: 10px; font-size: 12.5px; font-weight: 600; color: var(--text-2); background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; }
 .sheet-tabs button.is-on { color: var(--accent-ink); background: var(--accent); box-shadow: none; }
@@ -333,23 +343,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .stat-val { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
 .progress { height: 6px; border-radius: 3px; overflow: hidden; background: rgba(0,0,0,0.45); box-shadow: 0 1px 2px rgba(0,0,0,0.5) inset; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width 0.3s var(--ease); }
-.agent-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 11px; background: rgba(0,0,0,0.18); box-shadow: 0 0 0 1px var(--line) inset; }
-.agent-card .row-item { padding: 0; }
-.agent-card .row-item:hover { background: none; }
 .agent-opts { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-2); padding-left: 36px; }
 .inline.wrap { flex-wrap: wrap; row-gap: 8px; }
 .inline.wrap .num { width: 44px; }
-/* per-agent rules for this room: one compact row each, details inline */
-.rule-row { display: grid; grid-template-columns: 28px 1fr auto auto; align-items: center; gap: 8px 10px; padding: 8px 8px; border-radius: 10px; background: rgba(255,255,255,0.03); box-shadow: 0 0 0 1px var(--line) inset; margin-top: 6px; }
-.rule-row .nm { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rule-row .sel { font: inherit; font-size: 12px; color: var(--text-1); background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; max-width: 150px; }
-.rule-row .sel:disabled { opacity: 0.7; }
-.rule-row .role { grid-column: 2 / -1; min-height: 34px; resize: vertical; font: inherit; font-size: 12.5px; }
-.rule-row .role-ro { grid-column: 2 / -1; font-size: 12.5px; color: var(--text-2); white-space: pre-wrap; }
-.rule-row.is-off { opacity: 0.6; }
-.rule-row .spend { font-size: 11.5px; color: var(--text-3); }
-.rule-row.is-over .spend { color: #ffb3ac; }
-@media (max-width: 720px) { .rule-row { grid-template-columns: 28px 1fr auto; } .rule-row .sel { max-width: 120px; } }
+/* one control per line: label (and its info dot) left, the control right */
+.ctl-line { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-top: 4px; }
+.ctl-line .ctl-label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.ctl-line .grow { flex: 1; }
+.ctl-line .ctl-val { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+/* every label can explain itself: hover for the tooltip, tap to keep it open */
+.info { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.05); color: var(--text-3);
+  font-size: 10px; font-weight: 700; line-height: 1; display: grid; place-items: center; padding: 0; cursor: help; }
+.info:hover { color: var(--accent); border-color: var(--accent); }
+.info.is-on { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
+.tip { margin: 0 0 6px; font-size: 11.5px; line-height: 1.45; color: var(--text-2); padding: 7px 9px; border-radius: 9px; background: rgba(0,0,0,0.28); box-shadow: 0 0 0 1px var(--line) inset; animation: tip-in 0.12s var(--ease); }
+/* an agent's own settings, indented under its row in the order */
+.rule-panel { flex: 0 0 100%; margin: 2px 0 0 26px; padding: 9px 10px; border-radius: 10px; background: rgba(0,0,0,0.26); box-shadow: 0 0 0 1px var(--line) inset; display: flex; flex-direction: column; gap: 8px; animation: tip-in 0.12s var(--ease);
+  user-select: text; -webkit-user-select: text; }
+.rule-panel .sel { font: inherit; font-size: 12px; color: var(--text-1); background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; max-width: 160px; }
+.rule-panel .role { min-height: 48px; resize: vertical; font: inherit; font-size: 12.5px; }
+.rule-panel .spend { font-size: 11.5px; color: var(--text-3); }
+.rule-panel.is-over .spend { color: #ffb3ac; }
+.rule-panel .agent-opts { padding-left: 0; }
+.rule-panel .tip { margin: 0; }
 
 /* reactions sit on the message's bottom edge, overlapping it: attached, not a new comment */
 .reacts { position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: -13px; padding: 0 10px; }
@@ -520,6 +536,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h2.5v2.5H14zM18 14h2.5M14 18v2.5M18 18h2.5v2.5"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
@@ -613,7 +630,7 @@ let joinedRequest = null
 let glossary = {}
 let people = { local: [], known: [] }
 async function loadPeople () { try { people = await api('GET', '/api/people') } catch {} if (page === 'invite') renderPanel() }
-api('GET', '/api/glossary').then((g) => { glossary = g; if (page === 'agents') renderPanel() }).catch(() => {})
+api('GET', '/api/glossary').then((g) => { glossary = g }).catch(() => {})
 const cur = () => S?.current
 const me = () => S?.device.participants.find((p) => p.role === 'human')?.name
 const isAgent = (name) => cur()?.participants.find((p) => p.name === name)?.role === 'agent'
@@ -936,7 +953,6 @@ const PAGES = {
   room: { title: 'Room', icon: 'rooms', render: renderRoomPage },
   contacts: { title: 'Contacts', icon: 'people', render: renderContactsPage },
   profile: { title: 'Profile', icon: 'human', render: renderProfilePage },
-  agents: { title: 'Agents', icon: 'agents', render: renderAgentsPage },
   keys: { title: 'Verified', icon: 'lock', render: renderKeysPage },
   activity: { title: 'Activity', icon: 'agents', render: renderActivityPage },
   invite: { title: 'Invite', icon: 'plus', render: renderInvitePage },
@@ -1012,7 +1028,7 @@ function openPage (p) {
 function renderPanel () {
   const panel = $('panel')
   // never repaint the room page under someone's unsaved edit or mid-drag
-  if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText' || document.activeElement?.closest?.('.rule-row'))) return
+  if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText' || document.activeElement?.closest?.('.rule-panel'))) return
   document.querySelectorAll('.dock-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
   if (!page || !PAGES[page]) { panel.hidden = true; return }
   panel.hidden = false
@@ -1081,6 +1097,18 @@ function renderPeoplePage () {
       <p class="note">On the other machine: <b>rkeychat room join</b> with this code. It'll hand you back a request to approve under Keys.</p></section>` : ''}`
 }
 let expanded = new Set() // rows opened in the room list
+let promptOpen = false // the room prompt costs no real estate until you ask for it
+const rulesOpen = new Set() // agents whose settings drawer is showing
+const tipsOpen = new Set() // info dots left open; hovering works either way
+// the detail behind each label: one tap away instead of permanently in the way
+const TIPS = {
+  rounds: 'A round is one hop of agents replying to agents. When they run out everyone waits for you, and your next message starts the count fresh. Add gives them that many more right now.',
+  runfor: 'Instead of counting rounds, let them talk until a time — for overnight work. Your own messages don\'t cancel it; Pause does.',
+  prompt: 'Standing instructions every agent gets with every turn: what the room is for and how you work here. Each agent\'s own role is added to it.',
+  agents: 'Who answers a message that names nobody: number 1 first, then the next in line after 45s of silence. Drag the grab pad to reorder. @mentions skip the order entirely, and an agent set to "only when named" never takes the open floor.',
+  settings: 'Roles go out with every turn, as part of the room prompt. The token budget is the hard limit: once an agent has spent it for the day it stops being woken at all, which costs nothing — a wake is expensive because the agent re-reads its whole context before it writes a word.',
+  style: 'On: agents post their full output here. Off: short posts, detail in files. Off is right for rooms where agents talk to each other, since they pay to read each other.'
+}
 function renderRoomPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const b = c.budget
@@ -1090,6 +1118,41 @@ function renderRoomPage () {
   const owner = c.participants.find((p) => p.role === 'human' && c.members.some((m) => m.name === p.name && m.depth === 1 && !m.device && !m.label?.startsWith('device:'))) // first human under the root
   const ownerName = c.owner ? me() : (owner?.name ?? 'the owner')
   const order = [...(c.charter?.order ?? []).filter((n) => agents.some((a) => a.name === n)), ...agents.map((a) => a.name).filter((n) => !(c.charter?.order ?? []).includes(n))]
+  // one labelled line, its info dot, and the tip it opens. Tips and drawers are
+  // always in the DOM and only toggle `hidden`, so opening one never repaints the
+  // panel out from under an unsaved edit.
+  const ctl = (k, label, right) => `<div class="ctl-line"><span class="ctl-label">${esc(label)}<button class="info${tipsOpen.has(k) ? ' is-on' : ''}" data-tip="${k}" title="${esc(TIPS[k])}" aria-label="What ${esc(label)} does">i</button></span><span class="grow"></span>${right}</div>
+      <p class="tip" data-tip-for="${k}" ${tipsOpen.has(k) ? '' : 'hidden'}>${esc(TIPS[k])}</p>`
+  const rules = c.charter?.agents ?? {}
+  let slot = 0
+  const agentRow = (n) => {
+    const r = rules[n] ?? {}
+    const wake = r.wake === 'mention' ? 'mention' : 'order' // 'backup' has no control any more; the record keeps working
+    const num = wake === 'order' ? ++slot : null
+    const paused = b.agents?.paused.includes(n)
+    const over = c.overBudget?.[n]
+    return `<div class="order-item${paused ? ' is-off' : ''}" data-order="${esc(n)}" data-wake="${wake}" data-draggable="${c.owner ? '1' : ''}">
+        <span class="idx${num ? '' : ' is-mention'}" title="${num === 1 ? 'answers first' : num ? `steps in after ${(num - 1) * 45}s of silence` : 'only when named'}">${num ?? '@'}</span>
+        <div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div>
+        <span class="nm">${esc(n)}${paused ? ' <span class="pill tone-dim">off</span>' : ''}${over ? ' <span class="pill tone-bad">over</span>' : ''}</span>
+        <button class="gear${rulesOpen.has(n) ? ' is-on' : ''}" data-rule-open="${esc(n)}" title="${esc(n)}'s settings" aria-label="${esc(n)}'s settings">${icon('gear')}</button>
+        ${c.owner ? `<span class="grip" title="Drag to reorder">${icon('grip')}</span>` : ''}
+        ${rulePanel(n, r, wake, paused, over)}</div>`
+  }
+  const rulePanel = (n, r, wake, paused, over) => {
+    const sp = c.spend?.[n]; const lim = b.agents?.limits[n] ?? ''
+    const opt = (label, control) => `<div class="agent-opts"><span>${label}</span>${control}</div>`
+    return `<div class="rule-panel${over ? ' is-over' : ''}" data-rule-row="${esc(n)}" ${rulesOpen.has(n) ? '' : 'hidden'}>
+      ${opt('Can speak here', `<label class="switch" title="${paused ? 'Let it speak' : 'Silence it in this room'}"><input type="checkbox" data-agent-toggle="${esc(n)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label>`)}
+      ${opt('When it wakes', c.owner
+        ? `<select class="sel" data-rule-wake="${esc(n)}"><option value="order" ${wake === 'order' ? 'selected' : ''}>In the turn order</option><option value="mention" ${wake === 'mention' ? 'selected' : ''}>Only when named</option></select>`
+        : `<span class="ctl-val">${wake === 'mention' ? 'only when named' : 'in the turn order'}</span>`)}
+      ${opt('Max posts per message', c.owner ? `<input class="num" data-agent-limit="${esc(n)}" value="${esc(lim)}" placeholder="any">` : `<span class="ctl-val">${esc(lim || 'any')}</span>`)}
+      ${opt(`Token budget per day${over ? ' <span class="pill tone-bad">over</span>' : ''}`, c.owner ? `<input class="num" style="width:78px" data-rule-cap="${esc(n)}" value="${esc(r.tokensPerDay || '')}" placeholder="none">` : `<span class="ctl-val">${r.tokensPerDay ? fmtTok(r.tokensPerDay) : 'none'}</span>`)}
+      ${c.owner ? `<textarea class="text-input role" data-rule-role="${esc(n)}" rows="3" placeholder="Its role in this room (optional)">${esc(r.role ?? '')}</textarea>` : (r.role ? `<div class="note" style="white-space:pre-wrap">${esc(r.role)}</div>` : '')}
+      <div class="agent-opts"><span class="spend">${sp ? `${fmtTok(sp.total)} tokens today · ${sp.wakes} wake${sp.wakes === 1 ? '' : 's'} · ${fmtTok(sp.cacheRead)} re-reading context${r.tokensPerDay ? ` · cap ${fmtTok(r.tokensPerDay)}` : ''}` : 'nothing spent today'}</span><button class="info${tipsOpen.has('settings') ? ' is-on' : ''}" data-tip="settings" title="${esc(TIPS.settings)}" aria-label="What these settings do">i</button></div>
+      <p class="tip" data-tip-for="settings" ${tipsOpen.has('settings') ? '' : 'hidden'}>${esc(TIPS.settings)}</p></div>`
+  }
   const keyRow = (p, k) => {
     const short = k.ref.slice(8, 20)
     const what = k.account ? 'account root' : k.device ? `session on ${k.device}` : 'key'
@@ -1121,37 +1184,20 @@ function renderRoomPage () {
     <section class="section"><div class="section-title-row"><h3 class="section-title">In this room</h3><span class="note">tap one for keys and options</span></div>${everyone.map(row).join('') || '<p class="note">Nobody yet.</p>'}
       ${addable.length ? `<details style="margin-top:8px"><summary class="note">Add someone you already know</summary>${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already approved in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}</details>` : ''}
     </section>
-    <section class="section"><details ${agents.length && (b.paused || !open && b.used > 0) ? 'open' : ''}><summary class="section-title" style="cursor:pointer">Agent rules${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</summary>
-      <div style="margin-top:10px">
-      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No round limit' : `Open until ${time(b.until)}`) : 'Rounds used since the last human message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
-      <div class="inline wrap"><button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause all'}</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button><button class="btn btn-soft btn-sm" data-ctl="reset">Reset</button>
-        <button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">h</span></div>
-      <div class="agent-opts" style="padding-left:0;margin-top:8px"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
-      <h4 class="section-title" style="margin-top:14px">Purpose</h4>
+    <section class="section">
+      <div class="section-title-row"><h3 class="section-title">Agents${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</h3>
+        <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause'}</button></div>
+      ${ctl('rounds', 'Rounds', `<span class="ctl-val">${b.paused ? 'paused' : open ? (b.unlimited ? 'no limit' : `open until ${time(b.until)}`) : `${b.used} / ${b.limit} used`}</span><input class="num" id="roundsN" value="3" inputmode="numeric" aria-label="Rounds to add"><button class="btn btn-soft btn-sm" id="roundsAdd">Add</button>`)}
+      ${ctl('runfor', 'Run for', `<input class="num" id="runHours" value="8" inputmode="numeric" aria-label="Hours"><span class="ctl-val">h</span><button class="btn btn-soft btn-sm" id="runFor">Set</button>`)}
+      ${ctl('prompt', 'Room Prompt', `<button class="btn btn-soft btn-sm" id="promptEdit">${promptOpen ? 'Done' : c.owner ? 'Edit' : 'Read'}</button>`)}
       ${c.owner
-        ? `<textarea class="text-input" id="charterText" rows="6" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>`
-        : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>`}
-      <p class="note" style="margin-top:10px">Who answers a message that names nobody. The next in line steps in after 45s of silence.</p>
-      <div class="order-list" id="orderList">${order.map((n, i) => `<div class="order-item" data-order="${esc(n)}" data-draggable="${c.owner ? '1' : ''}"><span class="idx">${i + 1}</span><div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div><span class="nm">${esc(n)}</span>${(c.charter?.agents?.[n]?.wake === 'mention') ? '<span class="wait">mentioned only</span>' : (c.charter?.agents?.[n]?.wake === 'backup') ? `<span class="wait">backup for ${esc(c.charter.agents[n].backupFor ?? '?')}</span>` : i ? `<span class="wait">waits ${i * 45}s</span>` : '<span class="wait">answers first</span>'}${c.owner ? '<span class="grip">⋮⋮</span>' : ''}</div>`).join('') || '<p class="note">No agents in this room.</p>'}</div>
-      ${c.owner ? '<div class="apply-bar" id="charterApply" hidden><button class="btn btn-primary btn-sm" id="charterSave">Apply</button><span class="note">Sends the change to the room.</span></div><p class="note">Drag to reorder. @mentions skip the order.</p>' : ''}
-      ${agents.length ? `<h4 class="section-title" style="margin-top:14px">Each agent in this room</h4><p class="note">On/off, when it wakes, and its role here. Roles are part of the room's purpose: every agent gets its own with each turn.</p>${agents.map((p) => {
-        const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
-        const r = c.charter?.agents?.[p.name] ?? {}; const wake = r.wake ?? 'order'
-        const sp = c.spend?.[p.name]; const over = c.overBudget?.[p.name]
-        const others = agents.filter((a) => a.name !== p.name)
-        const wakeSel = c.owner
-          ? `<select class="sel" data-rule-wake="${esc(p.name)}" title="When this agent is woken"><option value="order" ${wake === 'order' ? 'selected' : ''}>In the turn order</option><option value="mention" ${wake === 'mention' ? 'selected' : ''}>Mentioned only</option><option value="backup" ${wake === 'backup' ? 'selected' : ''} ${others.length ? '' : 'disabled'}>Backup for…</option></select>${wake === 'backup' ? `<select class="sel" data-rule-backup="${esc(p.name)}">${others.map((a) => `<option value="${esc(a.name)}" ${r.backupFor === a.name ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}`
-          : `<span class="note">${wake === 'mention' ? 'mentioned only' : wake === 'backup' ? `backup for ${esc(r.backupFor ?? '?')}` : 'in the turn order'}</span>`
-        return `<div class="rule-row${paused ? ' is-off' : ''}${over ? ' is-over' : ''}" data-rule-row="${esc(p.name)}"><div class="avatar" style="width:28px;height:28px;font-size:12px">${esc(p.name.slice(0, 1))}</div>
-          <span class="nm">${esc(p.name)}${paused ? ' <span class="pill tone-dim">off</span>' : ''}</span>
-          <span class="inline" style="gap:6px;align-items:center">${wakeSel}</span>
-          <label class="switch" title="${paused ? 'Let it speak' : 'Silence it in this room'}"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label>
-          ${c.owner ? `<textarea class="text-input role" data-rule-role="${esc(p.name)}" rows="2" placeholder="Its role in this room (optional)">${esc(r.role ?? '')}</textarea>` : (r.role ? `<div class="role-ro">${esc(r.role)}</div>` : '')}
-          ${c.owner ? `<div class="agent-opts" style="grid-column:2 / -1;padding-left:0"><span>Max posts per human message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>
-          <div class="agent-opts" style="grid-column:2 / -1;padding-left:0"><span>Token budget per day${over ? ` <span class="pill tone-bad">over</span>` : ''}</span><input class="num" style="width:76px" data-rule-cap="${esc(p.name)}" value="${esc(r.tokensPerDay || '')}" placeholder="none"></div>` : ''}
-          <div class="spend" style="grid-column:2 / -1">${sp ? `${fmtTok(sp.total)} tokens today · ${sp.wakes} wake${sp.wakes === 1 ? '' : 's'} · ${fmtTok(sp.cacheRead)} re-reading context${r.tokensPerDay ? ` · cap ${fmtTok(r.tokensPerDay)}` : ''}` : 'nothing spent today'}</div></div>`
-      }).join('')}` : ''}
-      </div></details></section>`
+        ? `<textarea class="text-input" id="charterText" rows="7" placeholder="What this room is for and how you work here. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px" ${promptOpen ? '' : 'hidden'}>${esc(c.charter?.text ?? '')}</textarea>`
+        : `<p class="note" id="charterRead" style="white-space:pre-wrap" ${promptOpen ? '' : 'hidden'}>${esc(c.charter?.text || 'The owner hasn\'t set a prompt for this room.')}</p>`}
+      ${ctl('agents', 'Agents', `<span class="ctl-val">${agents.length || 'none'}</span>`)}
+      <div class="order-list" id="orderList">${order.map(agentRow).join('') || '<p class="note">No agents in this room.</p>'}</div>
+      ${c.owner ? '<div class="apply-bar" id="charterApply" hidden><button class="btn btn-primary btn-sm" id="charterSave">Apply</button><span class="note">Sends the change to the room.</span></div>' : ''}
+      ${ctl('style', 'Full output welcome', `<label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label>`)}
+    </section>`
 }
 
 // ---------- contacts: everyone you share a room with, across rooms
@@ -1200,52 +1246,6 @@ function renderProfilePage () {
       <button class="btn btn-primary btn-sm" id="approveBtn">Enroll it</button></section>` : ''}`
 }
 
-function renderAgentsPage () {
-  const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
-  const b = c.budget
-  const open = b.unlimited || (b.until && b.until > Date.now())
-  const agents = c.participants.filter((p) => p.role === 'agent' && p.status === 'active')
-  return `<section class="section">
-      <h3 class="section-title">Rounds</h3>
-      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No limit' : `Open until ${time(b.until)}`) : 'Used since your last message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
-      ${open || b.paused ? '' : `<div class="progress"><div class="progress-fill" style="width:${b.limit ? Math.min(100, (b.used / b.limit) * 100) : 0}%"></div></div>`}
-      <p class="note">A round is one hop of agents replying to agents. When they run out, everyone waits for you; your next message starts fresh at 3.</p>
-      <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button>
-        <button class="btn btn-soft btn-sm" data-ctl="reset" title="Back to 3 rounds per message">Reset</button></div>
-    </section>
-    <section class="section">
-      <h3 class="section-title">Purpose</h3>
-      ${c.owner
-        ? `<textarea class="text-input" id="charterText" rows="5" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>
-        <div class="inline" style="margin-top:8px"><span class="note" style="align-self:center">Answers first:</span><input class="text-input" id="charterOrder" placeholder="${esc(agents.map((p) => p.name).join(', ')) || 'agent names, in order'}" value="${esc((c.charter?.order ?? []).join(', '))}" style="flex:1"><button class="btn btn-soft btn-sm" id="charterSave">Save</button></div>
-        <p class="note">A message that names nobody goes to the first agent listed; the next steps in only if the one before stays silent for 45s. @mentions skip the order.</p>`
-        : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>${c.charter?.order?.length ? `<p class="note">Answers first: ${esc(c.charter.order.join(' → '))}</p>` : ''}`}
-    </section>
-    <section class="section">
-      <h3 class="section-title">Message style</h3>
-      <div class="agent-opts" style="padding-left:0"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
-      <p class="note">Off = concise: agents keep posts short and put detail behind Thinking. Good for rooms where agents talk to each other. On = for one-on-one rooms where you want everything.</p>
-    </section>
-    <section class="section">
-      <h3 class="section-title">Let them run</h3>
-      <div class="inline"><button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">hours</span></div>
-      <button class="btn btn-soft btn-sm" data-ctl="unlimited" data-confirm="Let the agents talk with no limit until you reset?">No limit</button>
-      <p class="note">For overnight work. Your messages don't cancel it; Reset or Pause does.</p>
-    </section>
-    <section class="section">
-      <h3 class="section-title">Each agent</h3>
-      ${agents.map((p) => {
-        const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
-        const [tone, label] = personStatus(p, b)
-        return `<div class="agent-card"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div>
-            <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : 'remote'} · ${b.agents?.posts?.[p.name] ?? 0} posts since your last message</span></div>
-            <span class="status ${tone}">${esc(label)}</span></div>
-          <div class="agent-opts"><span>Can speak</span><label class="switch"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label></div>
-          <div class="agent-opts"><span>Max posts per message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>
-        </div>`
-      }).join('') || '<p class="note">No agents in this room.</p>'}
-    </section>`
-}
 function renderKeysPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const sel = selectedMsg && c.log.find((r) => r.id === selectedMsg)
@@ -1365,9 +1365,9 @@ es.addEventListener('record', (e) => {
   const c = cur(); if (!c || topic !== c.topic) return
   if (!c.log.some((x) => x.id === rec.id)) { c.log.push(rec); c.log.sort((a, b) => a.ts - b.ts) }
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
-  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'agents') renderPanel()
+  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'room') renderPanel()
 })
-es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'agents') renderPanel() } })
+es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'room') renderPanel() } })
 es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
 es.addEventListener('activity', (e) => {
   const { topic, rec } = JSON.parse(e.data)
@@ -1817,18 +1817,56 @@ $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); a
 $('roomHead').addEventListener('click', (e) => { if (e.target.closest('[data-open-room]')) openPage(page === 'room' ? null : 'room') })
 // purpose + order: the Apply bar shows only once something changed
 function charterDirty () { const bar = document.getElementById('charterApply'); if (bar) bar.hidden = false }
+// Collect the room prompt, the order and every agent's rule, and send one charter.
+// Rules start from the charter we're looking at, so a rule the UI has no control
+// for (an agent set to back another up from the CLI) is carried through untouched.
+function saveCharter () {
+  const c = cur(); if (!c) return
+  const order = $('orderList') ? [...$('orderList').querySelectorAll('[data-order]')].map((el) => el.dataset.order) : []
+  const agents = {}
+  for (const [n, r] of Object.entries(c.charter?.agents ?? {})) agents[n] = { ...r }
+  document.querySelectorAll('.rule-panel[data-rule-row]').forEach((row) => {
+    const name = row.dataset.ruleRow
+    const rule = { ...(agents[name] ?? {}) }
+    const role = row.querySelector('[data-rule-role]')?.value?.trim()
+    if (role !== undefined) rule.role = role
+    const wake = row.querySelector('[data-rule-wake]')?.value
+    if (wake === 'order') { delete rule.wake; delete rule.backupFor } else if (wake) rule.wake = wake
+    const cap = Number(row.querySelector('[data-rule-cap]')?.value) || 0
+    if (cap > 0) rule.tokensPerDay = cap; else delete rule.tokensPerDay
+    if (!rule.role) delete rule.role
+    if (Object.keys(rule).length) agents[name] = rule; else delete agents[name]
+  })
+  const text = $('charterText') ? $('charterText').value : c.charter?.text ?? ''
+  control({ action: 'charter', text, order, agents })
+    .then(() => { toast('Applied'); const bar = document.getElementById('charterApply'); if (bar) bar.hidden = true })
+    .catch((err) => toast(err.message))
+}
 document.addEventListener('input', (e) => { if (e.target.id === 'charterText' || e.target.dataset.ruleRole !== undefined || e.target.dataset.ruleCap !== undefined) charterDirty() })
-// wake-mode selects: re-render the row's companion select, then mark dirty
+// changing when an agent wakes renumbers the order and needs an Apply
 document.addEventListener('change', (e) => {
-  if (e.target.dataset.ruleWake !== undefined) { charterDirty(); const row = e.target.closest('.rule-row'); const have = row.querySelector('[data-rule-backup]'); if (e.target.value === 'backup' && !have) { const name = e.target.dataset.ruleWake; const others = (cur()?.participants ?? []).filter((p) => p.role === 'agent' && p.status === 'active' && p.name !== name); e.target.insertAdjacentHTML('afterend', `<select class="sel" data-rule-backup="${esc(name)}">${others.map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join('')}</select>`) } else if (e.target.value !== 'backup' && have) have.remove() }
-  if (e.target.dataset.ruleBackup !== undefined) charterDirty()
+  if (e.target.dataset.ruleWake === undefined) return
+  const it = e.target.closest('.order-item')
+  if (it) { it.dataset.wake = e.target.value; const idx = it.querySelector('.idx'); idx.classList.toggle('is-mention', e.target.value === 'mention'); renumber(it.closest('.order-list')) }
+  charterDirty()
 })
+// the badge counts only agents that take the open floor; the rest show @
+function renumber (list) {
+  if (!list) return
+  let n = 0
+  for (const el of list.querySelectorAll('.order-item')) {
+    const idx = el.querySelector('.idx'); if (!idx) continue
+    if (el.dataset.wake === 'mention') { idx.textContent = '@'; idx.title = 'only when named'; continue }
+    n++; idx.textContent = n; idx.title = n === 1 ? 'answers first' : `steps in after ${(n - 1) * 45}s of silence`
+  }
+}
 // drag to reorder who answers first: rows slide out of the way as you cross their midpoints
 {
   let drag = null
-  const relabel = (list) => [...list.querySelectorAll('.order-item')].forEach((el, i) => { el.querySelector('.idx').textContent = i + 1; el.querySelector('.wait').textContent = i ? `waits ${i * 45}s` : 'answers first' })
+  const relabel = renumber
   document.addEventListener('pointerdown', (e) => {
-    const it = e.target.closest?.('.order-item[data-draggable="1"]'); if (!it || e.button) return
+    if (!e.target.closest?.('.grip')) return
+    const it = e.target.closest('.order-item[data-draggable="1"]'); if (!it || e.button) return
     e.preventDefault()
     const list = it.parentElement
     drag = { it, list, startY: e.clientY, offset: 0 }
@@ -1913,6 +1951,36 @@ document.addEventListener('click', async (e) => {
     const r = bars.getBoundingClientRect(); player.audio.currentTime = ((e.clientX - r.left) / r.width) * player.audio.duration; return
   }
   const t = e.target.closest('button, [data-room], [data-jump], [data-expand]')
+  // info dots, agent drawers and the prompt editor only flip `hidden`: opening one
+  // never repaints the panel out from under an unsaved edit somewhere else in it
+  const inf = e.target.closest('.info')
+  if (inf) {
+    const k = inf.dataset.tip
+    tipsOpen.has(k) ? tipsOpen.delete(k) : tipsOpen.add(k)
+    const on = tipsOpen.has(k)
+    document.querySelectorAll(`.info[data-tip="${k}"]`).forEach((el) => el.classList.toggle('is-on', on))
+    document.querySelectorAll(`.tip[data-tip-for="${k}"]`).forEach((el) => { el.hidden = !on })
+    return
+  }
+  const gearEl = e.target.closest('[data-rule-open]')
+  if (gearEl) {
+    const n = gearEl.dataset.ruleOpen
+    rulesOpen.has(n) ? rulesOpen.delete(n) : rulesOpen.add(n)
+    const on = rulesOpen.has(n)
+    gearEl.classList.toggle('is-on', on)
+    const pane = gearEl.closest('.order-item')?.querySelector('.rule-panel')
+    if (pane) pane.hidden = !on
+    return
+  }
+  if (t?.id === 'promptEdit') {
+    promptOpen = !promptOpen
+    const el = $('charterText') ?? $('charterRead')
+    if (el) { el.hidden = !promptOpen; if (promptOpen && el.tagName === 'TEXTAREA') el.focus() }
+    t.textContent = promptOpen ? 'Done' : cur()?.owner ? 'Edit' : 'Read'
+    return
+  }
+  if (t?.id === 'roundsAdd') return control({ action: 'extend', n: Math.max(1, Number($('roundsN').value) || 3) })
+  if (t?.id === 'charterSave') { saveCharter(); return }
   if (e.target.closest('[data-open-invite]')) { openPage('invite'); loadPeople(); return }
   if (e.target.closest('[data-get-file]')) { getFile(e.target.closest('[data-get-file]').dataset.getFile); return }
   if (e.target.closest('[data-open-file]')) { openFile(e.target.closest('[data-open-file]').dataset.openFile); return }
@@ -1971,28 +2039,12 @@ document.addEventListener('click', async (e) => {
 })
 document.addEventListener('change', (e) => {
   if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
-  if (e.target.id === 'charterSave') {
-    const order = $('orderList') ? [...$('orderList').querySelectorAll('[data-order]')].map((el) => el.dataset.order) : $('charterOrder').value.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean)
-    const agents = {}
-    document.querySelectorAll('.rule-row[data-rule-row]').forEach((row) => {
-      const name = row.dataset.ruleRow
-      const wake = row.querySelector('[data-rule-wake]')?.value ?? 'order'
-      const rule = { role: row.querySelector('[data-rule-role]')?.value?.trim() ?? '' }
-      if (wake !== 'order') rule.wake = wake
-      if (wake === 'backup') rule.backupFor = row.querySelector('[data-rule-backup]')?.value ?? ''
-      const cap = Number(row.querySelector('[data-rule-cap]')?.value) || 0
-      if (cap > 0) rule.tokensPerDay = cap
-      if (rule.role || rule.wake || rule.tokensPerDay) agents[name] = rule
-    })
-    control({ action: 'charter', text: $('charterText').value, order, agents }).then(() => { toast('Applied'); const bar = document.getElementById('charterApply'); if (bar) bar.hidden = true }).catch((err) => toast(err.message))
-    return
-  }
   if (e.target.id === 'autofix') { api('POST', '/api/settings', { autofix: e.target.checked }).then((x) => { settings = { ...settings, ...x } }); return }
   const d = e.target.dataset
   if (d.agentToggle) control({ action: e.target.checked ? 'resume' : 'pause', agent: d.agentToggle })
   if (d.agentLimit) control({ action: 'limit', agent: d.agentLimit, n: Number(e.target.value) || 0 })
 })
-setInterval(() => S && (renderStrip(), page === 'agents' && renderPanel()), 30_000)
+setInterval(() => S && (renderStrip(), page === 'room' && renderPanel()), 30_000)
 </script>
 </body>
 </html>
