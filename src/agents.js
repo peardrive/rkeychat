@@ -98,7 +98,13 @@ export class AgentRunner {
     if (!this.room.state) return { triggers: null, reason: 'room chain not loaded (not admitted yet)' }
     if (!this.room.state.isActive(me)) {
       const st = this.room.state.status(me)
-      return { triggers: null, reason: `this device's key for ${this.name} (${me.slice(0, 24)}…) is ${st} in this room: the config key isn't the enrolled one; approve a new request, or rkeychat readopt`, key: me }
+      // "unknown" usually just means this agent was never in this room, which is not a
+      // fault — `debug agent` walks every room on the device. Only say something is wrong
+      // when the key was enrolled here and no longer is.
+      const fix = st === 'unknown'
+        ? 'never enrolled here (if it should be: rkeychat request --room, then the owner approves)'
+        : 'the config key isn\'t the enrolled one; approve a new request, or rkeychat readopt'
+      return { triggers: null, reason: `this device's key for ${this.name} (${me.slice(0, 24)}…) is ${st} in this room: ${fix}`, key: me }
     }
     const triggers = this.room.triggersFor(this.name)
     if (!triggers.length) return { triggers: null, reason: 'nothing addressed to me that I haven\'t answered or passed on', key: me }
