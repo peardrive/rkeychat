@@ -347,10 +347,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .inline.wrap { flex-wrap: wrap; row-gap: 8px; }
 .inline.wrap .num { width: 44px; }
 /* one control per line: label (and its info dot) left, the control right */
-.ctl-line { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-top: 4px; }
-.ctl-line .ctl-label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--text-1); }
-.ctl-line .grow { flex: 1; }
-.ctl-line .ctl-val { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ctl-row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.ctl-row .ctl-label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.ctl-row .grow { flex: 1; }
+.ctl-row .ctl-val { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+/* a settings section: rows sit closer together than the panel's default rhythm */
+.section.is-tight { gap: 5px; }
 /* every label can explain itself: hover for the tooltip, tap to keep it open */
 .info { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.05); color: var(--text-3);
   font-size: 10px; font-weight: 700; line-height: 1; display: grid; place-items: center; padding: 0; cursor: help; }
@@ -358,13 +360,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .info.is-on { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
 .tip { margin: 0 0 6px; font-size: 11.5px; line-height: 1.45; color: var(--text-2); padding: 7px 9px; border-radius: 9px; background: rgba(0,0,0,0.28); box-shadow: 0 0 0 1px var(--line) inset; animation: tip-in 0.12s var(--ease); }
 /* an agent's own settings, indented under its row in the order */
-.rule-panel { flex: 0 0 100%; margin: 2px 0 0 26px; padding: 9px 10px; border-radius: 10px; background: rgba(0,0,0,0.26); box-shadow: 0 0 0 1px var(--line) inset; display: flex; flex-direction: column; gap: 8px; animation: tip-in 0.12s var(--ease);
+.rule-panel { flex: 0 0 calc(100% - 26px); margin: 2px 0 0 26px; padding: 9px 10px; border-radius: 10px; background: rgba(0,0,0,0.26); box-shadow: 0 0 0 1px var(--line) inset; display: flex; flex-direction: column; gap: 8px; animation: tip-in 0.12s var(--ease);
   user-select: text; -webkit-user-select: text; }
 .rule-panel .sel { font: inherit; font-size: 12px; color: var(--text-1); background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; max-width: 160px; }
 .rule-panel .role { min-height: 48px; resize: vertical; font: inherit; font-size: 12.5px; }
 .rule-panel .spend { font-size: 11.5px; color: var(--text-3); }
 .rule-panel.is-over .spend { color: #ffb3ac; }
 .rule-panel .agent-opts { padding-left: 0; }
+.rule-panel .agent-opts > span:first-child { white-space: nowrap; }
 .rule-panel .tip { margin: 0; }
 
 /* reactions sit on the message's bottom edge, overlapping it: attached, not a new comment */
@@ -1121,7 +1124,7 @@ function renderRoomPage () {
   // one labelled line, its info dot, and the tip it opens. Tips and drawers are
   // always in the DOM and only toggle `hidden`, so opening one never repaints the
   // panel out from under an unsaved edit.
-  const ctl = (k, label, right) => `<div class="ctl-line"><span class="ctl-label">${esc(label)}<button class="info${tipsOpen.has(k) ? ' is-on' : ''}" data-tip="${k}" title="${esc(TIPS[k])}" aria-label="What ${esc(label)} does">i</button></span><span class="grow"></span>${right}</div>
+  const ctl = (k, label, right) => `<div class="ctl-row"><span class="ctl-label">${esc(label)}<button class="info${tipsOpen.has(k) ? ' is-on' : ''}" data-tip="${k}" title="${esc(TIPS[k])}" aria-label="What ${esc(label)} does">i</button></span><span class="grow"></span>${right}</div>
       <p class="tip" data-tip-for="${k}" ${tipsOpen.has(k) ? '' : 'hidden'}>${esc(TIPS[k])}</p>`
   const rules = c.charter?.agents ?? {}
   let slot = 0
@@ -1184,7 +1187,7 @@ function renderRoomPage () {
     <section class="section"><div class="section-title-row"><h3 class="section-title">In this room</h3><span class="note">tap one for keys and options</span></div>${everyone.map(row).join('') || '<p class="note">Nobody yet.</p>'}
       ${addable.length ? `<details style="margin-top:8px"><summary class="note">Add someone you already know</summary>${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already approved in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}</details>` : ''}
     </section>
-    <section class="section">
+    <section class="section is-tight">
       <div class="section-title-row"><h3 class="section-title">Agents${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</h3>
         <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause'}</button></div>
       ${ctl('rounds', 'Rounds', `<span class="ctl-val">${b.paused ? 'paused' : open ? (b.unlimited ? 'no limit' : `open until ${time(b.until)}`) : `${b.used} / ${b.limit} used`}</span><input class="num" id="roundsN" value="3" inputmode="numeric" aria-label="Rounds to add"><button class="btn btn-soft btn-sm" id="roundsAdd">Add</button>`)}
@@ -1230,7 +1233,13 @@ function renderProfilePage () {
   const hosted = (d.participants ?? []).filter((p) => p.role === 'agent')
   const mine = c ? c.members.filter((m) => m.status !== 'orphaned' && (m.ref === d.ref || m.name === meName)) : []
   const glyph = (m) => m.label?.startsWith('device:') ? 'device' : m.device ? 'human' : 'root'
-  const tree = mine.map((m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`).join('')
+  // Who is logged in now is the answer to the usual question; keys that were removed
+  // are history and stay out of the way until asked for. They never leave the chain:
+  // the record is what lets a peer reject a signature the revoked key can still make.
+  const treeRow = (m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`
+  const live = mine.filter((m) => m.status === 'active')
+  const gone = mine.filter((m) => m.status !== 'active')
+  const tree = live.map(treeRow).join('')
   return `<div class="room-profile"><div class="big" style="border-radius:50%">${esc(meName.slice(0, 1).toUpperCase())}</div><h2>${esc(meName)}</h2><div class="meta">on ${esc(d.name ?? 'this device')}</div>
       <div class="inline"><button class="btn btn-primary btn-sm" id="loginOffer">${icon('qr')}Log in a new device</button><button class="btn btn-soft btn-sm" data-go="settings">${icon('gear')}Settings</button></div></div>
     ${loginOffer ? `<section class="section" style="text-align:center"><div style="display:inline-grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px)">${loginOffer.qr}</div><p class="note" style="margin-top:8px">Scan this on the new device. Good once, for 10 minutes.</p><details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(loginOffer.code)}</div></details></section>` : ''}
@@ -1239,6 +1248,7 @@ function renderProfilePage () {
       <p class="note">One account, a key per device, all shown as you. The root lives on this Mac for now; it moves to an NFC card later.</p></section>
     ${c ? `<section class="section"><div class="section-title-row"><h3 class="section-title">Your keys in ${esc(c.name)}</h3><span class="pill tone-dim">${mine.filter((m) => m.status === 'active').length} active</span></div>
       <div class="tree"><div class="tree-row" title="${esc(c.root)}">${icon('root', 'tree-glyph')}<span class="tree-label">root</span><span class="tree-ref">${esc((c.root ?? '').split(':')[1]?.slice(0, 6) ?? '')}</span>${c.owner ? '<span class="pill tone-accent">yours</span>' : ''}</div>${tree}</div>
+      ${gone.length ? `<details style="margin-top:8px"><summary class="note">${gone.length} removed key${gone.length === 1 ? '' : 's'}</summary><div class="tree" style="margin-top:6px">${gone.map(treeRow).join('')}</div><p class="note" style="margin-top:6px">Kept so this room can still tell which of their old messages were signed while the key was live. They can't sign anything new here.</p></details>` : ''}
       <p class="note">Each key sits under the key that signed it in (your root signs your devices and chat keys; an agent's root signs its sessions). Revoke a key and everything under it goes too.</p></section>` : ''}
     <section class="section"><h3 class="section-title">Agents you host</h3>${hosted.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub mono">${esc(p.ref.slice(0, 26))}… · ${esc(p.bridge ?? 'stream')}</span></div></div>`).join('') || '<p class="note">None on this device. <b>rkeychat add NAME</b> adds one.</p>'}</section>
     ${c?.owner ? `<section class="section"><h3 class="section-title">Approve a device or agent into ${esc(c.name)}</h3>
