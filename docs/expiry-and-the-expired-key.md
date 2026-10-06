@@ -128,3 +128,81 @@ You half-named it yourself ("block height or whatever it is"). Two levels of ans
 You've got the shape right. The two corrections are: a renewal can't bless the lapse by itself (someone has to
 say so, on the record), and the 90-day reset doesn't extend to compromise — or to any of it, until the timestamps
 mean something.
+
+---
+
+## 7. What this costs at 100s of devices over 10 years
+
+All numbers measured on this Mac today, not estimated.
+
+**Per chain entry:** 1,012 bytes average across the four real chains on this machine (35, 24, 12 and 5 entries),
+1,091 in a synthetic 2,001-entry chain. Call it **1.1 KB**.
+
+**Per entry to verify:** `fold()` costs **2.98 ms/entry** — it does three signature checks (entry, op, consent)
+and rKey signs with pure-JS `@noble`, measured here at 0.99 ms per Ed25519 verify.
+
+### The design choice is worth three orders of magnitude
+
+Take your scenario: 300 devices over 10 years, a handful of warm signers rotating every 90 days.
+
+| | chain entries | size | cold-start fold |
+|---|---|---|---|
+| **A. session refresh is a chain op**, 24 h sessions | 1,095,000 | **1.2 GB** | **54 min** |
+| **A′.** same, but 14-day sessions | 78,000 | 85 MB | 3.9 min |
+| **B. session refresh is detached** | 1 genesis + 120 warm + 300 devices = **421** | **0.46 MB** | **1.3 s** |
+
+Same security in every row. The only difference is whether a refresh appends to the chain.
+
+**So: nothing that refreshes on a human timescale may touch the chain.** The chain records *authority changes
+other people must agree about* — your warm signers, and the device bindings. Freshness is a **detached,
+short-lived delegation** that the key carries and presents, the way TLS presents a certificate: signed by the warm
+key, never appended, never replicated, expiring on its own. That's the whole answer to "what expires without
+bloat": **anything whose renewal is detached expires for free.**
+
+### Expiry is free; revocation is a permanent tax
+
+- A warm signer **lapsing** costs **zero extra bytes**: the enrolment already carries its expiry. Nothing is
+  appended, nothing new is replicated, nothing more is verified.
+- **Revoking** the same key costs 1.1 KB and ~3 ms added to *every future cold start, on every device, forever*.
+
+That asymmetry is the real argument for expiry, and it's why the routine cases — a phone you logged out of, an
+agent you retired, a laptop you sold — must never produce a revocation. Let them lapse.
+
+### The biggest "carry this around" problem
+
+Not disk. Half a megabyte a decade is nothing. It's this:
+
+> **Verification is replay.** To know what a key may do *now*, you fold from genesis. The cost of checking today's
+> message is proportional to everything that has ever happened, and you pay it at every cold start, on every
+> device, forever.
+
+That's the structural burden, and it's why every long-lived system of this shape ends up with checkpoints. A
+checkpoint collapses the replay; what it costs you is the ability to audit how the state was reached, which is why
+it belongs in *liveness* checks and never in *history* rendering (§ the earlier note in
+`keys-links-and-the-later-root.md`).
+
+**And the one thing a checkpoint can never collapse: compromise.** A `compromised … since` record retroactively
+changes the meaning of old messages. Summarize it away and those messages quietly become valid again. Everything
+else about your past can be folded into "as of 2036 these are my live keys" — a compromise cannot.
+
+So the irreducible carry is proportional to **how many times you have been compromised** — not to how long you
+have been alive, and not to how many devices you have owned. That is a good property and worth protecting.
+
+A third cost, easy to forget because it isn't yours: **everyone who verifies your history holds a copy of your key
+history.** The bytes are small, the distribution is not, and it's the reason per-context scoping matters — a room
+carries the chains of its own members, pruned to that room, rather than everyone's everything.
+
+### One finding worth acting on
+
+rKey verifies with pure-JS `@noble`. pearcore already takes native Ed25519 through `sodium-native` when it can
+import it, with a `@noble` fallback and identical formats (patch `1997f24`). Measured here, today:
+
+```
+@noble          0.99 ms per verify
+sodium-native   0.038 ms per verify      26x
+```
+
+That turns the 421-entry cold start from 1.3 s into about 0.05 s, and it is the same additive, fallback-safe
+change already written once. It doesn't rescue design A — 1.1 million entries is still two minutes — which is
+rather the point: **the architecture buys three orders of magnitude, the crypto buys one.** Do the architecture
+first.
