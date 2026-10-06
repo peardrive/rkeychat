@@ -229,7 +229,11 @@ export class Room extends EventEmitter {
     const s = this.state
     const node = s?.get(rec.author)
     const scope = node ? s.scopeOf(rec.author) : []
-    return { ...rec, name: node ? nameOf(node.label) : rec.author.slice(0, 16), device: node ? deviceOf(node.label) : '', human: scope.includes(SCOPES.admin) }
+    // `name` becomes the author's display name, which collides with a rename
+    // control's own `name` (the room's new one). Keep that where a reader can
+    // still find it, or a rename renders as "guy · rename" and says nothing.
+    const roomName = rec.kind === 'control' && rec.action === 'rename' ? rec.name : undefined
+    return { ...rec, name: node ? nameOf(node.label) : rec.author.slice(0, 16), device: node ? deviceOf(node.label) : '', human: scope.includes(SCOPES.admin), ...(roomName ? { roomName } : {}) }
   }
 
   // What admins removed: message ids and blocked content hashes.

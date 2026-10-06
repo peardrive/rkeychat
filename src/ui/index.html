@@ -804,8 +804,21 @@ function renderText (t) {
   const mine = me()
   return esc(t).replace(/@([a-z0-9][a-z0-9_-]*)/gi, (m, n) => `<span class="mention${n.toLowerCase() === mine ? ' is-me' : ''}">@${n}</span>`)
 }
-function ctlText (r) {
+function ctlText (r, was, before) {
   const who = r.name === me() ? 'You' : r.name
+  // A rename and a rules change are the edits that confuse people later ("which room
+  // is this? who set that?"), so they say what actually changed. A charter record
+  // always carries all three fields, so compare it with the one before it rather than
+  // claiming everything changed every time Apply is pressed.
+  if (r.action === 'rename') return was && was !== r.roomName ? `${who} renamed this room: ${was} → ${r.roomName}` : `${who} named this room "${r.roomName ?? '?'}"`
+  if (r.action === 'charter') {
+    const same = (a, b2) => JSON.stringify(a ?? null) === JSON.stringify(b2 ?? null)
+    const bits = []
+    if (!same(r.text, before?.text)) bits.push('the room prompt')
+    if (!same(r.order, before?.order)) bits.push(before ? `the order to ${(r.order ?? []).join(' → ')}` : 'who answers first')
+    if (!same(r.agents, before?.agents)) bits.push('the agent rules')
+    return bits.length ? `${who} changed ${bits.join(', ')}` : `${who} re-applied the room settings`
+  }
   if (r.agent) return { pause: `${who} paused @${r.agent}`, resume: `${who} let @${r.agent} speak again`, limit: r.n ? `${who} limited @${r.agent} to ${r.n} post${r.n === 1 ? '' : 's'} per message` : `${who} lifted @${r.agent}'s limit` }[r.action] || `${who} · ${r.action} @${r.agent}`
   return {
     extend: `${who} added ${r.n} round${r.n === 1 ? '' : 's'}`, unlimited: `${who} lifted the round limit`,
@@ -820,7 +833,7 @@ function renderFeed () {
   if (!c.admitted) return renderWaiting()
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
   // nothing visible changed: leave the reader exactly where they are
-  const sig = c.topic + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me() + '|' + haveFile.size
+  const sig = c.topic + '|' + (c.members ?? []).map((m) => m.ref + m.status).join(',') + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me() + '|' + haveFile.size
   if (feed.dataset.sig === sig) return
   feed.dataset.sig = sig
   const fromBottom = feed.scrollHeight - feed.scrollTop // keep this distance when re-rendering mid-read
@@ -829,11 +842,39 @@ function renderFeed () {
     return
   }
   const mine = me()
+  // Who joined and who left is a group edit like any other, and it belongs in the
+  // room's story. The key tree carries a timestamp per key; collapse it to one
+  // arrival per person (their earliest key) and one departure (when their last
+  // live key went), so a person with three devices is still one line.
+  const joins = []
+  {
+    const by = new Map()
+    for (const m of c.members ?? []) {
+      if (!m.name || m.name === me() || m.label?.startsWith('device:')) continue // a device is not a person arriving
+      const e = by.get(m.name) ?? { name: m.name, first: Infinity, lastOut: 0, live: 0 }
+      if (m.ts) e.first = Math.min(e.first, m.ts)
+      if (m.status === 'active') e.live++
+      else if (m.revokedAt) e.lastOut = Math.max(e.lastOut, m.revokedAt)
+      by.set(m.name, e)
+    }
+    for (const e of by.values()) {
+      if (e.first && e.first !== Infinity) joins.push({ ts: e.first, kind: 'member', text: `${e.name} joined` })
+      if (!e.live && e.lastOut) joins.push({ ts: e.lastOut, kind: 'member', text: `${e.name} left the room` })
+    }
+  }
   let html = ''; let prev = null; let lastDay = ''
-  for (const r of c.log) {
+  let roomWas = null // the room's name as of this point in the log, so a rename can show what it was
+  let lastCharter = null // ...and the rules as of this point, so a change can show only what moved
+  for (const r of [...c.log, ...joins].sort((x, y) => x.ts - y.ts)) {
     const d = day(r.ts)
     if (d !== lastDay) { html += `<div class="day-line">${esc(d)}</div>`; lastDay = d; prev = null }
-    if (r.kind === 'control') { html += `<div class="ctl-line">${esc(ctlText(r))} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (r.kind === 'member') { html += `<div class="ctl-line">${esc(r.text)} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (r.kind === 'control') {
+      html += `<div class="ctl-line">${esc(ctlText(r, roomWas, lastCharter))} · ${time(r.ts)}</div>`
+      if (r.action === 'rename' && r.roomName) roomWas = r.roomName
+      if (r.action === 'charter') lastCharter = r
+      prev = null; continue
+    }
     if (r.redacted) { html += `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>`; prev = null; continue }
     const isMine = r.name === mine
     const cont = prev && prev.name === r.name && r.ts - prev.ts < 5 * 60_000

@@ -101,7 +101,9 @@ async function api (method, path, payload) {
 
 const hhmm = (ts) => new Date(ts).toTimeString().slice(0, 5)
 const fmt = (r) => r.kind === 'control'
-  ? `  · ${r.name} ${r.action}${r.agent ? ' @' + r.agent : ''}${r.n ? ' ' + r.n : ''}${r.until ? ' until ' + new Date(r.until).toLocaleTimeString() : ''}`
+  ? (r.action === 'rename'
+      ? `  · ${r.name} named this room "${r.roomName ?? '?'}"`
+      : `  · ${r.name} ${r.action}${r.agent ? ' @' + r.agent : ''}${r.n ? ' ' + r.n : ''}${r.until ? ' until ' + new Date(r.until).toLocaleTimeString() : ''}`)
   : `[${hhmm(r.ts)}] ${r.name}${r.human ? '' : ` (r${r.depth})`}: ${r.text}`
 
 async function nextStep () {
