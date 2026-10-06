@@ -35,7 +35,7 @@ talk                                   (--room R picks the room; default: the fi
   rkeychat models install              download the speech model (Parakeet v3, ~490 MB)
   rkeychat glossary [add HEARD MEANT | rm HEARD]   dictation fixes, e.g. add "pair core" pearcore
   rkeychat log [N] | status
-  rkeychat wait --as NAME              stream turns for a CLI agent (Claude Code: run under Monitor)
+  rkeychat wait --as NAME [--once]     stream turns for a CLI agent (--once: exit after one; Claude Code wants this)
   rkeychat react [--as NAME] [TARGET|last] EMOJI [--off]   react to a message (never wakes anyone)
   rkeychat activity --as NAME TEXT     report what an agent is doing (people can watch; agents never read it)
 
@@ -74,6 +74,7 @@ const { values: opt, positionals: pos } = parseArgs({
     background: { type: 'boolean' },
     voice: { type: 'boolean' },
     off: { type: 'boolean' },
+    once: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
   }
 })
@@ -376,11 +377,15 @@ switch (cmd) {
           while ((i = buf.indexOf('\n')) >= 0) {
             const line = buf.slice(0, i); buf = buf.slice(i + 1)
             const ev = JSON.parse(line)
-            if (ev.type === 'ready' && !announced) { console.log(`[rkeychat] listening as @${ev.name} (streams forever: in Claude Code run this under the Monitor tool, not as a plain command)`); announced = true }
+            if (ev.type === 'ready' && !announced) { console.log(`[rkeychat] listening as @${ev.name}${opt.once ? ' (will exit on the first turn)' : ' (streams forever: in Claude Code use --once under a background Bash instead)'}`); announced = true }
             if (ev.type === 'turn') {
               console.log(`=== rkeychat turn for @${ev.name} in "${ev.room}" — reply: rkeychat send --room "${ev.room}" --as ${ev.name} "..."  (or --pass) ===`)
               console.log(ev.prompt)
               console.log('=== end turn ===')
+              // --once: one complete turn and out, so a caller that waits on this
+              // process is told the moment there is something to answer. Unanswered
+              // turns stay queued in the daemon, so relaunching loses nothing.
+              if (opt.once) { await new Promise((r) => process.stdout.write('', r)); process.exit(0) }
             }
           }
         }

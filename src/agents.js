@@ -145,7 +145,13 @@ export class AgentRunner {
     setImmediate(() => this.poke())
     return () => {
       this.listeners.delete(fn)
-      if (!this.listeners.size) this.room.setAgentState(this.name, 'offline')
+      if (this.listeners.size) return
+      this.room.setAgentState(this.name, 'offline')
+      // A listener that goes away while holding an unanswered turn must hand it
+      // back now, not in fifteen minutes: until the slot is free nothing newer is
+      // offered, so the agent looks alive and ignores everything said to it. The
+      // triggers are still unanswered in the log, so the next listener gets them.
+      if (this.busy) { clearTimeout(this.offerTimer); this.busy = false; this.offered = null }
     }
   }
 
