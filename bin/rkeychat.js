@@ -45,6 +45,7 @@ agents
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
   rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
@@ -223,6 +224,30 @@ switch (cmd) {
     else if (action === 'limit') { payload.agent = a ?? die('usage: rkeychat control limit AGENT N'); payload.n = Number(b ?? 0) }
     else if ((action === 'pause' || action === 'resume') && a) payload.agent = a
     console.log(fmt({ ...(await api('POST', '/api/control', payload)), name: 'you' }))
+    break
+  }
+  case 'notes': {
+    // The other end of Debug notes: what was recorded while using the app. `notes` lists them,
+    // `notes ID` prints one trace; the audio sits beside it and its path is printed.
+    const { notes, dir, sharelink } = await api('GET', '/api/debug/notes')
+    const id = pos[0]
+    if (!id) {
+      if (!notes.length) { console.log(`no notes yet (${dir})`); break }
+      for (const n of notes) console.log(`${n.id}  ${String(n.steps ?? '?').padStart(4)} steps  ${String(n.seconds ?? '?').padStart(7)}s  ${n.room ?? ''}`)
+      if (sharelink) console.log(`\nshare: ${sharelink}`)
+      break
+    }
+    const n = notes.find((x) => x.id === id || x.id.startsWith(id)) ?? die(`no note matching "${id}"`)
+    const { readFileSync } = await import('node:fs')
+    const d = join(dir, 'notes', n.id)
+    console.log(`${n.id} · ${n.seconds ?? '?'}s · ${n.room ?? 'no room'} · ${n.window ?? ''}`)
+    if (n.audio) console.log(`audio: ${join(d, n.audio)}`)
+    console.log('')
+    for (const line of readFileSync(join(d, 'trace.jsonl'), 'utf8').trim().split('\n')) {
+      const e = JSON.parse(line)
+      const at = `${String(Math.floor(e.t / 60)).padStart(2, '0')}:${String(Math.floor(e.t % 60)).padStart(2, '0')}`
+      console.log(`${at}  ${e.kind.padEnd(5)}  ${e.text}${e.times ? ` (x${e.times})` : ''}${e.data ? `  ${JSON.stringify(e.data)}` : ''}`)
+    }
     break
   }
   case 'files': {

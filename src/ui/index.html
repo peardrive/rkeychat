@@ -611,6 +611,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+// One logger for the UI: a ring of lines anyone can subscribe to. A debug note is the
+// subscriber that matters (createTrace below). Log the steps a person would name —
+// "joined a room", "fetched a file" — not every tick.
+const log = (() => {
+  const MAX = 600; const lines = []; const subs = new Set()
+  const push = (level, scope, msg, data) => {
+    const line = { t: new Date().toISOString(), level, scope, msg, ...(data === undefined ? {} : { data }) }
+    lines.push(line); if (lines.length > MAX) lines.shift()
+    for (const fn of subs) fn(line)
+  }
+  return {
+    lines,
+    info: (s, m, d) => push('info', s, m, d),
+    warn: (s, m, d) => push('warn', s, m, d),
+    error: (s, m, d) => push('error', s, m, d),
+    subscribe (fn) { subs.add(fn); return () => subs.delete(fn) }
+  }
+})()
+window.addEventListener('error', (e) => log.error('app', `Uncaught: ${e.message}`, { at: `${e.filename}:${e.lineno}` }))
+window.addEventListener('unhandledrejection', (e) => log.error('app', `Unhandled: ${e.reason?.message ?? e.reason}`))
 const day = (ts) => new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
 const icon = (id, cls = '') => `<svg class="ico ${cls}"><use href="#i-${id}"/></svg>`
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} }, del: (k) => { try { localStorage.removeItem(k) } catch {} } }
@@ -647,16 +667,131 @@ function toast (text, tone) {
 async function api (method, path, body) {
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
   const out = await res.json()
-  if (!res.ok) { toast(out.error || `Something went wrong (${res.status})`, 'bad'); throw new Error(out.error) }
+  if (!res.ok) { log.error('api', `${method} ${path}: ${out.error || res.status}`); toast(out.error || `Something went wrong (${res.status})`, 'bad'); throw new Error(out.error) }
   return out
 }
+
+// ---------- debug notes (docs/NOTES-MODE.md in pearcast-projects, where this started)
+// A note is a voice recording and, alongside it, the steps taken in the app while it ran — named the way a
+// person would ("opened the room panel", "fetched a file"), each stamped with its time into the recording. So a
+// note that says "this one, here" is never vague about which one or where.
+//
+// This is pearcast's src/trace.js, same shape: it takes a logger and a save function and knows nothing about the
+// app around it. Keep the two in step — when a third app wants this, these become one package. The only
+// difference here is that saving goes over HTTP to the daemon instead of IPC to Electron's main process.
+function createTrace ({ log, save }) {
+  let note = null // { id, t0, steps, rec, chunks, stream }
+  const listeners = new Set()
+  const emit = () => { for (const fn of listeners) fn() }
+  const now = () => (note ? Math.round(performance.now() - note.t0) / 1000 : 0)
+
+  // A step is kept once: the same text again within a couple of seconds is the same thing still happening (a
+  // scroll, a drag), not news. Repeats are counted on the kept step instead.
+  function step (kind, text, data, { group = null } = {}) {
+    if (!note) return
+    const t = now(); const last = note.steps.at(-1)
+    if (last && last.text === text && t - (last.until ?? last.t) < 2) { last.until = t; last.times = (last.times || 1) + 1; return emit() }
+    // a run of the same kind of thing is one step that ends where it ended, not one per event
+    if (group && last?.group === group && t - (last.until ?? last.t) < 2) { last.until = t; last.times = (last.times || 1) + 1; last.text = `${last.from} → ${text}`; return emit() }
+    note.steps.push({ t, kind, text, ...(group ? { group, from: text } : {}), ...(data === undefined ? {} : { data }) })
+    emit()
+  }
+  // the log already says what the app did; keep its lines on the note's clock
+  log.subscribe((line) => { if (note && line) step('log', `[${line.scope}] ${line.msg}`, line.data) })
+
+  async function start () {
+    if (note) return
+    const id = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    // No microphone outside a secure context (the phone over plain http) and the person may say no: a note
+    // without audio is still a note, so neither case stops anything.
+    let stream = null
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch (err) { log.warn('debug', `Note without audio: ${err.message}`) }
+    const chunks = []
+    let rec = null
+    if (stream) {
+      try { rec = new MediaRecorder(stream); rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data) }; rec.start(1000) } catch (err) { log.warn('debug', `Note without audio: ${err.message}`); rec = null }
+    }
+    note = { id, t0: performance.now(), steps: [], rec, chunks, stream }
+    log.info('debug', `Debug note started${rec ? '' : ' (no audio)'}`)
+    emit()
+  }
+
+  async function stop (extra = {}) {
+    if (!note) return null
+    const n = note
+    await new Promise((resolve) => { if (!n.rec || n.rec.state === 'inactive') return resolve(); n.rec.onstop = () => resolve(); n.rec.stop() })
+    if (n.stream) for (const t of n.stream.getTracks()) t.stop()
+    note = null; emit()
+    const blob = n.chunks.length ? new Blob(n.chunks, { type: n.rec?.mimeType || 'audio/webm' }) : null
+    const meta = {
+      startedAt: new Date(Date.now() - (performance.now() - n.t0)).toISOString(),
+      seconds: Math.round(performance.now() - n.t0) / 1000,
+      steps: n.steps.length, app: 'rkeychat', userAgent: navigator.userAgent, window: `${innerWidth}×${innerHeight}`, ...extra
+    }
+    const saved = await save({ id: n.id, blob, trace: n.steps, meta })
+    log.info('debug', `Debug note saved: ${n.steps.length} step(s), ${meta.seconds} s`)
+    return saved
+  }
+
+  return {
+    start, stop, step,
+    get active () { return !!note },
+    get seconds () { return now() },
+    get steps () { return note?.steps.length || 0 },
+    onChange (fn) { listeners.add(fn); return () => listeners.delete(fn) }
+  }
+}
+
+const b64 = (buf) => { let s = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s) }
+const trace = createTrace({
+  log,
+  save: async ({ id, blob, trace: steps, meta }) => api('POST', '/api/debug/note', {
+    id, trace: steps, meta,
+    audio: blob ? b64(await blob.arrayBuffer()) : null,
+    audioType: blob?.type ?? null
+  })
+})
+let debugSpace = null
+const debugOn = () => store.get('rk.debug', '0') === '1'
+async function refreshDebugSpace () { try { debugSpace = await api('GET', '/api/debug/space') } catch { debugSpace = null } }
+function syncDebugBtn () {
+  const b = $('debugNote'); if (!b) return
+  b.hidden = !debugOn()
+  b.classList.toggle('is-on', trace.active)
+  b.title = trace.active ? 'Stop the note and save it' : 'Start a debug note: talk, and keep using the app'
+  b.querySelector('.rec-time').textContent = trace.active ? `${Math.floor(trace.seconds / 60)}:${String(Math.floor(trace.seconds % 60)).padStart(2, '0')} · ${trace.steps}` : ''
+}
+trace.onChange(syncDebugBtn)
+setInterval(() => { if (trace.active) syncDebugBtn() }, 500)
+async function toggleNote () {
+  if (trace.active) {
+    const saved = await trace.stop({ room: cur()?.name, panel: page || null })
+    if (saved) toast(saved.shared ? 'Debug note saved and shared' : 'Debug note saved (not shared: the space is offline)')
+  } else {
+    await trace.start()
+    trace.step('ui', `room: ${cur()?.name ?? 'none'}; panel: ${page || 'none'}`)
+    toast('Recording. Say what you see and keep using the app.', 'hold')
+  }
+  syncDebugBtn()
+}
+// Every button by its label, with where it was: the cheap half of knowing what was touched.
+document.addEventListener('click', (e) => {
+  if (!trace.active) return
+  const b = e.target.closest('button, [data-room], [data-go], [data-order]')
+  if (!b || b.id === 'debugNote') return
+  const name = (b.getAttribute('aria-label') || b.title || b.textContent.trim() || b.id || b.className || '?').replace(/\s+/g, ' ').slice(0, 70)
+  const where = b.closest('#panel') ? `panel:${page}` : b.closest('#side') ? 'rooms list' : b.closest('.composer') ? 'composer' : b.closest('.room-head') ? 'room header' : b.closest('.feed') ? 'feed' : 'window'
+  trace.step('click', name, { in: where })
+}, true)
+
 const roomArg = () => cur()?.topic
-const control = (payload) => api('POST', '/api/control', { room: roomArg(), ...payload })
+const control = (payload) => { log.info('room', `control: ${payload.action}${payload.agent ? ` ${payload.agent}` : ''}${payload.n ? ` ${payload.n}` : ''}`); return api('POST', '/api/control', { room: roomArg(), ...payload }) }
 
 async function load (topic) {
   const leaving = cur()?.topic
   if (leaving) setDraft(leaving, ta.value) // the room you are leaving keeps what you had typed
   S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  if (S.current?.topic !== leaving) log.info('room', `opened ${S.current?.name ?? 'no room'}`)
   if (S.current && S.current.topic !== leaving) { ta.value = draftOf(S.current.topic); grow() } // and the one you arrive in gives its own back
   if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
   if (S.current) api('GET', `/api/files?room=${encodeURIComponent(S.current.topic)}`).then((list) => { let changed = false; for (const f of list ?? []) if (f.local && !haveFile.has(f.hash)) { haveFile.add(f.hash); changed = true }; if (changed) renderFeed() }).catch(() => {})
@@ -910,8 +1045,10 @@ function renderHead () {
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
     <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
+    <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
     <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
+  syncDebugBtn()
 }
 async function renameRoom () {
   const c = cur(); if (!c?.owner) return
@@ -987,6 +1124,13 @@ function renderSettingsPage () {
   if (!settings) { loadSettings(); return '<p class="note">Loading…</p>' }
   const entries = Object.entries(glossary).sort()
   return `<section class="section">
+      <h3 class="section-title">Debug notes</h3>
+      <div class="agent-opts" style="padding-left:0"><span>Debug mode</span><label class="switch"><input type="checkbox" id="debugMode" ${debugOn() ? 'checked' : ''}><span class="switch-track"></span></label></div>
+      <p class="note">Puts a mic button in the room header. Press it, say what you're seeing and keep using the app: what you touch is written down beside the recording, so a note never has to describe which thing you meant. Press again to save.</p>
+      ${debugOn() ? `<div class="inline wrap"><button class="btn btn-soft btn-sm" id="debugShare">${icon('copy')}Copy the notes link</button><button class="btn btn-soft btn-sm" id="debugNotes">${debugSpace?.count ?? 0} saved</button></div>
+      <p class="note">Notes live in a space of their own, not in any room. Whoever you hand the link to can read and pull them; nobody else can write to it.${debugSpace?.sharelink ? '' : ' The link appears once the space is up.'}</p>` : ''}
+    </section>
+    <section class="section">
       <h3 class="section-title">Dictation</h3>
       <div class="agent-opts" style="padding-left:0"><span>Fix misheard words automatically</span><label class="switch"><input type="checkbox" id="autofix" ${settings.autofix ? 'checked' : ''}><span class="switch-track"></span></label></div>
       <p class="note">Like autocorrect for your voice. When you fix a word the transcriber got wrong before sending, it remembers. Agents that catch a mishearing can teach it too.</p>
@@ -1025,6 +1169,7 @@ function renderActivityPage () {
 }
 function openPage (p) {
   page = p; store.set('rk.page', p || '')
+  log.info('ui', p ? `panel: ${p}` : 'panel closed')
   if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room') loadPeople()
   renderPanel()
 }
@@ -1297,6 +1442,7 @@ function renderKeysPage () {
 // ---------- QR scanner (camera + jsQR per frame; lifted from peardrop-desktop/lib/qr-scanner)
 let scan = null
 async function openScanner (onResult) {
+  log.info('ui', 'scanner opened')
   if (scan) return
   if (!navigator.mediaDevices?.getUserMedia) { toast('No camera here: paste the code instead'); return }
   if (!window.jsQR) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = '/jsQR.js'; s.onload = res; s.onerror = rej; document.head.append(s) }).catch(() => {})
@@ -1458,6 +1604,7 @@ $('composer').addEventListener('submit', async (e) => {
   if (pendingFile && !pendingFile.hash) { toast('One second, the file is still being indexed.'); return }
   const via = dictatedThisMessage ? 'voice' : undefined
   const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : pendingFile ? [pendingFile] : undefined
+  log.info('room', `sent ${text.length} char${text.length === 1 ? '' : 's'}${att ? ` + ${att.name}` : ''}${replyTo ? ', a reply' : ''}${via ? ` (${via})` : ''}`)
   await api('POST', '/api/send', { room: roomArg(), text, via, att, re: replyTo ? [replyTo] : undefined })
   ta.value = ''; setDraft(roomArg(), ''); dictatedThisMessage = false; clearPending(); clearReply(); grow() // sent: the draft is spent
 })
@@ -1745,6 +1892,7 @@ function paintRing (hash) {
 }
 async function getFile (hash) {
   if (fileProgress.has(hash)) return
+  log.info('files', `fetching ${hash.slice(0, 12)}`)
   fileProgress.set(hash, null); paintRing(hash)
   try {
     await api('POST', '/api/fetch', { room: roomArg(), hash })
@@ -2045,11 +2193,20 @@ document.addEventListener('click', async (e) => {
   if (d.keyUnban) { if (!confirm(`Lift the ban on ${d.who}'s key ${d.keyUnban.slice(8, 20)}? They still need a fresh invite to come back.`)) return; return api('POST', '/api/unban', { room: roomArg(), ref: d.keyUnban }).then(() => toast('Ban lifted')).catch((err) => toast(err.message)) }
   if (t.id === 'clearSel') { selectedMsg = null; renderPanel(); renderFeed(); return }
   if (t.id === 'inviteBtn') { const { invite } = await api('GET', `/api/invite?room=${encodeURIComponent(roomArg())}`); const o = $('inviteOut'); o.textContent = invite; o.hidden = false; navigator.clipboard?.writeText(invite).then(() => toast('Invite copied.')); return }
+  if (t.id === 'debugNote') { toggleNote(); return }
+  if (t.id === 'debugShare') {
+    await refreshDebugSpace()
+    if (!debugSpace?.sharelink) return toast('The notes space isn\'t up yet — try again in a moment', 'warn')
+    try { await navigator.clipboard.writeText(debugSpace.sharelink); toast('Notes link copied. Whoever joins can read the notes, not change them.') } catch { toast(debugSpace.sharelink, 'hold') }
+    return
+  }
+  if (t.id === 'debugNotes') { const n = await api('GET', '/api/debug/notes'); toast(n.notes.length ? `${n.notes.length} notes in ${n.dir}` : 'No notes yet', 'hold'); return }
   if (t.id === 'approveBtn') { const { enrolled } = await api('POST', '/api/approve', { room: roomArg(), code: $('reqIn').value }); toast(`Enrolled ${enrolled} key${enrolled === 1 ? '' : 's'}.`); return }
 })
 document.addEventListener('change', (e) => {
   if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
   if (e.target.id === 'autofix') { api('POST', '/api/settings', { autofix: e.target.checked }).then((x) => { settings = { ...settings, ...x } }); return }
+  if (e.target.id === 'debugMode') { store.set('rk.debug', e.target.checked ? '1' : '0'); refreshDebugSpace().then(() => { renderPanel(); renderHead() }); return }
   const d = e.target.dataset
   if (d.agentToggle) control({ action: e.target.checked ? 'resume' : 'pause', agent: d.agentToggle })
   if (d.agentLimit) control({ action: 'limit', agent: d.agentLimit, n: Number(e.target.value) || 0 })

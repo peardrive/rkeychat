@@ -14,6 +14,7 @@ import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
 import { MAX_BLOB } from './room.js'
+import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 
@@ -135,6 +136,7 @@ export function serve ({ app }) {
   const nameOrDie = (as) => { need(as, `say who's posting: --as NAME (on this device: ${Object.keys(cfg.participants).join(', ') || 'nobody yet'})`); return as }
   // an agent replying without naming a room answers wherever it was given a turn
   const roomForAgent = (as, key) => key ? pick(key) : ([...app.rooms.values()].find((r) => r.runners.get(as)?.busy) ?? pick())
+  const notes = new DebugNotes(app)
 
   const routes = {
     // no-store: the page is read from disk every request, so a reload should always be the UI that is on disk now.
@@ -240,6 +242,17 @@ export function serve ({ app }) {
       const rec = await room.activity(as, String(text || 'answered').slice(0, 200), { usage })
       need(rec, `${as} isn't an active agent on this device`)
       return { ok: true, spend: room.spend()[as] ?? null, overBudget: room.overBudget(as) }
+    },
+
+    // Debug notes (src/debug-notes.js): the mic button in the UI saves one here.
+    'GET /api/debug/space': async () => notes.info(),
+    'GET /api/debug/notes': async () => ({ ...(await notes.info()), notes: notes.list() }),
+    'POST /api/debug/note': async (req) => {
+      const n = JSON.parse(await rawBody(req, MAX_BLOB) || '{}')
+      const audio = n.audio ? Buffer.from(String(n.audio), 'base64') : null
+      need(Array.isArray(n.trace), 'a note needs its trace')
+      const saved = await notes.save({ id: n.id, audio, audioType: n.audioType, trace: n.trace, meta: n.meta })
+      return { ...saved, sharelink: (await notes.info()).sharelink }
     },
 
     'GET /api/invite': (req, res, url) => {

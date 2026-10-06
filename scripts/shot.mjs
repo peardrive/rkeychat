@@ -29,7 +29,11 @@ const profile = mkdtempSync(join(tmpdir(), 'rkshot-'))
 const chrome = spawn(CHROME, [
   '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`,
   `--window-size=${width},${height}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
-  '--disable-gpu', '--force-device-scale-factor=2', 'about:blank'
+  '--disable-gpu', '--force-device-scale-factor=2',
+  // a fake camera and mic, granted without a prompt: anything that asks for media gets an answer
+  // instead of hanging, which is also what makes a debug note testable from here
+  '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+  'about:blank'
 ], { stdio: ['ignore', 'ignore', 'pipe'] })
 
 const wsUrl = await new Promise((resolve, reject) => {
