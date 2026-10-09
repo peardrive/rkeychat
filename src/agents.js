@@ -13,7 +13,13 @@ import { TURN_WINDOW } from './room.js'
 // A turn already handed to a listener isn't handed over again for this long: one
 // turn per process means a listener reconnects immediately, and it must not be
 // given the same work twice. Past it, we assume whoever took it is gone.
-const REOFFER = 2 * 60_000
+//
+// Ten minutes, not two: an agent given real work is away for a while, and a short
+// window just re-offers the same turn to it over and over. The cost of being wrong
+// is that a crashed agent's turn waits this long before another listener gets it,
+// which is the lesser problem. A person's new message preempts regardless (poke),
+// so this never delays anyone.
+const REOFFER = 10 * 60_000
 
 const PASS = /^\s*PASS\s*$/i
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)

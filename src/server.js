@@ -480,12 +480,14 @@ export function serve ({ app }) {
     // ---- logging a new device in (see login.js) ----
     'POST /api/login/offer': async (req) => {
       need(!isRemote(req), 'start this from the device that holds the account', 403)
-      const o = await app.login.offer()
+      // with `room`, the code invites to that room alone; without, it logs a device in
+      const { room } = await body(req).catch(() => ({}))
+      const o = await app.login.offer({ room })
       return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 2, errorCorrectionLevel: 'L', color: { dark: '#000000', light: '#ffffff' } }) }
     },
     'POST /api/login/claim': async (req) => {
       const { code } = await body(req)
-      need(code, 'paste or scan a login code')
+      need(code, 'paste or scan a code')
       return app.login.claim(code)
     },
     'GET /api/login': () => ({ pending: app.login.pending() }),

@@ -24,7 +24,7 @@ rooms
   rkeychat rooms                       list rooms
   rkeychat room create NAME            new room (you own it)
   rkeychat room join INVITE            join someone's room; prints the request to send them
-  rkeychat invite [--room R]           owner: invite code for a room
+  rkeychat invite [--room R]           owner: invite code for a room (--qr: scan it instead, no paste-back)
   rkeychat approve REQUEST [--room R]  owner: enroll a device + its participants
   rkeychat request [--room R]          print this device's join request again
 
@@ -75,6 +75,7 @@ const { values: opt, positionals: pos } = parseArgs({
     voice: { type: 'boolean' },
     off: { type: 'boolean' },
     once: { type: 'boolean' },
+    qr: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
   }
 })
@@ -207,7 +208,20 @@ switch (cmd) {
   case 'join': // old spelling
     die('use: rkeychat room join INVITE')
     break
-  case 'invite': console.log((await api('GET', '/api/invite' + q({ room: opt.room }))).invite); break
+  case 'invite': {
+    // --qr: a scannable pairing code for this room alone. Whoever scans it is let in
+    // in band — no request to paste back, and nothing but this room is granted.
+    if (opt.qr) {
+      const o = await api('POST', '/api/login/offer', { room: opt.room })
+      console.log(`Invitation to "${o.room}" — good once, for 10 minutes.\n`)
+      console.log(o.code)
+      console.log('\nScan it in the other rKeyChat (or paste it into "Log in a new device").')
+      console.log('They join as themselves; they do not get your account or your other rooms.')
+      break
+    }
+    console.log((await api('GET', '/api/invite' + q({ room: opt.room }))).invite)
+    break
+  }
   case 'devices': { const r = await api('POST', '/api/rooms/devices', { room: opt.room }); console.log(r.added.length ? `added ${r.added.join(', ')}` : 'all your devices are already in'); break }
   case 'request': console.log((await api('GET', '/api/request' + q({ room: opt.room }))).request); break
   case 'approve': console.log(`enrolled ${(await api('POST', '/api/approve', { room: opt.room, code: pos[0] })).enrolled} keys`); break

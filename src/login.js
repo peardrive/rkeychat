@@ -23,6 +23,30 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(s, 'base64url').toString())
 
 export const encodeLogin = (o) => 'rkl1.' + b64(o)
+
+// A pairing offer with an action. Same mechanism as a login — a throwaway space, a
+// one-time token, a QR — but it says what the scan is *for*. 'login' brings a device
+// into the account; 'room' puts whoever scans into one room and nothing else.
+//
+// Its own prefix, not an extra field on rkl1., because a build that predates this
+// would read an unknown field as absent and log the scanner into the whole account.
+// An old build meets rkp1. and says it doesn't recognise the code, which is right.
+export const encodePair = (o) => 'rkp1.' + b64(o)
+export function decodePair (code) {
+  const s = String(code ?? '').trim()
+  if (!s.startsWith('rkp1.')) throw new Error('that isn\'t a pairing code (they start with rkp1.)')
+  const { a: action, r: root, n: name, s: sharelink, k: token, rn: roomName } = unb64(s.slice(5))
+  if (!action || !root || !sharelink || !token) throw new Error('pairing code is incomplete')
+  if (action !== 'login' && action !== 'room') throw new Error(`unknown pairing action "${action}"`)
+  return { action, root, name, sharelink, token, roomName }
+}
+// Either kind, so one scanner handles both.
+export const isPairing = (code) => /^rk[lp]1\./.test(String(code ?? '').trim())
+export function decodeAny (code) {
+  const s = String(code ?? '').trim()
+  if (s.startsWith('rkp1.')) return decodePair(s)
+  return { action: 'login', ...decodeLogin(s) }
+}
 export function decodeLogin (code) {
   const s = String(code ?? '').trim()
   if (!s.startsWith('rkl1.')) throw new Error('that isn\'t a login code (they start with rkl1.)')
@@ -54,35 +78,51 @@ export class Login {
   }
 
   // A: make an offer. Returns the code to show as a QR and as text.
-  async offer () {
+  //
+  // With no room it is an account login, as before: the scanner becomes this account
+  // on a new device and is enrolled into every room this device owns. With a room it
+  // is an invitation to that room alone — the scanner keeps its own identity and its
+  // other rooms, and nothing but that one room is granted.
+  async offer ({ room: roomKey } = {}) {
     const cfg = this.app.cfg
     const [name] = Object.entries(cfg.participants).find(([, p]) => p.role === 'human') ?? []
-    if (!name) throw new Error('this device has no account to log another device into')
-    if (!cfg.root) throw new Error('only the device that holds the account root can log other devices in')
+    if (!name) throw new Error('this device has no account to invite anyone with')
+    if (!cfg.root) throw new Error('only the device that holds the account root can hand out invitations')
+    let room = null
+    if (roomKey) {
+      room = this.app.find(roomKey)?.room
+      if (!room) throw new Error(`no room called "${roomKey}" on this device`)
+      if (!room.isOwner) throw new Error(`you don't own "${room.cfg.name}", so you can't invite to it`)
+    }
     const root = this.app.root().ref
     const token = randomBytes(12).toString('base64url')
     const space = await this.app.core.space.create({ spaceName: `rkeychat-login:${token.slice(0, 6)}`, permissionRead: true, permissionBroadcast: true })
     const expires = Date.now() + TTL
-    this.offers.set(space.topicHash, { token, space, expires, name, done: false })
+    this.offers.set(space.topicHash, { token, space, expires, name, done: false, room: room?.topic ?? null })
     this.#sweep(space.topicHash).catch(() => {})
     const timer = setTimeout(() => this.#close(space.topicHash), TTL)
     timer.unref?.()
-    return { code: encodeLogin({ r: root, n: name, s: space.sharelink, k: token }), expires, name }
+    const code = room
+      ? encodePair({ a: 'room', r: root, n: name, s: space.sharelink, k: token, rn: room.cfg.name })
+      : encodeLogin({ r: root, n: name, s: space.sharelink, k: token })
+    return { code, expires, name, room: room?.cfg.name ?? null, action: room ? 'room' : 'login' }
   }
 
   // B: claim an offer. Resolves with the rooms joined once A has answered.
   async claim (code) {
-    const { root, name, sharelink, token } = decodeLogin(code)
+    const { action, root, name, sharelink, token, roomName } = decodeAny(code)
     const app = this.app
     const { addParticipant, saveConfig } = await import('./config.js')
-    if (!app.cfg.participants[name]) {
-      // this device takes the account's name; its own root stays unused for a person
+    // Only an account login rewrites who this device is. A room invitation must leave
+    // the scanner's identity and its other rooms exactly as they were — it is being
+    // let into one room, not handed somebody's account.
+    if (action === 'login' && !app.cfg.participants[name]) {
       for (const [n, p] of Object.entries(app.cfg.participants)) if (p.role === 'human') delete app.cfg.participants[n]
       addParticipant(app.cfg, name, { role: 'human' })
       saveConfig(app.cfg)
     }
     const step = (text) => { this.progress = { text, at: Date.now() }; console.log('[login]', text); app.emit('login-progress', this.progress) }
-    step('joining the login space')
+    step(action === 'room' ? `joining the handover space for "${roomName ?? 'a room'}"` : 'joining the login space')
     // a retry, or a relaunch mid-login: reuse what we have rather than leave and rejoin
     let space = (await app.core.space.list()).find((s) => s.sharelink === sharelink)
     if (!space) {
@@ -153,15 +193,20 @@ export class Login {
       const device = content.request?.device?.ref
       const first = !o.done || o.device !== device
       o.done = true; o.device = device
+      // An account login enrolls the device everywhere this machine owns. A room
+      // invitation enrolls it in that one room and grants nothing else — the scanner
+      // never learns the other rooms exist.
       const invites = []
-      for (const { room } of this.app.rooms.values()) {
-        if (!room.isOwner) continue // rooms owned by others: their owner must approve the new device (later: forward the request)
+      const owned = [...this.app.rooms.values()].filter(({ room }) => room.isOwner && (!o.room || room.topic === o.room))
+      if (o.room && !owned.length) console.error('[login] the offered room is gone; nothing granted')
+      for (const { room } of owned) {
         try { await room.approve(content.request); invites.push(encodeInvite(room.cfg)) } catch (err) { console.error(`[login] ${room.cfg.name}:`, err.message) }
       }
       await this.app.core.messages.send(o.space, envelope('login-ok', { invites, name: o.name }))
       if (first) {
-        console.log(`[login] ${content.request?.device?.name ?? 'a device'} logged in to ${invites.length} room(s)`)
-        this.app.emit('login', { device: content.request?.device?.name, rooms: invites.length })
+        const who = content.request?.device?.name ?? 'a device'
+        console.log(o.room ? `[login] ${who} was let into ${invites.length === 1 ? 'the room' : 'no room'}` : `[login] ${who} logged in to ${invites.length} room(s)`)
+        this.app.emit('login', { device: who, rooms: invites.length, room: o.room ?? null })
       }
       // stay a while: the same device may still be asking, or come back after a restart
       clearTimeout(o.linger); o.linger = setTimeout(() => this.#close(topic), 90_000); o.linger.unref?.()

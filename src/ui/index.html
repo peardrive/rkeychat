@@ -1122,9 +1122,15 @@ function renderInvitePage () {
       ${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}
       <p class="note">One click. Their device gets the invite through a room you already share and joins by itself.</p></section>` : ''}
     <section class="section"><h3 class="section-title">Invite someone new</h3>
-      <button class="btn btn-soft btn-block" id="inviteBtn">${icon('plus')}Copy an invite code</button>
-      <div class="code" id="inviteOut" hidden></div>
-      <p class="note">They paste it into the bar at the top of their room list (or run <b>rkeychat room join</b>). You approve their request under Keys.</p></section>`
+      ${c.owner ? `<button class="btn btn-primary btn-block" id="inviteQr">${icon('qr')}Show an invitation to scan</button>
+      <p class="note">They scan it and they are in — no code to send back, nothing to approve afterwards. Good once, for ten minutes, and it grants this room only.</p>` : ''}
+      ${roomOffer ? `<div style="display:grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px);margin:0 auto">${roomOffer.qr}</div>
+      <p class="note" style="text-align:center;margin-top:8px">Scan this in their rKeyChat.</p>
+      <details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(roomOffer.code)}</div></details>` : ''}
+      <details style="margin-top:10px"><summary class="note">Send a code instead (they paste a request back)</summary>
+        <button class="btn btn-soft btn-block" id="inviteBtn" style="margin-top:8px">${icon('plus')}Copy an invite code</button>
+        <div class="code" id="inviteOut" hidden></div>
+        <p class="note">They paste it into the bar at the top of their room list (or run <b>rkeychat room join</b>). You approve their request under Keys.</p></details></section>`
 }
 
 // ---------- panel pages
@@ -1411,6 +1417,7 @@ function renderContactsPage () {
 
 // ---------- profile: you, your devices, the agents you host, approvals
 let loginOffer = null
+let roomOffer = null // a scannable invitation to the room being viewed
 function renderProfilePage () {
   const c = cur()
   const d = S?.device ?? {}
@@ -2218,6 +2225,14 @@ document.addEventListener('click', async (e) => {
   if (d.glossRm) { glossary = await api('POST', '/api/glossary', { from: d.glossRm, remove: true }); renderPanel(); return }
   if (t.id === 'runFor') return control({ action: 'until', hours: Number($('runHours').value) || 8 })
   if (t.id === 'renameBtn') return renameRoom()
+  if (t.id === 'inviteQr') {
+    try {
+      roomOffer = await api('POST', '/api/login/offer', { room: roomArg() })
+      renderPanel()
+      setTimeout(() => { roomOffer = null; if (page === 'invite') renderPanel() }, 10 * 60_000)
+    } catch (err) { toast(err.message, 'bad') }
+    return
+  }
   if (t.id === 'loginOffer') { api('POST', '/api/login/offer').then((o) => { loginOffer = o; renderPanel(); setTimeout(() => { loginOffer = null; if (page === 'profile') renderPanel() }, 10 * 60_000) }).catch((err) => toast(err.message)); return }
   if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^rkl1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
   if (d.expand !== undefined && !e.target.closest('button')) { expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand); renderPanel(); return }
