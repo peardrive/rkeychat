@@ -1006,14 +1006,19 @@ function renderNoRooms () {
   </div>`
   bindRoomForms($('feed'))
 }
+// Both kinds of pairing code arrive here: rkl1. logs this device into an account,
+// rkp1. is an invitation to one room. Say which happened, because they are very
+// different things to have just done.
 async function claimLogin (code) {
   if (!code) return
-  toast('Logging in…', 'hold')
+  const invite = /^rkp1\./.test(String(code).trim())
+  toast(invite ? 'Joining…' : 'Logging in…', 'hold')
   try {
     const r = await api('POST', '/api/login/claim', { code: code.trim() })
-    toast(`Logged in as ${r.name}: ${r.joined.length ? r.joined.join(', ') : 'no rooms yet'}`)
+    const where = r.joined.length ? r.joined.join(', ') : 'no rooms yet'
+    toast(invite ? `You're in: ${where}` : `Logged in as ${r.name}: ${where}`)
     await load()
-  } catch (err) { toast(`Login failed: ${err.message}`, 'bad') }
+  } catch (err) { toast(`${invite ? 'Joining' : 'Login'} failed: ${err.message}`, 'bad') }
 }
 document.addEventListener('submit', (e) => { if (e.target.id === 'heroLogin') { e.preventDefault(); claimLogin(new FormData(e.target).get('code')) } })
 function renderWaiting () {
@@ -2234,7 +2239,7 @@ document.addEventListener('click', async (e) => {
     return
   }
   if (t.id === 'loginOffer') { api('POST', '/api/login/offer').then((o) => { loginOffer = o; renderPanel(); setTimeout(() => { loginOffer = null; if (page === 'profile') renderPanel() }, 10 * 60_000) }).catch((err) => toast(err.message)); return }
-  if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^rkl1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
+  if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^rk[lp]1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
   if (d.expand !== undefined && !e.target.closest('button')) { expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand); renderPanel(); return }
   if (d.startRoom) { api('POST', '/api/rooms', { name: `${me()} & ${d.startRoom}`, members: [d.startRoom] }).then((r) => { toast(`Room with ${d.startRoom} created`); load(r.topic) }).catch((err) => toast(err.message)); return }
   if (t.id === 'leaveBtn') { if (!confirm(t.dataset.confirm)) return }
