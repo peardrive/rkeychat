@@ -24,7 +24,8 @@ rooms
   rkeychat rooms                       list rooms
   rkeychat room create NAME            new room (you own it)
   rkeychat room join INVITE            join someone's room; prints the request to send them
-  rkeychat invite [--room R]           owner: invite code for a room (--qr: scan it instead, no paste-back)
+  rkeychat invite [--room R] [--qr]    owner: invite to a room; --qr is a pearcore link they scan, no paste-back
+  rkeychat invitations [grant|deny|cancel TOPIC]   what is outstanding, and who is waiting on you
   rkeychat approve REQUEST [--room R]  owner: enroll a device + its participants
   rkeychat request [--room R]          print this device's join request again
 
@@ -213,13 +214,31 @@ switch (cmd) {
     // in band — no request to paste back, and nothing but this room is granted.
     if (opt.qr) {
       const o = await api('POST', '/api/login/offer', { room: opt.room })
-      console.log(`Invitation to "${o.room}" — good once, for 10 minutes.\n`)
+      const mins = Math.round((o.expires - Date.now()) / 60000)
+      console.log(`Invitation to "${o.room}" — good once, for ${mins} minutes.\n`)
       console.log(o.code)
-      console.log('\nScan it in the other rKeyChat (or paste it into "Log in a new device").')
-      console.log('They join as themselves; they do not get your account or your other rooms.')
+      console.log('\nA plain pearcore link: scan or paste it in the other rKeyChat.')
+      console.log('They join as themselves — not your account, and none of your other rooms.')
+      console.log(`You will be asked to approve before anything is granted.  rkeychat invitations`)
       break
     }
     console.log((await api('GET', '/api/invite' + q({ room: opt.room }))).invite)
+    break
+  }
+  case 'invitations': {
+    // what is outstanding, and who is at the door
+    const { invitations, asking } = await api('GET', '/api/login/pending')
+    const sub = pos[0]
+    if (sub === 'grant' || sub === 'deny' || sub === 'cancel') {
+      const r = await api('POST', `/api/login/${sub}`, { topic: pos[1] ?? die(`usage: rkeychat invitations ${sub} TOPIC`) })
+      console.log(JSON.stringify(r)); break
+    }
+    if (!invitations.length) { console.log('no invitations outstanding'); break }
+    for (const i of invitations) {
+      const mins = Math.max(0, Math.round((i.expires - Date.now()) / 60000))
+      console.log(`${i.topic.slice(0, 12)}  ${i.room ?? 'account login'}  ${i.used ? 'used' : `${mins} min left`}`)
+    }
+    for (const a of asking) console.log(`  ^ ${a.deviceName} (${a.device.slice(8, 20)}…) is asking — rkeychat invitations grant ${a.topic.slice(0, 12)}`)
     break
   }
   case 'devices': { const r = await api('POST', '/api/rooms/devices', { room: opt.room }); console.log(r.added.length ? `added ${r.added.join(', ')}` : 'all your devices are already in'); break }

@@ -13,51 +13,60 @@
 // holds its link for the few minutes it exists, which is why nothing secret
 // travels through it.
 
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import { digest, verifySig } from 'rkey'
 import { envelope, isOurs } from './proto.js'
 import { joinRequest } from './room.js'
 import { encodeInvite, decodeInvite } from './invite.js'
+import { decodeShareLink } from 'pearcore/src/utils/sharelink.utils.js'
 
-const TTL = 10 * 60_000
+// How long an invitation stays answerable. Long enough to send someone the link and
+// let them get to it; short enough that one you forgot about dies by itself. It is
+// used-once whatever happens, and the host can cancel any of them early.
+const TTL = 60 * 60_000
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(s, 'base64url').toString())
 
-export const encodeLogin = (o) => 'rkl1.' + b64(o)
-
-// A pairing offer with an action. Same mechanism as a login — a throwaway space, a
-// one-time token, a QR — but it says what the scan is *for*. 'login' brings a device
-// into the account; 'room' puts whoever scans into one room and nothing else.
+// An invitation is a **bare pearcore sharelink**. Nothing of ours rides on the wire.
 //
-// Its own prefix, not an extra field on rkl1., because a build that predates this
-// would read an unknown field as absent and log the scanner into the whole account.
-// An old build meets rkp1. and says it doesn't recognise the code, which is right.
-export const encodePair = (o) => 'rkp1.' + b64(o)
-export function decodePair (code) {
+// Everything we used to wrap around it is already there or can wait:
+//   what the scan is for  -> the space NAME, which we choose (invite: / login:)
+//   the one-time secret   -> the NONCE, which is fresh per space and unguessable
+//   who is inviting, the room's name, the account root -> sent in band once they join
+//
+// The nonce is the challenge. pearcore's handover space is public-read, so a peer
+// that learned the topic some other way could knock on it; the requester therefore
+// proves it holds the nonce by signing it. That is not an extra secret — it is the
+// one already in the link, used rather than taken on trust.
+export const INVITE = 'rkeychat-invite'
+export const LOGIN = 'rkeychat-login'
+export const PROOF = 'rkeychat-handover'
+
+export function readLink (code) {
   const s = String(code ?? '').trim()
-  if (!s.startsWith('rkp1.')) throw new Error('that isn\'t a pairing code (they start with rkp1.)')
-  const { a: action, r: root, n: name, s: sharelink, k: token, rn: roomName } = unb64(s.slice(5))
-  if (!action || !root || !sharelink || !token) throw new Error('pairing code is incomplete')
-  if (action !== 'login' && action !== 'room') throw new Error(`unknown pairing action "${action}"`)
-  return { action, root, name, sharelink, token, roomName }
+  const d = s.startsWith('pearcore://') || s.includes('://') ? decodeShareLink(s) : null
+  if (!d) throw new Error("that isn't a pearcore link")
+  const [kind] = String(d.spaceName ?? '').split(':')
+  if (kind !== INVITE && kind !== LOGIN) throw new Error(`that link is for "${d.spaceName}", not an rKeyChat invitation`)
+  return { action: kind === INVITE ? 'room' : 'login', sharelink: s, nonce: d.nonce, spaceName: d.spaceName }
 }
-// Either kind, so one scanner handles both.
-export const isPairing = (code) => /^rk[lp]1\./.test(String(code ?? '').trim())
-export function decodeAny (code) {
-  const s = String(code ?? '').trim()
-  if (s.startsWith('rkp1.')) return decodePair(s)
-  return { action: 'login', ...decodeLogin(s) }
-}
-export function decodeLogin (code) {
-  const s = String(code ?? '').trim()
-  if (!s.startsWith('rkl1.')) throw new Error('that isn\'t a login code (they start with rkl1.)')
-  const { r: root, n: name, s: sharelink, k: token } = unb64(s.slice(5))
-  if (!root || !name || !sharelink || !token) throw new Error('login code is incomplete')
-  return { root, name, sharelink, token }
+export const isInvitation = (code) => { try { readLink(code); return true } catch { return false } }
+
+// Proof that the holder of a key also holds the nonce from the link. Domain-separated
+// and bound to this space, so it cannot be lifted into another one.
+export const proofBody = (topic, nonce) => ({ topic, nonce })
+export const signProof = async (signer, topic, nonce) => bytesToHex(await signer.sign(digest(PROOF, proofBody(topic, nonce))))
+export const checkProof = (ref, sig, topic, nonce) => {
+  try { return verifySig(ref, sig, digest(PROOF, proofBody(topic, nonce))) } catch { return false }
 }
 
 export class Login {
   constructor (app) {
     this.app = app
+    // 'ask' (default) means nothing is granted until the host says so. 'auto' is the
+    // old behaviour, kept only because a scripted test wants it.
+    this.approve = process.env.RKEYCHAT_AUTO_APPROVE === '1' ? 'auto' : 'ask'
     this.offers = new Map() // topic -> { token, space, expires, name, done }
     this.claims = new Map() // topic -> { resolve, reject, timer }
     this.progress = null // what the running claim is doing, for the UI
@@ -77,13 +86,12 @@ export class Login {
     }
   }
 
-  // A: make an offer. Returns the code to show as a QR and as text.
+  // A: make an invitation. Returns a bare pearcore link.
   //
-  // With no room it is an account login, as before: the scanner becomes this account
-  // on a new device and is enrolled into every room this device owns. With a room it
-  // is an invitation to that room alone — the scanner keeps its own identity and its
-  // other rooms, and nothing but that one room is granted.
-  async offer ({ room: roomKey } = {}) {
+  // An hour by default: long enough to send someone the link and let them get to it,
+  // short enough that a forgotten one dies on its own. It is used-once regardless,
+  // and the host can see and cancel every live one (`pending`, `cancel`).
+  async offer ({ room: roomKey, ttl = TTL } = {}) {
     const cfg = this.app.cfg
     const [name] = Object.entries(cfg.participants).find(([, p]) => p.role === 'human') ?? []
     if (!name) throw new Error('this device has no account to invite anyone with')
@@ -94,77 +102,138 @@ export class Login {
       if (!room) throw new Error(`no room called "${roomKey}" on this device`)
       if (!room.isOwner) throw new Error(`you don't own "${room.cfg.name}", so you can't invite to it`)
     }
-    const root = this.app.root().ref
-    const token = randomBytes(12).toString('base64url')
-    const space = await this.app.core.space.create({ spaceName: `rkeychat-login:${token.slice(0, 6)}`, permissionRead: true, permissionBroadcast: true })
-    const expires = Date.now() + TTL
-    this.offers.set(space.topicHash, { token, space, expires, name, done: false, room: room?.topic ?? null })
+    const kind = room ? INVITE : LOGIN
+    const space = await this.app.core.space.create({
+      spaceName: `${kind}:${randomBytes(3).toString('hex')}`,
+      permissionRead: true,
+      permissionBroadcast: true
+    })
+    const expires = Date.now() + ttl
+    this.offers.set(space.topicHash, {
+      space, expires, name, done: false, used: null,
+      nonce: decodeShareLink(space.sharelink).nonce,
+      room: room?.topic ?? null, roomName: room?.cfg.name ?? null
+    })
     this.#sweep(space.topicHash).catch(() => {})
-    const timer = setTimeout(() => this.#close(space.topicHash), TTL)
+    const timer = setTimeout(() => this.#close(space.topicHash), ttl)
     timer.unref?.()
-    const code = room
-      ? encodePair({ a: 'room', r: root, n: name, s: space.sharelink, k: token, rn: room.cfg.name })
-      : encodeLogin({ r: root, n: name, s: space.sharelink, k: token })
-    return { code, expires, name, room: room?.cfg.name ?? null, action: room ? 'room' : 'login' }
+    return { code: space.sharelink, expires, name, room: room?.cfg.name ?? null, action: room ? 'room' : 'login', topic: space.topicHash }
   }
 
-  // B: claim an offer. Resolves with the rooms joined once A has answered.
+  // Everything still open, so the host can see what is outstanding and kill it.
+  pending () {
+    const now = Date.now()
+    return [...this.offers.entries()]
+      .filter(([, o]) => o.expires > now)
+      .map(([topic, o]) => ({ topic, expires: o.expires, room: o.roomName, action: o.room ? 'room' : 'login', used: !!o.used }))
+  }
+
+  // Who is at the door. The host sees the device's name and the start of its key,
+  // which is what can actually be compared against the other screen.
+  asking () {
+    return [...this.offers.entries()]
+      .filter(([, o]) => o.asked && !o.granted && o.expires > Date.now())
+      .map(([topic, o]) => ({ ...o.asked, topic, expires: o.expires }))
+  }
+
+  // Say yes. The waiting device is still knocking every three seconds, so the next
+  // knock goes through and nothing has to be scanned again.
+  grant (topic) {
+    const key = this.#offerKey(topic)
+    const o = this.offers.get(key)
+    if (!o?.asked) throw new Error('nobody is waiting on that invitation')
+    o.granted = true
+    return { granted: o.asked.deviceName, room: o.roomName }
+  }
+
+  async deny (topic) {
+    const key = this.#offerKey(topic)
+    const o = this.offers.get(key)
+    await this.#refuse(o, 'the invitation was declined')
+    await this.#close(key)
+    return { denied: o.asked?.deviceName ?? 'the device' }
+  }
+
+  #offerKey (topic) {
+    if (this.offers.has(topic)) return topic
+    const hit = [...this.offers.keys()].find((t) => t.startsWith(String(topic ?? '')))
+    if (!hit) throw new Error('no such invitation (it may have expired already)')
+    return hit
+  }
+
+  async cancel (topic) {
+    const key = this.#offerKey(topic)
+    await this.#close(key)
+    return { cancelled: key }
+  }
+
+  // B: claim an invitation. Resolves once the host has approved and we are in.
+  //
+  // Two short exchanges inside the handover space: we prove we hold the nonce from
+  // the link, the host tells us what this invitation is and who is offering it, then
+  // we send the signed join request. Nothing is granted until the host says so.
   async claim (code) {
-    const { action, root, name, sharelink, token, roomName } = decodeAny(code)
+    const { action, sharelink, nonce } = readLink(code)
     const app = this.app
-    const { addParticipant, saveConfig } = await import('./config.js')
-    // Only an account login rewrites who this device is. A room invitation must leave
-    // the scanner's identity and its other rooms exactly as they were — it is being
-    // let into one room, not handed somebody's account.
-    if (action === 'login' && !app.cfg.participants[name]) {
-      for (const [n, p] of Object.entries(app.cfg.participants)) if (p.role === 'human') delete app.cfg.participants[n]
-      addParticipant(app.cfg, name, { role: 'human' })
-      saveConfig(app.cfg)
-    }
     const step = (text) => { this.progress = { text, at: Date.now() }; console.log('[login]', text); app.emit('login-progress', this.progress) }
-    step(action === 'room' ? `joining the handover space for "${roomName ?? 'a room'}"` : 'joining the login space')
-    // a retry, or a relaunch mid-login: reuse what we have rather than leave and rejoin
-    let space = (await app.core.space.list()).find((s) => s.sharelink === sharelink)
+    step(action === 'room' ? 'joining the handover space' : 'joining the login space')
+    // a retry, or a relaunch mid-join: reuse what we have rather than leave and rejoin
+    let space = (await app.core.space.list()).find((s2) => s2.sharelink === sharelink)
     if (!space) {
-      try { space = await app.core.space.join(sharelink) } catch (err) { throw new Error(`couldn't join the login space: ${err.message}`) }
+      try { space = await app.core.space.join(sharelink) } catch (err) { throw new Error(`couldn't join the handover space: ${err.message}`) }
     }
     const topic = space.topicHash
     clearTimeout(this.leaving?.get(topic))
     this.#sweep(topic).catch(() => {})
-    step(`looking for the other device (space ${topic.slice(0, 8)}, ${space.sharelink === sharelink ? 'same' : 'DIFFERENT'} link)`)
-    const request = await joinRequest({ root, deviceName: app.cfg.deviceName, device: app.device, participants: app.participants })
+    const proof = await signProof(app.device, topic, nonce)
+
     const answer = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.claims.delete(topic); reject(new Error(`no answer from the other device after 3 minutes (${this.#peers()} peers connected; is it still showing the code?)`)) }, 180_000)
-      this.claims.set(topic, { resolve, reject, timer })
+      const timer = setTimeout(() => { this.claims.delete(topic); reject(new Error(`no answer after 3 minutes (${this.#peers()} peers connected; is the other device still showing it?)`)) }, 180_000)
+      this.claims.set(topic, { resolve, reject, timer, proof, nonce, action, sent: false })
     })
-    // keep sending until answered: the connection may still be forming
-    const send = () => app.core.messages.send(space, envelope('login-req', { token, request })).catch(() => {})
+    // Keep knocking until the host answers: the connection may still be forming, and
+    // the host may not be looking yet. `hi` carries the proof; everything we need to
+    // build the request comes back in `hello`.
+    const hi = () => app.core.messages.send(space, envelope('handover-hi', { proof, device: app.device.ref })).catch(() => {})
     let sent = 0
-    const every = setInterval(() => { send(); if (++sent % 5 === 0) step(`waiting for the other device (${this.#peers(topic)} on the login space of ${this.#peers()} peers, ${sent * 3}s)`) }, 3000); send()
+    const every = setInterval(() => { hi(); if (++sent % 5 === 0) step(`waiting for the other device (${this.#peers(topic)} here of ${this.#peers()} peers, ${sent * 3}s)`) }, 3000)
+    hi()
     try {
-      const { invites } = await answer
-      step(`enrolled; joining ${invites.length} room${invites.length === 1 ? '' : 's'}`)
+      const { invites, name } = await answer
+      step(`approved; joining ${invites.length} room${invites.length === 1 ? '' : 's'}`)
       const joined = []
-      for (const code of invites) {
+      for (const c of invites) {
         try {
-          const inv = decodeInvite(code)
+          const inv = decodeInvite(c)
           if (app.rooms.has(inv.topic)) continue
-          await app.joinRoom(code)
+          await app.joinRoom(c)
           joined.push(inv.name)
         } catch (err) { console.error('[login] join', err.message) }
       }
-      return { name, joined }
+      return { name, joined, action }
     } catch (err) {
       step(`failed: ${err.message}`)
       throw err
     } finally {
       clearInterval(every)
+      this.claims.delete(topic)
       this.progress = null
-      // keep the login space a little longer: a rescan of the same code reuses it
-      this.leaving ??= new Map()
-      const t = setTimeout(() => { this.leaving.delete(topic); app.core.space.leave(space).catch(() => {}) }, 120_000)
-      t.unref?.(); this.leaving.set(topic, t)
+      // The handover space has done its job. Leave promptly — the conversation
+      // continues inside the real room now, and this link is finished with.
+      app.core.space.leave(space).catch(() => {})
     }
+  }
+
+  // Take the account's name only for a login. A room invitation must leave the
+  // scanner's identity and its other rooms exactly as they were.
+  async #becomeIfLogin (action, name) {
+    if (action !== 'login' || !name) return
+    const app = this.app
+    if (app.cfg.participants[name]) return
+    const { addParticipant, saveConfig } = await import('./config.js')
+    for (const [n, p] of Object.entries(app.cfg.participants)) if (p.role === 'human') delete app.cfg.participants[n]
+    addParticipant(app.cfg, name, { role: 'human' })
+    saveConfig(app.cfg)
   }
 
   // peers we hold a connection to; with a topic, only those that announced that space
@@ -176,47 +245,103 @@ export class Login {
 
   async #onMessage ({ message, content }) {
     const topic = message.topic
-    if (!isOurs(content)) {
-      if (this.claims.has(topic) || this.offers.has(topic)) console.log(`[login] odd message on login space ${topic.slice(0, 8)}: ${typeof content} ${String(content?.type ?? content).slice(0, 40)}`)
-      return
-    }
-    if (content.type === 'login-req') {
-      const o = this.offers.get(topic)
-      console.log(`[login] request from ${content.request?.device?.name ?? '?'}: ${o ? 'offer open' : 'no such offer'}`)
-      if (!o) return
-      const given = Buffer.from(String(content.token ?? '')); const want = Buffer.from(o.token)
-      if (given.length !== want.length || !timingSafeEqual(given, want)) return
-      if (Date.now() > o.expires) return this.#close(topic)
-      // The new device repeats its request every few seconds until it hears back, so a
-      // lost answer (or an app killed mid-login and relaunched) just means we answer again.
-      // approve() skips keys that are already in, so repeating it changes nothing.
-      const device = content.request?.device?.ref
-      const first = !o.done || o.device !== device
-      o.done = true; o.device = device
-      // An account login enrolls the device everywhere this machine owns. A room
-      // invitation enrolls it in that one room and grants nothing else — the scanner
-      // never learns the other rooms exist.
+    if (!isOurs(content)) return
+    const o = this.offers.get(topic)
+    const c = this.claims.get(topic)
+
+    // ---- host side
+    if (o && (content.type === 'handover-hi' || content.type === 'login-req')) {
+      const device = String(content.device ?? content.request?.device?.ref ?? '')
+      // The nonce from the link, signed by the asking key. A peer that found the
+      // topic some other way cannot produce this, because it never saw the link.
+      if (!device || !checkProof(device, String(content.proof ?? ''), topic, o.nonce)) {
+        console.log(`[login] ${topic.slice(0, 8)}: knock without the link's nonce — ignored`)
+        return
+      }
+      if (Date.now() > o.expires) return this.#refuse(o, 'that invitation has expired')
+      // Used once. The device that used it may still be retrying (a lost answer, an
+      // app restarted mid-join), so it is answered again; anyone else is told plainly
+      // that the invitation is spent rather than left hanging.
+      if (o.used && o.used !== device) return this.#refuse(o, 'that invitation has already been used')
+
+      if (content.type === 'handover-hi') {
+        await this.app.core.messages.send(o.space, envelope('handover-hello', {
+          action: o.room ? 'room' : 'login',
+          root: this.app.root().ref,
+          name: o.name,
+          roomName: o.roomName
+        }))
+        return
+      }
+
+      // The host decides. A link is a bearer credential — whoever photographed the
+      // screen holds it — so the only thing tying an invitation to the person it was
+      // meant for is someone looking at this and saying yes.
+      if (this.approve !== 'auto' && !o.granted) {
+        if (!o.asked) {
+          o.asked = { device, deviceName: content.request?.device?.name ?? 'a device', room: o.roomName, action: o.room ? 'room' : 'login', at: Date.now() }
+          this.app.emit('login-ask', { ...o.asked, topic })
+          console.log(`[login] ${o.asked.deviceName} (${device.slice(8, 20)}…) wants ${o.roomName ? `into "${o.roomName}"` : 'to log in'} — waiting for you`)
+        }
+        return // nothing is granted until the host grants it
+      }
       const invites = []
       const owned = [...this.app.rooms.values()].filter(({ room }) => room.isOwner && (!o.room || room.topic === o.room))
-      if (o.room && !owned.length) console.error('[login] the offered room is gone; nothing granted')
+      if (o.room && !owned.length) return this.#refuse(o, 'that room is gone')
       for (const { room } of owned) {
         try { await room.approve(content.request); invites.push(encodeInvite(room.cfg)) } catch (err) { console.error(`[login] ${room.cfg.name}:`, err.message) }
       }
+      const first = !o.used
+      o.used = device
+      o.done = true
       await this.app.core.messages.send(o.space, envelope('login-ok', { invites, name: o.name }))
       if (first) {
         const who = content.request?.device?.name ?? 'a device'
-        console.log(o.room ? `[login] ${who} was let into ${invites.length === 1 ? 'the room' : 'no room'}` : `[login] ${who} logged in to ${invites.length} room(s)`)
-        this.app.emit('login', { device: who, rooms: invites.length, room: o.room ?? null })
+        console.log(o.room ? `[login] ${who} was let into ${o.roomName}` : `[login] ${who} logged in to ${invites.length} room(s)`)
+        this.app.emit('login', { device: who, rooms: invites.length, room: o.roomName ?? null })
       }
-      // stay a while: the same device may still be asking, or come back after a restart
-      clearTimeout(o.linger); o.linger = setTimeout(() => this.#close(topic), 90_000); o.linger.unref?.()
+      // A short grace for the same device to re-ask, then the space is gone for good.
+      clearTimeout(o.linger)
+      o.linger = setTimeout(() => this.#close(topic), 30_000)
+      o.linger.unref?.()
+      return
+    }
+
+    // ---- joining side
+    if (!c) return
+    if (content.type === 'handover-hello') {
+      if (c.sent) return
+      c.sent = true
+      await this.#becomeIfLogin(c.action, content.name)
+      const request = await joinRequest({
+        root: content.root,
+        deviceName: this.app.cfg.deviceName,
+        device: this.app.device,
+        participants: this.app.participants
+      })
+      this.app.core.messages.send(this.offers.get(topic)?.space ?? message.space ?? await this.#spaceFor(topic),
+        envelope('login-req', { proof: c.proof, device: this.app.device.ref, request })).catch(() => {})
+      return
+    }
+    if (content.type === 'login-refused') {
+      clearTimeout(c.timer); this.claims.delete(topic)
+      c.reject(new Error(String(content.reason ?? 'the other device refused')))
+      return
     }
     if (content.type === 'login-ok') {
-      const c = this.claims.get(topic)
-      if (!c) { console.log(`[login] answer for ${topic.slice(0, 8)} but waiting on ${[...this.claims.keys()].map((k) => k.slice(0, 8)).join(',') || 'nothing'}`); return }
       clearTimeout(c.timer); this.claims.delete(topic)
-      c.resolve({ invites: content.invites ?? [] })
+      c.resolve({ invites: content.invites ?? [], name: content.name })
     }
+  }
+
+  async #spaceFor (topic) {
+    return (await this.app.core.space.list()).find((s) => s.topicHash === topic)
+  }
+
+  // Say no out loud. Silence looks identical to "still connecting", and leaves the
+  // other side knocking for three minutes before giving up.
+  async #refuse (o, reason) {
+    try { await this.app.core.messages.send(o.space, envelope('login-refused', { reason })) } catch {}
   }
 
   async #close (topic) {
@@ -225,10 +350,6 @@ export class Login {
     this.offers.delete(topic)
     clearTimeout(o.linger)
     try { await this.app.core.space.leave(o.space) } catch {}
-  }
-
-  pending () {
-    return [...this.offers.values()].filter((o) => !o.done && o.expires > Date.now()).map((o) => ({ expires: o.expires }))
   }
 
   claiming () {

@@ -123,6 +123,7 @@ export function serve ({ app }) {
   for (const r of app.rooms.values()) wire(r)
   app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
   app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
+  app.on('login-ask', (ask) => push('login-ask', ask))
   app.on('login-progress', (p) => push('login-progress', p))
   app.on('login', (p) => push('login', p))
 
@@ -485,6 +486,10 @@ export function serve ({ app }) {
       const o = await app.login.offer({ room })
       return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 2, errorCorrectionLevel: 'L', color: { dark: '#000000', light: '#ffffff' } }) }
     },
+    'GET /api/login/pending': () => ({ invitations: app.login.pending(), asking: app.login.asking() }),
+    'POST /api/login/grant': async (req) => { const { topic } = await body(req); return app.login.grant(topic) },
+    'POST /api/login/deny': async (req) => { const { topic } = await body(req); return app.login.deny(topic) },
+    'POST /api/login/cancel': async (req) => { const { topic } = await body(req); return app.login.cancel(topic) },
     'POST /api/login/claim': async (req) => {
       const { code } = await body(req)
       need(code, 'paste or scan a code')
