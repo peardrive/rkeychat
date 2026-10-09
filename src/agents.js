@@ -10,6 +10,11 @@
 import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
 
+// A turn already handed to a listener isn't handed over again for this long: one
+// turn per process means a listener reconnects immediately, and it must not be
+// given the same work twice. Past it, we assume whoever took it is gone.
+const REOFFER = 2 * 60_000
+
 const PASS = /^\s*PASS\s*$/i
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
 
@@ -114,7 +119,28 @@ export class AgentRunner {
   }
 
   poke () {
-    if (this.busy || !this.due()) return
+    if (!this.due()) return
+    // Busy means a turn is already out. An agent talking to itself can wait — but a
+    // person cannot be made to. If a human has said something the outstanding turn
+    // doesn't cover, supersede it: the turn is re-rendered (now carrying both) and
+    // pushed again, so the agent answers once rather than twice. Without this, a
+    // follow-up sits unseen until the agent happens to finish.
+    const now = Date.now()
+    const pending = this.bridge.kind === 'stream' ? this.room.triggersFor(this.name) : []
+    const fresh = pending.filter((t) => !this.offered?.includes(t.id))
+    if (this.busy) {
+      if (this.bridge.kind !== 'stream' || !this.listeners.size) return
+      // Only a person preempts. An agent answering an agent can wait its turn.
+      if (!fresh.some((t) => t.human)) return
+      this.room.setAgentState(this.name, 'idle')
+      this.busy = false
+    } else if (this.bridge.kind === 'stream' && !fresh.length && this.offered?.length && now - (this.offeredAt ?? 0) < REOFFER) {
+      // This exact turn was handed over moments ago and is being worked on. A
+      // listener that reconnects straight away (one turn per process, so it does)
+      // must not be given it again, or it loops. After REOFFER we assume whoever
+      // took it is gone and hand it to the next listener.
+      return
+    }
     if (this.bridge.kind === 'hermes') this.#runHermes().catch((err) => this.#fail(err))
     if (this.bridge.kind === 'stream') this.#offer()
   }
@@ -137,6 +163,7 @@ export class AgentRunner {
     this.busy = true
     this.room.setAgentState(this.name, 'thinking')
     this.offered = turn.triggers.map((t) => t.id)
+    this.offeredAt = Date.now()
     this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`, { claim: this.offered }).catch(() => {})
     for (const fn of this.listeners) fn({ name: this.name, re: this.offered, prompt: turn.text })
     // if nobody answers within the window, free the slot so newer turns flow
@@ -157,7 +184,7 @@ export class AgentRunner {
       // back now, not in fifteen minutes: until the slot is free nothing newer is
       // offered, so the agent looks alive and ignores everything said to it. The
       // triggers are still unanswered in the log, so the next listener gets them.
-      if (this.busy) { clearTimeout(this.offerTimer); this.busy = false; this.offered = null }
+      if (this.busy) { clearTimeout(this.offerTimer); this.busy = false } // `offered` stays: it suppresses an instant re-offer
     }
   }
 
@@ -165,6 +192,7 @@ export class AgentRunner {
   answered ({ passed = false } = {}) {
     if (passed && this.offered) this.room.markPassed(this.name, this.offered)
     clearTimeout(this.offerTimer)
+    this.offered = null; this.offeredAt = 0
     this.busy = false
     this.room.setAgentState(this.name, 'idle')
     setImmediate(() => this.poke())
