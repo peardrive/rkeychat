@@ -470,6 +470,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .hero .or { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); margin-top: 8px; }
 .hero .code { width: 100%; text-align: left; }
 
+/* someone is asking to be let in. Deliberately in the way: granting is the whole
+   security of an invitation, so it should never happen while you aren't looking. */
+.ask { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 60; width: min(440px, calc(100% - 24px));
+  padding: 14px 16px; border-radius: 16px; background: linear-gradient(180deg, #23252d, #191a20);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 18px 50px rgba(0,0,0,0.6); animation: tip-in 0.16s var(--ease); }
+.ask h4 { font-size: 14px; font-weight: 650; margin-bottom: 4px; }
+.ask .ask-body { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.ask .ask-key { font-family: Menlo, monospace; font-size: 12px; color: var(--text-1); }
+.ask .ask-row { display: flex; gap: 8px; margin-top: 12px; }
+.ask .ask-row .btn { flex: 1; }
 .toast { position: fixed; left: 50%; bottom: 96px; z-index: 50; max-width: min(520px, calc(100% - 32px)); padding: 10px 16px; border-radius: 12px; text-align: center;
   background: rgba(40, 42, 51, 0.97); border: 1px solid var(--line-strong); box-shadow: var(--shadow-float); color: var(--text);
   transform: translate(-50%, 12px); opacity: 0; pointer-events: none; transition: transform 0.3s var(--ease), opacity 0.25s; }
@@ -606,6 +616,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 </footer>
 
 <div class="toast" id="toast"></div>
+<div class="ask" id="loginAsk" hidden></div>
 
 <script>
 const $ = (id) => document.getElementById(id)
@@ -1011,14 +1022,13 @@ function renderNoRooms () {
 // different things to have just done.
 async function claimLogin (code) {
   if (!code) return
-  const invite = /^rkp1\./.test(String(code).trim())
-  toast(invite ? 'Joining…' : 'Logging in…', 'hold')
+  toast('Asking to join — the other device has to say yes…', 'hold')
   try {
     const r = await api('POST', '/api/login/claim', { code: code.trim() })
     const where = r.joined.length ? r.joined.join(', ') : 'no rooms yet'
-    toast(invite ? `You're in: ${where}` : `Logged in as ${r.name}: ${where}`)
+    toast(r.action === 'room' ? `You're in: ${where}` : `Logged in as ${r.name}: ${where}`)
     await load()
-  } catch (err) { toast(`${invite ? 'Joining' : 'Login'} failed: ${err.message}`, 'bad') }
+  } catch (err) { toast(`Didn't get in: ${err.message}`, 'bad') }
 }
 document.addEventListener('submit', (e) => { if (e.target.id === 'heroLogin') { e.preventDefault(); claimLogin(new FormData(e.target).get('code')) } })
 function renderWaiting () {
@@ -1128,7 +1138,7 @@ function renderInvitePage () {
       <p class="note">One click. Their device gets the invite through a room you already share and joins by itself.</p></section>` : ''}
     <section class="section"><h3 class="section-title">Invite someone new</h3>
       ${c.owner ? `<button class="btn btn-primary btn-block" id="inviteQr">${icon('qr')}Show an invitation to scan</button>
-      <p class="note">They scan it and they are in — no code to send back, nothing to approve afterwards. Good once, for ten minutes, and it grants this room only.</p>` : ''}
+      <p class="note">A plain pearcore link. They scan it, you get asked to approve, and they are in — no code to send back. Good once, for an hour, and it grants this room only.</p>` : ''}
       ${roomOffer ? `<div style="display:grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px);margin:0 auto">${roomOffer.qr}</div>
       <p class="note" style="text-align:center;margin-top:8px">Scan this in their rKeyChat.</p>
       <details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(roomOffer.code)}</div></details>` : ''}
@@ -1576,6 +1586,20 @@ es.addEventListener('record', (e) => {
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
   c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'room') renderPanel()
 })
+// Nothing is granted until this is answered. The key fragment is here because it is
+// the one thing that can be checked against the other person's screen.
+let asking = null
+function renderAsk () {
+  const el = $('loginAsk'); if (!el) return
+  el.hidden = !asking
+  if (!asking) return
+  el.innerHTML = `<h4>Let ${esc(asking.deviceName)} in?</h4>
+    <div class="ask-body">${asking.room ? `They would join <b>${esc(asking.room)}</b>, and nothing else.` : 'They would log in as you on a new device.'}<br>
+      Their key starts <span class="ask-key">${esc(asking.device.replace(/^\w+:/, '').slice(0, 12))}</span> — check it matches their screen.</div>
+    <div class="ask-row"><button class="btn btn-primary btn-sm" data-ask-grant="${esc(asking.topic)}">Let them in</button>
+      <button class="btn btn-soft btn-sm is-stop" data-ask-deny="${esc(asking.topic)}">No</button></div>`
+}
+es.addEventListener('login-ask', (e) => { asking = JSON.parse(e.data); renderAsk(); toast(`${asking.deviceName} is asking to join`, 'hold') })
 es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'room') renderPanel() } })
 es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
 es.addEventListener('activity', (e) => {
@@ -2230,6 +2254,8 @@ document.addEventListener('click', async (e) => {
   if (d.glossRm) { glossary = await api('POST', '/api/glossary', { from: d.glossRm, remove: true }); renderPanel(); return }
   if (t.id === 'runFor') return control({ action: 'until', hours: Number($('runHours').value) || 8 })
   if (t.id === 'renameBtn') return renameRoom()
+  if (d.askGrant) { const r = await api('POST', '/api/login/grant', { topic: d.askGrant }); asking = null; renderAsk(); toast(`Letting ${r.granted} in…`); return }
+  if (d.askDeny) { await api('POST', '/api/login/deny', { topic: d.askDeny }); asking = null; renderAsk(); toast('Declined'); return }
   if (t.id === 'inviteQr') {
     try {
       roomOffer = await api('POST', '/api/login/offer', { room: roomArg() })
@@ -2239,7 +2265,7 @@ document.addEventListener('click', async (e) => {
     return
   }
   if (t.id === 'loginOffer') { api('POST', '/api/login/offer').then((o) => { loginOffer = o; renderPanel(); setTimeout(() => { loginOffer = null; if (page === 'profile') renderPanel() }, 10 * 60_000) }).catch((err) => toast(err.message)); return }
-  if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^rk[lp]1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
+  if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^pearcore:\/\//.test(text) || /^rk[lp]1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
   if (d.expand !== undefined && !e.target.closest('button')) { expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand); renderPanel(); return }
   if (d.startRoom) { api('POST', '/api/rooms', { name: `${me()} & ${d.startRoom}`, members: [d.startRoom] }).then((r) => { toast(`Room with ${d.startRoom} created`); load(r.topic) }).catch((err) => toast(err.message)); return }
   if (t.id === 'leaveBtn') { if (!confirm(t.dataset.confirm)) return }

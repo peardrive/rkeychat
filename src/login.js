@@ -189,7 +189,7 @@ export class Login {
 
     const answer = new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.claims.delete(topic); reject(new Error(`no answer after 3 minutes (${this.#peers()} peers connected; is the other device still showing it?)`)) }, 180_000)
-      this.claims.set(topic, { resolve, reject, timer, proof, nonce, action, sent: false })
+      this.claims.set(topic, { resolve, reject, timer, proof, nonce, action, sent: false, host: decodeShareLink(sharelink).publicKey })
     })
     // Keep knocking until the host answers: the connection may still be forming, and
     // the host may not be looking yet. `hi` carries the proof; everything we need to
@@ -311,6 +311,12 @@ export class Login {
     if (!c) return
     if (content.type === 'handover-hello') {
       if (c.sent) return
+      // The link names the key that made this space. Anyone else on it offering to be
+      // the host is trying to get us to consent to *their* root, so they are ignored.
+      if (String(message.publicKey ?? '').toLowerCase() !== String(c.host ?? '').toLowerCase()) {
+        console.log(`[login] hello from ${String(message.publicKey).slice(0, 8)} but the link says ${String(c.host).slice(0, 8)} — ignored`)
+        return
+      }
       c.sent = true
       await this.#becomeIfLogin(c.action, content.name)
       const request = await joinRequest({
