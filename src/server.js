@@ -410,9 +410,15 @@ export function serve ({ app }) {
       return room.activityFor(url.searchParams.get('as'), 5000).filter((r) => r.ts > since && r.ts <= until).slice(-(Number(url.searchParams.get('limit')) || 400))
     },
     'POST /api/redact': async (req) => {
-      const { room: key, target, reason } = await body(req)
+      const { room: key, target, reason, blockFiles } = await body(req)
       const { room } = pick(key)
-      return room.redact(localHuman(), target, reason)
+      return room.redact(localHuman(), target, reason, { blockFiles })
+    },
+    'POST /api/unblock': async (req) => {
+      const { room: key, hash } = await body(req)
+      const { room } = pick(key)
+      need(hash, 'which file? pass its hash')
+      return room.unblockFile(localHuman(), hash)
     },
     'POST /api/react': async (req) => {
       const { room: key, as = localHuman(), target, emoji, on = true } = await body(req)

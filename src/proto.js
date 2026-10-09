@@ -108,8 +108,14 @@ export async function makeReaction (signer, { room, target, emoji, on = true, ts
 // Moderation: an admin removes a message from the room. Its attachments'
 // hashes are blocked here too, so they can't be served or re-posted in this
 // room. (Copies people already downloaded stay theirs.)
-export async function makeRedaction (signer, { room, target, hashes = [], reason, ts = Date.now() }) {
-  return signBody('rkeychat-redact', signer, { kind: 'redact', id: newId(), room, ts, target: String(target), hashes, reason })
+// `hashes` blocks those files in this room. `unblock` lifts a block applied earlier
+// — banning a file by accident has to be recoverable, or it is a footgun. An old
+// peer that doesn't know `unblock` simply keeps the block, which fails closed.
+export async function makeRedaction (signer, { room, target, hashes = [], unblock, reason, ts = Date.now() }) {
+  return signBody('rkeychat-redact', signer, {
+    kind: 'redact', id: newId(), room, ts, target: String(target), hashes, reason,
+    unblock: Array.isArray(unblock) && unblock.length ? unblock.map(String).slice(0, 64) : undefined
+  })
 }
 
 // An invite delivered through a room both sides already share: "your device

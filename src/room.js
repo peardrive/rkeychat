@@ -241,8 +241,9 @@ export class Room extends EventEmitter {
     const ids = new Map(); const hashes = new Set()
     for (const r of this.store.ordered) {
       if (r.kind !== 'redact') continue
-      ids.set(r.target, r)
+      if (r.target) ids.set(r.target, r)
       for (const h of r.hashes ?? []) hashes.add(h)
+      for (const h of r.unblock ?? []) hashes.delete(h) // applied in order, so a later lift wins
     }
     return { ids, hashes }
   }
@@ -797,16 +798,34 @@ export class Room extends EventEmitter {
     return { participant: e.op, device: d }
   }
 
-  async redact (name, target, reason) {
+  // Taking back something you posted is not the same act as banning a file from the
+  // room. By default only the second blocks the attachment: withdrawing your own
+  // message leaves its file shareable, because the usual reason is that the message
+  // was wrong, not that the file is. `blockFiles` forces either way.
+  async redact (name, target, reason, { blockFiles } = {}) {
     const p = this.local[name]
     if (!p || p.role !== 'human') throw new Error('only a person can remove messages')
     const msg = this.store.get(target)
     if (!msg || msg.kind !== 'msg') throw new Error('no such message')
-    const hashes = (msg.att ?? []).map((a) => a.hash)
+    const mine = msg.author === p.signer.ref
+    const block = blockFiles ?? !mine
+    const hashes = block ? (msg.att ?? []).map((a) => a.hash) : []
     const rec = await makeRedaction(p.signer, { room: this.topic, target, hashes, reason })
     if (!this.#ingest(rec)) throw new Error('only the room\'s admins can remove messages')
     await this.#send('rec', { rec })
     return rec
+  }
+
+  // Lift a block put on a file earlier. Admin-only, like the block itself.
+  async unblockFile (name, hash) {
+    const p = this.local[name]
+    if (!p || p.role !== 'human') throw new Error('only a person can unblock a file')
+    const full = [...this.blocked().hashes].find((h) => h === hash || h.startsWith(hash))
+    if (!full) throw new Error('that file is not blocked here')
+    const rec = await makeRedaction(p.signer, { room: this.topic, target: '', unblock: [full], reason: 'unblock' })
+    if (!this.#ingest(rec)) throw new Error('only the room\'s admins can unblock a file')
+    await this.#send('rec', { rec })
+    return { unblocked: full }
   }
 
   async react (name, target, emoji, on = true) {
