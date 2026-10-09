@@ -137,7 +137,38 @@ Each of these can kill or reshape the plan, so they go first, in this order:
 1 and 2 are a day. If they come back badly, we've saved ourselves a month and the answer is "use Apple's export
 for the bulk, build the incremental sync only".
 
-## 8. Open questions for the room
+## 8. Security constraints — settled
+
+From the lab, 2026-10-09, checked against pearcore's source. Kimi is writing the full threat model; these are the
+constraints the app has to be built inside, and they are not negotiable later.
+
+**pearcore's security model is access control, not encryption.** The space `secret` encrypts *messages*, and only
+when `spaceShouldEncryptMessages(space)` holds (`!permissionRead && readWhitelist.length > 0 && a valid secret`,
+`policy.utils.js`). **Nothing on the file path is encrypted.** Photos are protected by hyperdht's Noise transport
+between peers, and by `publicKeyIsAllowedToRead` gating every file request (`files.protocol.js`, five call
+sites — correctly enforced). So:
+
+- there is **no barrier beyond admission, and none at rest**: whoever is on the readWhitelist gets every byte,
+  and the files are plaintext on every peer's disk
+- there are **no per-file keys**, so one photo cannot be shared without granting read on the whole space
+
+Therefore:
+
+1. **readWhitelist is Guy's own device keys, and nothing else, ever.** No public flag, no share button, no agent
+   admitted — including the agents in this lab.
+2. **Sharing a photo means creating a new space containing that photo.** Not a UI preference; the only thing the
+   crypto allows.
+3. **Boring space name.** The sharelink is `base58(brotli({name, pk, nonce}))` with no encryption
+   (`sharelink.utils.js`), so anyone holding a link holds the name.
+4. **Local retention on the phone.** Never `deleteAssets` (§3). The library stays; PearDrive holds a *replica*.
+5. **Full-disk encryption on the Mac and Linux boxes.** Not ours to build, but the plan says it rather than
+   letting pearcore seem to have covered it.
+
+Known and accepted: joining announces on the DHT, so a nightly backup broadcasts a presence pattern to anyone
+sitting on that topic (content stays private; the schedule doesn't). And access patterns are visible to other
+members — moot while the only members are Guy's devices, and the reason rule 1 has to hold.
+
+## 9. Open questions for the room
 
 - **Is this ever going to the App Store?** It decides whether silent-audio keepalive is on the table, and it
   changes how careful we have to be about PhotoKit usage strings and entitlements.
