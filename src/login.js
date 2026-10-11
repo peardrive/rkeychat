@@ -226,13 +226,31 @@ export class Login {
 
   // Take the account's name only for a login. A room invitation must leave the
   // scanner's identity and its other rooms exactly as they were.
+  //
+  // This used to delete the device's human participant outright and mint a fresh
+  // key in its place — silently, with no record anywhere. A device that already
+  // had rooms would quietly stop being the key those rooms knew, which looks from
+  // the outside like keys re-minting themselves. Nothing here discards key
+  // material any more: an existing person is kept as `previous` (which the signer
+  // code already understands and keeps honouring), and a device that is already
+  // somebody with rooms refuses rather than overwriting them.
   async #becomeIfLogin (action, name) {
     if (action !== 'login' || !name) return
     const app = this.app
     if (app.cfg.participants[name]) return
     const { addParticipant, saveConfig } = await import('./config.js')
-    for (const [n, p] of Object.entries(app.cfg.participants)) if (p.role === 'human') delete app.cfg.participants[n]
-    addParticipant(app.cfg, name, { role: 'human' })
+    const humans = Object.entries(app.cfg.participants).filter(([, p]) => p.role === 'human')
+    if (humans.length && app.cfg.rooms.length) {
+      throw new Error(`this device is already @${humans[0][0]} and is in ${app.cfg.rooms.length} room(s). Logging in as "${name}" would replace that identity — start from a fresh data directory, or remove the rooms first if that is really what you want.`)
+    }
+    for (const [n, p] of humans) {
+      console.log(`[login] this device was @${n}; keeping that key as previous so its old signatures stay readable`)
+      delete app.cfg.participants[n]
+      app.cfg.replaced ??= []
+      app.cfg.replaced.push({ name: n, suite: p.suite, secretKey: p.secretKey, ref: p.ref, at: Date.now() })
+    }
+    const made = addParticipant(app.cfg, name, { role: 'human' })
+    console.log(`[login] this device is now @${name} (${made.ref.slice(0, 20)}…)`)
     saveConfig(app.cfg)
   }
 
