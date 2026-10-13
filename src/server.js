@@ -18,7 +18,8 @@ import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 
-const UI = join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
+// A bundled app has no src/ui on disk: it writes the UI out at boot and points here.
+const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
