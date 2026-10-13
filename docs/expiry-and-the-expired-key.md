@@ -206,3 +206,62 @@ That turns the 421-entry cold start from 1.3 s into about 0.05 s, and it is the 
 change already written once. It doesn't rescue design A — 1.1 million entries is still two minutes — which is
 rather the point: **the architecture buys three orders of magnitude, the crypto buys one.** Do the architecture
 first.
+
+---
+
+## 8. Could a Fedimint-style federation give us the clock?
+
+*Guy, 2026-10-13: "they do something to establish a concrete ordering of transactions with ecash — is there a
+creative way to use that?"*
+
+**The ordering idea transfers. The e-cash idea does not. And there is a cheaper version of the same benefit that
+costs us nothing we care about.** (Fedimint specifics below are from memory — worth checking before citing.)
+
+### What they actually do
+
+A Fedimint federation is a **known set of guardians** running Byzantine-fault-tolerant consensus to produce one
+totally-ordered log. E-cash notes are valid when signed by a **threshold** of guardians, so no single guardian can
+mint, and double-spends are settled by position in that log. The privacy comes from **blind signatures**: the mint
+signs a note without learning whose it is.
+
+### The part worth stealing
+
+Our weakest link is the one §5 named: **timestamps are chosen by the signer.** Every time-based rule we have —
+expiry, gaps, vouches, the 90-day cadence — rests on that being honest.
+
+A consensus log fixes exactly that, and not by consensus about *who you are*: by giving every item a position a
+quorum agrees on. Anchor key ops into such a log and "this revocation came before that signature" stops being an
+assertion and becomes a fact other people can check. That is the *timestamp anchoring* line in `SPEC.md` under
+*Not in v0*, and Fedimint is a working shape for it that isn't Bitcoin — faster, cheaper, and you pick the
+guardians.
+
+Two other echoes: guardians sign by **threshold**, which is the FROST conclusion from
+`rotation-delegation-and-frost.md` arriving from another direction; and they have to handle a **guardian leaving**,
+which is our warm-signer rotation problem with different words. Both worth reading for prior art.
+
+### Why we should not adopt the federation itself
+
+1. **It needs a live quorum.** The premise here is a cold root and agents that sign alone, offline, at 3am.
+   Something you must reach before you can act is the opposite of that.
+2. **It introduces people who can refuse.** Guardians can censor — decline to include your op — and a colluding
+   threshold can do worse. Today nobody's permission is required to revoke a key, and that is worth more than
+   tidy ordering.
+3. **Blind signatures are backwards for us.** E-cash's whole value is that the mint cannot link a note to a
+   person. We need the opposite: statements that are attributable and auditable forever. Blinding would destroy
+   the property we are building on.
+
+### The cheaper version
+
+Most of the benefit, none of the dependency: **witnesses you already have.**
+
+The members of a room are online, hold keys we already trust, and see records arrive. Have them countersign what
+they saw and when — `{recordId, seenAt, by}` — and "signed before T" becomes something several independent parties
+attest to. No federation, no quorum to reach, nobody who can censor you, and it degrades gracefully: with no
+witnesses you are exactly where you are today.
+
+It is weaker than BFT consensus — witnesses can lie, and colluding witnesses can lie together — but the trust is
+*already there* (these are people in your room), the failure mode is "no better than now" rather than "stuck", and
+it needs no new infrastructure. Strengthen it later by anchoring the witness log itself, if it ever matters enough.
+
+**Order: arrival time recorded (§6.6), then witness countersignatures, then external anchoring if still needed.**
+A federation is the heaviest tool for the job and the only one that can tell you no.
