@@ -14,10 +14,12 @@ import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
 import { MAX_BLOB } from './room.js'
+import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 
-const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html') // bundled apps write it out and set RKEYCHAT_UI
+// A bundled app has no src/ui on disk: it writes the UI out at boot and points here.
+const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
@@ -67,6 +69,8 @@ export function roomSnapshot (room) {
     reactions: room.reactions(),
     style: room.style(),
     charter: room.charter(),
+    spend: room.spend(),
+    overBudget: Object.fromEntries(room.participantsList().filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
     connections: room.connections(),
     log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
   }
@@ -120,6 +124,7 @@ export function serve ({ app }) {
   for (const r of app.rooms.values()) wire(r)
   app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
   app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
+  app.on('login-ask', (ask) => push('login-ask', ask))
   app.on('login-progress', (p) => push('login-progress', p))
   app.on('login', (p) => push('login', p))
 
@@ -133,9 +138,12 @@ export function serve ({ app }) {
   const nameOrDie = (as) => { need(as, `say who's posting: --as NAME (on this device: ${Object.keys(cfg.participants).join(', ') || 'nobody yet'})`); return as }
   // an agent replying without naming a room answers wherever it was given a turn
   const roomForAgent = (as, key) => key ? pick(key) : ([...app.rooms.values()].find((r) => r.runners.get(as)?.busy) ?? pick())
+  const notes = new DebugNotes(app)
 
   const routes = {
-    'GET /': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(readFileSync(UI)) },
+    // no-store: the page is read from disk every request, so a reload should always be the UI that is on disk now.
+    // Without it a phone can sit on a cached copy and "the fix isn't there" is really "the browser kept yesterday's".
+    'GET /': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(readFileSync(UI)) },
     'GET /jsQR.js': (req, res) => { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'max-age=86400' }); res.end(readFileSync(join(dirname(UI), 'jsQR.js'))) },
 
     'GET /api/state': (req, res, url) => {
@@ -218,6 +226,35 @@ export function serve ({ app }) {
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
       return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name })
+    },
+
+    // what each agent in this room has spent in the last day, measured
+    'GET /api/spend': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const hours = Number(url.searchParams.get('hours')) || 24
+      return { spend: room.spend(Date.now() - hours * 3600_000), caps: Object.fromEntries(room.participantsList().filter((p) => p.role === 'agent').map((p) => [p.name, room.ruleFor(p.name).tokensPerDay])) }
+    },
+    // a CLI agent's runtime reports what a wake cost (Claude Code does this from its
+    // own transcript, where the tokens are recorded per turn)
+    'POST /api/usage': async (req) => {
+      const { room: key, as, usage, text } = await body(req)
+      const { room } = pick(key)
+      need(as, 'say which agent spent it: as')
+      need(usage && typeof usage === 'object', 'usage required')
+      const rec = await room.activity(as, String(text || 'answered').slice(0, 200), { usage })
+      need(rec, `${as} isn't an active agent on this device`)
+      return { ok: true, spend: room.spend()[as] ?? null, overBudget: room.overBudget(as) }
+    },
+
+    // Debug notes (src/debug-notes.js): the mic button in the UI saves one here.
+    'GET /api/debug/space': async () => notes.info(),
+    'GET /api/debug/notes': async () => ({ ...(await notes.info()), notes: notes.list() }),
+    'POST /api/debug/note': async (req) => {
+      const n = JSON.parse(await rawBody(req, MAX_BLOB) || '{}')
+      const audio = n.audio ? Buffer.from(String(n.audio), 'base64') : null
+      need(Array.isArray(n.trace), 'a note needs its trace')
+      const saved = await notes.save({ id: n.id, audio, audioType: n.audioType, trace: n.trace, meta: n.meta })
+      return { ...saved, sharelink: (await notes.info()).sharelink }
     },
 
     'GET /api/invite': (req, res, url) => {
@@ -375,9 +412,15 @@ export function serve ({ app }) {
       return room.activityFor(url.searchParams.get('as'), 5000).filter((r) => r.ts > since && r.ts <= until).slice(-(Number(url.searchParams.get('limit')) || 400))
     },
     'POST /api/redact': async (req) => {
-      const { room: key, target, reason } = await body(req)
+      const { room: key, target, reason, blockFiles } = await body(req)
       const { room } = pick(key)
-      return room.redact(localHuman(), target, reason)
+      return room.redact(localHuman(), target, reason, { blockFiles })
+    },
+    'POST /api/unblock': async (req) => {
+      const { room: key, hash } = await body(req)
+      const { room } = pick(key)
+      need(hash, 'which file? pass its hash')
+      return room.unblockFile(localHuman(), hash)
     },
     'POST /api/react': async (req) => {
       const { room: key, as = localHuman(), target, emoji, on = true } = await body(req)
@@ -439,22 +482,32 @@ export function serve ({ app }) {
     // ---- logging a new device in (see login.js) ----
     'POST /api/login/offer': async (req) => {
       need(!isRemote(req), 'start this from the device that holds the account', 403)
-      const o = await app.login.offer()
+      // with `room`, the code invites to that room alone; without, it logs a device in
+      const { room } = await body(req).catch(() => ({}))
+      const o = await app.login.offer({ room })
       return { ...o, qr: await QRCode.toString(o.code, { type: 'svg', margin: 2, errorCorrectionLevel: 'L', color: { dark: '#000000', light: '#ffffff' } }) }
     },
+    'GET /api/login/pending': () => ({ invitations: app.login.pending(), asking: app.login.asking() }),
+    'POST /api/login/grant': async (req) => { const { topic } = await body(req); return app.login.grant(topic) },
+    'POST /api/login/deny': async (req) => { const { topic } = await body(req); return app.login.deny(topic) },
+    'POST /api/login/cancel': async (req) => { const { topic } = await body(req); return app.login.cancel(topic) },
     'POST /api/login/claim': async (req) => {
       const { code } = await body(req)
-      need(code, 'paste or scan a login code')
+      need(code, 'paste or scan a code')
       return app.login.claim(code)
     },
     'GET /api/login': () => ({ pending: app.login.pending() }),
     'GET /api/debug/agent': (req, res, url) => {
+      // budget first: an agent over its cap is not woken at all, which looks like silence
+
       const name = url.searchParams.get('name')
       return [...app.rooms.values()].map(({ room, runners }) => {
         const r = runners.get(name)
         if (!r) return { room: room.cfg.name, hosted: false }
         const w = r.why()
-        return { room: room.cfg.name, hosted: true, bridge: r.bridge.kind, busy: r.busy, listeners: r.listeners?.size ?? 0, state: room.agentState.get(name), ...w, triggers: (w.triggers ?? []).map((t) => ({ id: t.id, from: t.name, text: String(t.text).slice(0, 80) })) }
+        const over = room.overBudget(name)
+        const spent = room.spend()[name]
+        return { room: room.cfg.name, hosted: true, bridge: r.bridge.kind, busy: r.busy, listeners: r.listeners?.size ?? 0, state: room.agentState.get(name), overBudget: over, spentToday: spent?.total ?? 0, ...w, triggers: (w.triggers ?? []).map((t) => ({ id: t.id, from: t.name, text: String(t.text).slice(0, 80) })) }
       })
     },
     'GET /api/debug': () => {

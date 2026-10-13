@@ -10,6 +10,17 @@
 import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
 
+// A turn already handed to a listener isn't handed over again for this long: one
+// turn per process means a listener reconnects immediately, and it must not be
+// given the same work twice. Past it, we assume whoever took it is gone.
+//
+// Ten minutes, not two: an agent given real work is away for a while, and a short
+// window just re-offers the same turn to it over and over. The cost of being wrong
+// is that a crashed agent's turn waits this long before another listener gets it,
+// which is the lesser problem. A person's new message preempts regardless (poke),
+// so this never delays anyone.
+const REOFFER = 10 * 60_000
+
 const PASS = /^\s*PASS\s*$/i
 const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
 
@@ -98,7 +109,13 @@ export class AgentRunner {
     if (!this.room.state) return { triggers: null, reason: 'room chain not loaded (not admitted yet)' }
     if (!this.room.state.isActive(me)) {
       const st = this.room.state.status(me)
-      return { triggers: null, reason: `this device's key for ${this.name} (${me.slice(0, 24)}…) is ${st} in this room: the config key isn't the enrolled one; approve a new request, or rkeychat readopt`, key: me }
+      // "unknown" usually just means this agent was never in this room, which is not a
+      // fault — `debug agent` walks every room on the device. Only say something is wrong
+      // when the key was enrolled here and no longer is.
+      const fix = st === 'unknown'
+        ? 'never enrolled here (if it should be: rkeychat request --room, then the owner approves)'
+        : 'the config key isn\'t the enrolled one; approve a new request, or rkeychat readopt'
+      return { triggers: null, reason: `this device's key for ${this.name} (${me.slice(0, 24)}…) is ${st} in this room: ${fix}`, key: me }
     }
     const triggers = this.room.triggersFor(this.name)
     if (!triggers.length) return { triggers: null, reason: 'nothing addressed to me that I haven\'t answered or passed on', key: me }
@@ -108,7 +125,28 @@ export class AgentRunner {
   }
 
   poke () {
-    if (this.busy || !this.due()) return
+    if (!this.due()) return
+    // Busy means a turn is already out. An agent talking to itself can wait — but a
+    // person cannot be made to. If a human has said something the outstanding turn
+    // doesn't cover, supersede it: the turn is re-rendered (now carrying both) and
+    // pushed again, so the agent answers once rather than twice. Without this, a
+    // follow-up sits unseen until the agent happens to finish.
+    const now = Date.now()
+    const pending = this.bridge.kind === 'stream' ? this.room.triggersFor(this.name) : []
+    const fresh = pending.filter((t) => !this.offered?.includes(t.id))
+    if (this.busy) {
+      if (this.bridge.kind !== 'stream' || !this.listeners.size) return
+      // Only a person preempts. An agent answering an agent can wait its turn.
+      if (!fresh.some((t) => t.human)) return
+      this.room.setAgentState(this.name, 'idle')
+      this.busy = false
+    } else if (this.bridge.kind === 'stream' && !fresh.length && this.offered?.length && now - (this.offeredAt ?? 0) < REOFFER) {
+      // This exact turn was handed over moments ago and is being worked on. A
+      // listener that reconnects straight away (one turn per process, so it does)
+      // must not be given it again, or it loops. After REOFFER we assume whoever
+      // took it is gone and hand it to the next listener.
+      return
+    }
     if (this.bridge.kind === 'hermes') this.#runHermes().catch((err) => this.#fail(err))
     if (this.bridge.kind === 'stream') this.#offer()
   }
@@ -131,6 +169,7 @@ export class AgentRunner {
     this.busy = true
     this.room.setAgentState(this.name, 'thinking')
     this.offered = turn.triggers.map((t) => t.id)
+    this.offeredAt = Date.now()
     this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`, { claim: this.offered }).catch(() => {})
     for (const fn of this.listeners) fn({ name: this.name, re: this.offered, prompt: turn.text })
     // if nobody answers within the window, free the slot so newer turns flow
@@ -145,7 +184,13 @@ export class AgentRunner {
     setImmediate(() => this.poke())
     return () => {
       this.listeners.delete(fn)
-      if (!this.listeners.size) this.room.setAgentState(this.name, 'offline')
+      if (this.listeners.size) return
+      this.room.setAgentState(this.name, 'offline')
+      // A listener that goes away while holding an unanswered turn must hand it
+      // back now, not in fifteen minutes: until the slot is free nothing newer is
+      // offered, so the agent looks alive and ignores everything said to it. The
+      // triggers are still unanswered in the log, so the next listener gets them.
+      if (this.busy) { clearTimeout(this.offerTimer); this.busy = false } // `offered` stays: it suppresses an instant re-offer
     }
   }
 
@@ -153,6 +198,7 @@ export class AgentRunner {
   answered ({ passed = false } = {}) {
     if (passed && this.offered) this.room.markPassed(this.name, this.offered)
     clearTimeout(this.offerTimer)
+    this.offered = null; this.offeredAt = 0
     this.busy = false
     this.room.setAgentState(this.name, 'idle')
     setImmediate(() => this.poke())
@@ -179,6 +225,18 @@ export class AgentRunner {
     if (!res.ok) throw new Error(`hermes ${res.status}: ${(await res.text()).slice(0, 300)}`)
     const body = await res.json()
     this.introduced = true
+    const u = body?.usage
+    if (u) {
+      await this.room.activity(this.name, 'answered', {
+        usage: {
+          model: body.model ?? model,
+          in: u.prompt_tokens ?? u.input_tokens,
+          out: u.completion_tokens ?? u.output_tokens,
+          cacheRead: u.prompt_tokens_details?.cached_tokens ?? u.cache_read_input_tokens,
+          cacheWrite: u.cache_creation_input_tokens
+        }
+      }).catch(() => {})
+    }
     const reply = body?.choices?.[0]?.message?.content ?? ''
     await this.#deliver(reply, turn.triggers.map((t) => t.id))
   }

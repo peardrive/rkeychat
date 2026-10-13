@@ -268,12 +268,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .room-profile h2 { font-size: 18px; font-weight: 650; }
 .room-profile .meta { font-size: 12.5px; color: var(--text-3); }
 .order-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.order-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; cursor: grab; user-select: none; }
-.order-item { transition: transform 0.18s var(--ease); touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; }
-.order-list { touch-action: none; } .order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
+/* the settings drawer lives inside its own row, so a drag carries it along */
+.order-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 9px; background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; user-select: none; }
+.order-item { transition: transform 0.18s var(--ease); -webkit-touch-callout: none; -webkit-user-select: none; }
+.order-item.is-drag { opacity: 0.9; transform: scale(1.02); box-shadow: 0 0 0 2px var(--accent) inset, 0 10px 24px rgba(0,0,0,0.45); z-index: 2; position: relative; transition: none; }
 .apply-bar { display: flex; align-items: center; gap: 10px; margin-top: 8px; animation: tip-in 0.12s var(--ease); }
-.order-item .grip { color: var(--text-3); font-size: 14px; letter-spacing: -2px; } .order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); }
-.order-item .nm { flex: 1; font-weight: 600; } .order-item .wait { font-size: 11px; color: var(--text-3); }
+/* only the grab pad drags, so the settings inside an agent stay usable on touch */
+.order-item .grip { color: var(--text-3); padding: 2px; cursor: grab; touch-action: none; display: grid; place-items: center; }
+.order-item .grip .ico { width: 16px; height: 16px; }
+.order-item .grip:hover { color: var(--text-1); }
+.order-item .idx { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--accent-ink); flex: none; }
+.order-item .idx.is-mention { background: rgba(255,255,255,0.09); color: var(--text-3); box-shadow: 0 0 0 1px var(--line-strong) inset; }
+.order-item .nm { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-item.is-off { opacity: 0.55; }
+.order-item .gear { color: var(--text-3); padding: 2px; display: grid; place-items: center; }
+.order-item .gear .ico { width: 16px; height: 16px; }
+.order-item .gear:hover, .order-item .gear.is-on { color: var(--accent); }
 .sheet-tabs { display: none; gap: 4px; padding: 8px 10px 0; }
 .sheet-tabs button { flex: 1; padding: 7px 0; border-radius: 10px; font-size: 12.5px; font-weight: 600; color: var(--text-2); background: rgba(255,255,255,0.04); box-shadow: 0 0 0 1px var(--line) inset; }
 .sheet-tabs button.is-on { color: var(--accent-ink); background: var(--accent); box-shadow: none; }
@@ -333,21 +343,32 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .stat-val { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
 .progress { height: 6px; border-radius: 3px; overflow: hidden; background: rgba(0,0,0,0.45); box-shadow: 0 1px 2px rgba(0,0,0,0.5) inset; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width 0.3s var(--ease); }
-.agent-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 11px; background: rgba(0,0,0,0.18); box-shadow: 0 0 0 1px var(--line) inset; }
-.agent-card .row-item { padding: 0; }
-.agent-card .row-item:hover { background: none; }
 .agent-opts { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-2); padding-left: 36px; }
 .inline.wrap { flex-wrap: wrap; row-gap: 8px; }
 .inline.wrap .num { width: 44px; }
-/* per-agent rules for this room: one compact row each, details inline */
-.rule-row { display: grid; grid-template-columns: 28px 1fr auto auto; align-items: center; gap: 8px 10px; padding: 8px 8px; border-radius: 10px; background: rgba(255,255,255,0.03); box-shadow: 0 0 0 1px var(--line) inset; margin-top: 6px; }
-.rule-row .nm { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rule-row .sel { font: inherit; font-size: 12px; color: var(--text-1); background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; max-width: 150px; }
-.rule-row .sel:disabled { opacity: 0.7; }
-.rule-row .role { grid-column: 2 / -1; min-height: 34px; resize: vertical; font: inherit; font-size: 12.5px; }
-.rule-row .role-ro { grid-column: 2 / -1; font-size: 12.5px; color: var(--text-2); white-space: pre-wrap; }
-.rule-row.is-off { opacity: 0.6; }
-@media (max-width: 720px) { .rule-row { grid-template-columns: 28px 1fr auto; } .rule-row .sel { max-width: 120px; } }
+/* one control per line: label (and its info dot) left, the control right */
+.ctl-row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.ctl-row .ctl-label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.ctl-row .grow { flex: 1; }
+.ctl-row .ctl-val { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+/* a settings section: rows sit closer together than the panel's default rhythm */
+.section.is-tight { gap: 5px; }
+/* every label can explain itself: hover for the tooltip, tap to keep it open */
+.info { width: 16px; height: 16px; flex: none; border-radius: 50%; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.05); color: var(--text-3);
+  font-size: 10px; font-weight: 700; line-height: 1; display: grid; place-items: center; padding: 0; cursor: help; }
+.info:hover { color: var(--accent); border-color: var(--accent); }
+.info.is-on { color: var(--accent-ink); background: var(--accent); border-color: transparent; }
+.tip { margin: 0 0 6px; font-size: 11.5px; line-height: 1.45; color: var(--text-2); padding: 7px 9px; border-radius: 9px; background: rgba(0,0,0,0.28); box-shadow: 0 0 0 1px var(--line) inset; animation: tip-in 0.12s var(--ease); }
+/* an agent's own settings, indented under its row in the order */
+.rule-panel { flex: 0 0 calc(100% - 26px); margin: 2px 0 0 26px; padding: 9px 10px; border-radius: 10px; background: rgba(0,0,0,0.26); box-shadow: 0 0 0 1px var(--line) inset; display: flex; flex-direction: column; gap: 8px; animation: tip-in 0.12s var(--ease);
+  user-select: text; -webkit-user-select: text; }
+.rule-panel .sel { font: inherit; font-size: 12px; color: var(--text-1); background: rgba(0,0,0,0.35); border: 1px solid var(--line-strong); border-radius: 8px; padding: 4px 8px; max-width: 160px; }
+.rule-panel .role { min-height: 48px; resize: vertical; font: inherit; font-size: 12.5px; }
+.rule-panel .spend { font-size: 11.5px; color: var(--text-3); }
+.rule-panel.is-over .spend { color: #ffb3ac; }
+.rule-panel .agent-opts { padding-left: 0; }
+.rule-panel .agent-opts > span:first-child { white-space: nowrap; }
+.rule-panel .tip { margin: 0; }
 
 /* reactions sit on the message's bottom edge, overlapping it: attached, not a new comment */
 .reacts { position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: -13px; padding: 0 10px; }
@@ -449,6 +470,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .hero .or { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); margin-top: 8px; }
 .hero .code { width: 100%; text-align: left; }
 
+/* someone is asking to be let in. Deliberately in the way: granting is the whole
+   security of an invitation, so it should never happen while you aren't looking. */
+.ask { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 60; width: min(440px, calc(100% - 24px));
+  padding: 14px 16px; border-radius: 16px; background: linear-gradient(180deg, #23252d, #191a20);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 18px 50px rgba(0,0,0,0.6); animation: tip-in 0.16s var(--ease); }
+.ask h4 { font-size: 14px; font-weight: 650; margin-bottom: 4px; }
+.ask .ask-body { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.ask .ask-key { font-family: Menlo, monospace; font-size: 12px; color: var(--text-1); }
+.ask .ask-row { display: flex; gap: 8px; margin-top: 12px; }
+.ask .ask-row .btn { flex: 1; }
 .toast { position: fixed; left: 50%; bottom: 96px; z-index: 50; max-width: min(520px, calc(100% - 32px)); padding: 10px 16px; border-radius: 12px; text-align: center;
   background: rgba(40, 42, 51, 0.97); border: 1px solid var(--line-strong); box-shadow: var(--shadow-float); color: var(--text);
   transform: translate(-50%, 12px); opacity: 0; pointer-events: none; transition: transform 0.3s var(--ease), opacity 0.25s; }
@@ -518,6 +549,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h2.5v2.5H14zM18 14h2.5M14 18v2.5M18 18h2.5v2.5"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
@@ -559,7 +591,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
         <span class="rec-time" id="recTime">0:00</span>
         <button type="button" class="in-btn" id="recCancel" title="Discard"><svg class="ico"><use href="#i-x"/></svg></button>
       </div>
-      <button class="btn btn-primary" type="submit" title="Send (Enter makes a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
+      <button class="btn btn-primary" type="submit" title="Send (Enter · Shift-Enter for a new line)"><svg class="ico"><use href="#i-send"/></svg></button>
     </form>
   </main>
 
@@ -584,19 +616,40 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 </footer>
 
 <div class="toast" id="toast"></div>
+<div class="ask" id="loginAsk" hidden></div>
 
 <script>
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+// One logger for the UI: a ring of lines anyone can subscribe to. A debug note is the
+// subscriber that matters (createTrace below). Log the steps a person would name —
+// "joined a room", "fetched a file" — not every tick.
+const log = (() => {
+  const MAX = 600; const lines = []; const subs = new Set()
+  const push = (level, scope, msg, data) => {
+    const line = { t: new Date().toISOString(), level, scope, msg, ...(data === undefined ? {} : { data }) }
+    lines.push(line); if (lines.length > MAX) lines.shift()
+    for (const fn of subs) fn(line)
+  }
+  return {
+    lines,
+    info: (s, m, d) => push('info', s, m, d),
+    warn: (s, m, d) => push('warn', s, m, d),
+    error: (s, m, d) => push('error', s, m, d),
+    subscribe (fn) { subs.add(fn); return () => subs.delete(fn) }
+  }
+})()
+window.addEventListener('error', (e) => log.error('app', `Uncaught: ${e.message}`, { at: `${e.filename}:${e.lineno}` }))
+window.addEventListener('unhandledrejection', (e) => log.error('app', `Unhandled: ${e.reason?.message ?? e.reason}`))
 const day = (ts) => new Date(ts).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
 const icon = (id, cls = '') => `<svg class="ico ${cls}"><use href="#i-${id}"/></svg>`
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d } catch { return d } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} }, del: (k) => { try { localStorage.removeItem(k) } catch {} } }
-// what you've seen per room (this device only): the ts of the last message on screen
-// what you were part-way through typing, per room, on this device only. It outlives a refresh and a room
-// switch, so being pulled away mid-message costs nothing. Never sent, never signed, never leaves the phone.
+// what you were part-way through typing, per room, on this device only. It outlives a refresh and a room switch,
+// so being pulled away mid-message costs nothing. Never sent, never signed, never leaves this browser.
 const draftOf = (topic) => store.get(`rk.draft.${topic}`, '')
 const setDraft = (topic, text) => { if (!topic) return; if (text) store.set(`rk.draft.${topic}`, text); else store.del(`rk.draft.${topic}`) }
+// what you've seen per room (this device only): the ts of the last message on screen
 const seenAt = (topic) => Number(store.get(`rk.seen.${topic}`, 0))
 const markSeen = (topic, ts) => { if (topic && ts && ts > seenAt(topic)) store.set(`rk.seen.${topic}`, String(ts)) }
 const isUnread = (r) => !!(r.last && r.last.ts > seenAt(r.topic) && r.last.name !== me())
@@ -611,7 +664,7 @@ let joinedRequest = null
 let glossary = {}
 let people = { local: [], known: [] }
 async function loadPeople () { try { people = await api('GET', '/api/people') } catch {} if (page === 'invite') renderPanel() }
-api('GET', '/api/glossary').then((g) => { glossary = g; if (page === 'agents') renderPanel() }).catch(() => {})
+api('GET', '/api/glossary').then((g) => { glossary = g }).catch(() => {})
 const cur = () => S?.current
 const me = () => S?.device.participants.find((p) => p.role === 'human')?.name
 const isAgent = (name) => cur()?.participants.find((p) => p.name === name)?.role === 'agent'
@@ -625,16 +678,131 @@ function toast (text, tone) {
 async function api (method, path, body) {
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
   const out = await res.json()
-  if (!res.ok) { toast(out.error || `Something went wrong (${res.status})`, 'bad'); throw new Error(out.error) }
+  if (!res.ok) { log.error('api', `${method} ${path}: ${out.error || res.status}`); toast(out.error || `Something went wrong (${res.status})`, 'bad'); throw new Error(out.error) }
   return out
 }
+
+// ---------- debug notes (docs/NOTES-MODE.md in pearcast-projects, where this started)
+// A note is a voice recording and, alongside it, the steps taken in the app while it ran — named the way a
+// person would ("opened the room panel", "fetched a file"), each stamped with its time into the recording. So a
+// note that says "this one, here" is never vague about which one or where.
+//
+// This is pearcast's src/trace.js, same shape: it takes a logger and a save function and knows nothing about the
+// app around it. Keep the two in step — when a third app wants this, these become one package. The only
+// difference here is that saving goes over HTTP to the daemon instead of IPC to Electron's main process.
+function createTrace ({ log, save }) {
+  let note = null // { id, t0, steps, rec, chunks, stream }
+  const listeners = new Set()
+  const emit = () => { for (const fn of listeners) fn() }
+  const now = () => (note ? Math.round(performance.now() - note.t0) / 1000 : 0)
+
+  // A step is kept once: the same text again within a couple of seconds is the same thing still happening (a
+  // scroll, a drag), not news. Repeats are counted on the kept step instead.
+  function step (kind, text, data, { group = null } = {}) {
+    if (!note) return
+    const t = now(); const last = note.steps.at(-1)
+    if (last && last.text === text && t - (last.until ?? last.t) < 2) { last.until = t; last.times = (last.times || 1) + 1; return emit() }
+    // a run of the same kind of thing is one step that ends where it ended, not one per event
+    if (group && last?.group === group && t - (last.until ?? last.t) < 2) { last.until = t; last.times = (last.times || 1) + 1; last.text = `${last.from} → ${text}`; return emit() }
+    note.steps.push({ t, kind, text, ...(group ? { group, from: text } : {}), ...(data === undefined ? {} : { data }) })
+    emit()
+  }
+  // the log already says what the app did; keep its lines on the note's clock
+  log.subscribe((line) => { if (note && line) step('log', `[${line.scope}] ${line.msg}`, line.data) })
+
+  async function start () {
+    if (note) return
+    const id = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    // No microphone outside a secure context (the phone over plain http) and the person may say no: a note
+    // without audio is still a note, so neither case stops anything.
+    let stream = null
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch (err) { log.warn('debug', `Note without audio: ${err.message}`) }
+    const chunks = []
+    let rec = null
+    if (stream) {
+      try { rec = new MediaRecorder(stream); rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data) }; rec.start(1000) } catch (err) { log.warn('debug', `Note without audio: ${err.message}`); rec = null }
+    }
+    note = { id, t0: performance.now(), steps: [], rec, chunks, stream }
+    log.info('debug', `Debug note started${rec ? '' : ' (no audio)'}`)
+    emit()
+  }
+
+  async function stop (extra = {}) {
+    if (!note) return null
+    const n = note
+    await new Promise((resolve) => { if (!n.rec || n.rec.state === 'inactive') return resolve(); n.rec.onstop = () => resolve(); n.rec.stop() })
+    if (n.stream) for (const t of n.stream.getTracks()) t.stop()
+    note = null; emit()
+    const blob = n.chunks.length ? new Blob(n.chunks, { type: n.rec?.mimeType || 'audio/webm' }) : null
+    const meta = {
+      startedAt: new Date(Date.now() - (performance.now() - n.t0)).toISOString(),
+      seconds: Math.round(performance.now() - n.t0) / 1000,
+      steps: n.steps.length, app: 'rkeychat', userAgent: navigator.userAgent, window: `${innerWidth}×${innerHeight}`, ...extra
+    }
+    const saved = await save({ id: n.id, blob, trace: n.steps, meta })
+    log.info('debug', `Debug note saved: ${n.steps.length} step(s), ${meta.seconds} s`)
+    return saved
+  }
+
+  return {
+    start, stop, step,
+    get active () { return !!note },
+    get seconds () { return now() },
+    get steps () { return note?.steps.length || 0 },
+    onChange (fn) { listeners.add(fn); return () => listeners.delete(fn) }
+  }
+}
+
+const b64 = (buf) => { let s = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s) }
+const trace = createTrace({
+  log,
+  save: async ({ id, blob, trace: steps, meta }) => api('POST', '/api/debug/note', {
+    id, trace: steps, meta,
+    audio: blob ? b64(await blob.arrayBuffer()) : null,
+    audioType: blob?.type ?? null
+  })
+})
+let debugSpace = null
+const debugOn = () => store.get('rk.debug', '0') === '1'
+async function refreshDebugSpace () { try { debugSpace = await api('GET', '/api/debug/space') } catch { debugSpace = null } }
+function syncDebugBtn () {
+  const b = $('debugNote'); if (!b) return
+  b.hidden = !debugOn()
+  b.classList.toggle('is-on', trace.active)
+  b.title = trace.active ? 'Stop the note and save it' : 'Start a debug note: talk, and keep using the app'
+  b.querySelector('.rec-time').textContent = trace.active ? `${Math.floor(trace.seconds / 60)}:${String(Math.floor(trace.seconds % 60)).padStart(2, '0')} · ${trace.steps}` : ''
+}
+trace.onChange(syncDebugBtn)
+setInterval(() => { if (trace.active) syncDebugBtn() }, 500)
+async function toggleNote () {
+  if (trace.active) {
+    const saved = await trace.stop({ room: cur()?.name, panel: page || null })
+    if (saved) toast(saved.shared ? 'Debug note saved and shared' : 'Debug note saved (not shared: the space is offline)')
+  } else {
+    await trace.start()
+    trace.step('ui', `room: ${cur()?.name ?? 'none'}; panel: ${page || 'none'}`)
+    toast('Recording. Say what you see and keep using the app.', 'hold')
+  }
+  syncDebugBtn()
+}
+// Every button by its label, with where it was: the cheap half of knowing what was touched.
+document.addEventListener('click', (e) => {
+  if (!trace.active) return
+  const b = e.target.closest('button, [data-room], [data-go], [data-order]')
+  if (!b || b.id === 'debugNote') return
+  const name = (b.getAttribute('aria-label') || b.title || b.textContent.trim() || b.id || b.className || '?').replace(/\s+/g, ' ').slice(0, 70)
+  const where = b.closest('#panel') ? `panel:${page}` : b.closest('#side') ? 'rooms list' : b.closest('.composer') ? 'composer' : b.closest('.room-head') ? 'room header' : b.closest('.feed') ? 'feed' : 'window'
+  trace.step('click', name, { in: where })
+}, true)
+
 const roomArg = () => cur()?.topic
-const control = (payload) => api('POST', '/api/control', { room: roomArg(), ...payload })
+const control = (payload) => { log.info('room', `control: ${payload.action}${payload.agent ? ` ${payload.agent}` : ''}${payload.n ? ` ${payload.n}` : ''}`); return api('POST', '/api/control', { room: roomArg(), ...payload }) }
 
 async function load (topic) {
   const leaving = cur()?.topic
   if (leaving) setDraft(leaving, ta.value) // the room you are leaving keeps what you had typed
   S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  if (S.current?.topic !== leaving) log.info('room', `opened ${S.current?.name ?? 'no room'}`)
   if (S.current && S.current.topic !== leaving) { ta.value = draftOf(S.current.topic); grow() } // and the one you arrive in gives its own back
   if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
   if (S.current) api('GET', `/api/files?room=${encodeURIComponent(S.current.topic)}`).then((list) => { let changed = false; for (const f of list ?? []) if (f.local && !haveFile.has(f.hash)) { haveFile.add(f.hash); changed = true }; if (changed) renderFeed() }).catch(() => {})
@@ -647,8 +815,21 @@ function renderText (t) {
   const mine = me()
   return esc(t).replace(/@([a-z0-9][a-z0-9_-]*)/gi, (m, n) => `<span class="mention${n.toLowerCase() === mine ? ' is-me' : ''}">@${n}</span>`)
 }
-function ctlText (r) {
+function ctlText (r, was, before) {
   const who = r.name === me() ? 'You' : r.name
+  // A rename and a rules change are the edits that confuse people later ("which room
+  // is this? who set that?"), so they say what actually changed. A charter record
+  // always carries all three fields, so compare it with the one before it rather than
+  // claiming everything changed every time Apply is pressed.
+  if (r.action === 'rename') return was && was !== r.roomName ? `${who} renamed this room: ${was} → ${r.roomName}` : `${who} named this room "${r.roomName ?? '?'}"`
+  if (r.action === 'charter') {
+    const same = (a, b2) => JSON.stringify(a ?? null) === JSON.stringify(b2 ?? null)
+    const bits = []
+    if (!same(r.text, before?.text)) bits.push('the room prompt')
+    if (!same(r.order, before?.order)) bits.push(before ? `the order to ${(r.order ?? []).join(' → ')}` : 'who answers first')
+    if (!same(r.agents, before?.agents)) bits.push('the agent rules')
+    return bits.length ? `${who} changed ${bits.join(', ')}` : `${who} re-applied the room settings`
+  }
   if (r.agent) return { pause: `${who} paused @${r.agent}`, resume: `${who} let @${r.agent} speak again`, limit: r.n ? `${who} limited @${r.agent} to ${r.n} post${r.n === 1 ? '' : 's'} per message` : `${who} lifted @${r.agent}'s limit` }[r.action] || `${who} · ${r.action} @${r.agent}`
   return {
     extend: `${who} added ${r.n} round${r.n === 1 ? '' : 's'}`, unlimited: `${who} lifted the round limit`,
@@ -663,7 +844,7 @@ function renderFeed () {
   if (!c.admitted) return renderWaiting()
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
   // nothing visible changed: leave the reader exactly where they are
-  const sig = c.topic + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me() + '|' + haveFile.size
+  const sig = c.topic + '|' + (c.members ?? []).map((m) => m.ref + m.status).join(',') + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me() + '|' + haveFile.size
   if (feed.dataset.sig === sig) return
   feed.dataset.sig = sig
   const fromBottom = feed.scrollHeight - feed.scrollTop // keep this distance when re-rendering mid-read
@@ -672,11 +853,39 @@ function renderFeed () {
     return
   }
   const mine = me()
+  // Who joined and who left is a group edit like any other, and it belongs in the
+  // room's story. The key tree carries a timestamp per key; collapse it to one
+  // arrival per person (their earliest key) and one departure (when their last
+  // live key went), so a person with three devices is still one line.
+  const joins = []
+  {
+    const by = new Map()
+    for (const m of c.members ?? []) {
+      if (!m.name || m.name === me() || m.label?.startsWith('device:')) continue // a device is not a person arriving
+      const e = by.get(m.name) ?? { name: m.name, first: Infinity, lastOut: 0, live: 0 }
+      if (m.ts) e.first = Math.min(e.first, m.ts)
+      if (m.status === 'active') e.live++
+      else if (m.revokedAt) e.lastOut = Math.max(e.lastOut, m.revokedAt)
+      by.set(m.name, e)
+    }
+    for (const e of by.values()) {
+      if (e.first && e.first !== Infinity) joins.push({ ts: e.first, kind: 'member', text: `${e.name} joined` })
+      if (!e.live && e.lastOut) joins.push({ ts: e.lastOut, kind: 'member', text: `${e.name} left the room` })
+    }
+  }
   let html = ''; let prev = null; let lastDay = ''
-  for (const r of c.log) {
+  let roomWas = null // the room's name as of this point in the log, so a rename can show what it was
+  let lastCharter = null // ...and the rules as of this point, so a change can show only what moved
+  for (const r of [...c.log, ...joins].sort((x, y) => x.ts - y.ts)) {
     const d = day(r.ts)
     if (d !== lastDay) { html += `<div class="day-line">${esc(d)}</div>`; lastDay = d; prev = null }
-    if (r.kind === 'control') { html += `<div class="ctl-line">${esc(ctlText(r))} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (r.kind === 'member') { html += `<div class="ctl-line">${esc(r.text)} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (r.kind === 'control') {
+      html += `<div class="ctl-line">${esc(ctlText(r, roomWas, lastCharter))} · ${time(r.ts)}</div>`
+      if (r.action === 'rename' && r.roomName) roomWas = r.roomName
+      if (r.action === 'charter') lastCharter = r
+      prev = null; continue
+    }
     if (r.redacted) { html += `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>`; prev = null; continue }
     const isMine = r.name === mine
     const cont = prev && prev.name === r.name && r.ts - prev.ts < 5 * 60_000
@@ -808,14 +1017,18 @@ function renderNoRooms () {
   </div>`
   bindRoomForms($('feed'))
 }
+// Both kinds of pairing code arrive here: rkl1. logs this device into an account,
+// rkp1. is an invitation to one room. Say which happened, because they are very
+// different things to have just done.
 async function claimLogin (code) {
   if (!code) return
-  toast('Logging in…', 'hold')
+  toast('Asking to join — the other device has to say yes…', 'hold')
   try {
     const r = await api('POST', '/api/login/claim', { code: code.trim() })
-    toast(`Logged in as ${r.name}: ${r.joined.length ? r.joined.join(', ') : 'no rooms yet'}`)
+    const where = r.joined.length ? r.joined.join(', ') : 'no rooms yet'
+    toast(r.action === 'room' ? `You're in: ${where}` : `Logged in as ${r.name}: ${where}`)
     await load()
-  } catch (err) { toast(`Login failed: ${err.message}`, 'bad') }
+  } catch (err) { toast(`Didn't get in: ${err.message}`, 'bad') }
 }
 document.addEventListener('submit', (e) => { if (e.target.id === 'heroLogin') { e.preventDefault(); claimLogin(new FormData(e.target).get('code')) } })
 function renderWaiting () {
@@ -888,8 +1101,10 @@ function renderHead () {
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
     <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
+    <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
     <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
+  syncDebugBtn()
 }
 async function renameRoom () {
   const c = cur(); if (!c?.owner) return
@@ -922,9 +1137,15 @@ function renderInvitePage () {
       ${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}
       <p class="note">One click. Their device gets the invite through a room you already share and joins by itself.</p></section>` : ''}
     <section class="section"><h3 class="section-title">Invite someone new</h3>
-      <button class="btn btn-soft btn-block" id="inviteBtn">${icon('plus')}Copy an invite code</button>
-      <div class="code" id="inviteOut" hidden></div>
-      <p class="note">They paste it into the bar at the top of their room list (or run <b>rkeychat room join</b>). You approve their request under Keys.</p></section>`
+      ${c.owner ? `<button class="btn btn-primary btn-block" id="inviteQr">${icon('qr')}Show an invitation to scan</button>
+      <p class="note">A plain pearcore link. They scan it, you get asked to approve, and they are in — no code to send back. Good once, for an hour, and it grants this room only.</p>` : ''}
+      ${roomOffer ? `<div style="display:grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px);margin:0 auto">${roomOffer.qr}</div>
+      <p class="note" style="text-align:center;margin-top:8px">Scan this in their rKeyChat.</p>
+      <details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(roomOffer.code)}</div></details>` : ''}
+      <details style="margin-top:10px"><summary class="note">Send a code instead (they paste a request back)</summary>
+        <button class="btn btn-soft btn-block" id="inviteBtn" style="margin-top:8px">${icon('plus')}Copy an invite code</button>
+        <div class="code" id="inviteOut" hidden></div>
+        <p class="note">They paste it into the bar at the top of their room list (or run <b>rkeychat room join</b>). You approve their request under Keys.</p></details></section>`
 }
 
 // ---------- panel pages
@@ -934,7 +1155,6 @@ const PAGES = {
   room: { title: 'Room', icon: 'rooms', render: renderRoomPage },
   contacts: { title: 'Contacts', icon: 'people', render: renderContactsPage },
   profile: { title: 'Profile', icon: 'human', render: renderProfilePage },
-  agents: { title: 'Agents', icon: 'agents', render: renderAgentsPage },
   keys: { title: 'Verified', icon: 'lock', render: renderKeysPage },
   activity: { title: 'Activity', icon: 'agents', render: renderActivityPage },
   invite: { title: 'Invite', icon: 'plus', render: renderInvitePage },
@@ -966,6 +1186,13 @@ function renderSettingsPage () {
   if (!settings) { loadSettings(); return '<p class="note">Loading…</p>' }
   const entries = Object.entries(glossary).sort()
   return `<section class="section">
+      <h3 class="section-title">Debug notes</h3>
+      <div class="agent-opts" style="padding-left:0"><span>Debug mode</span><label class="switch"><input type="checkbox" id="debugMode" ${debugOn() ? 'checked' : ''}><span class="switch-track"></span></label></div>
+      <p class="note">Puts a mic button in the room header. Press it, say what you're seeing and keep using the app: what you touch is written down beside the recording, so a note never has to describe which thing you meant. Press again to save.</p>
+      ${debugOn() ? `<div class="inline wrap"><button class="btn btn-soft btn-sm" id="debugShare">${icon('copy')}Copy the notes link</button><button class="btn btn-soft btn-sm" id="debugNotes">${debugSpace?.count ?? 0} saved</button></div>
+      <p class="note">Notes live in a space of their own, not in any room. Whoever you hand the link to can read and pull them; nobody else can write to it.${debugSpace?.sharelink ? '' : ' The link appears once the space is up.'}</p>` : ''}
+    </section>
+    <section class="section">
       <h3 class="section-title">Dictation</h3>
       <div class="agent-opts" style="padding-left:0"><span>Fix misheard words automatically</span><label class="switch"><input type="checkbox" id="autofix" ${settings.autofix ? 'checked' : ''}><span class="switch-track"></span></label></div>
       <p class="note">Like autocorrect for your voice. When you fix a word the transcriber got wrong before sending, it remembers. Agents that catch a mishearing can teach it too.</p>
@@ -1004,13 +1231,14 @@ function renderActivityPage () {
 }
 function openPage (p) {
   page = p; store.set('rk.page', p || '')
+  log.info('ui', p ? `panel: ${p}` : 'panel closed')
   if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room') loadPeople()
   renderPanel()
 }
 function renderPanel () {
   const panel = $('panel')
   // never repaint the room page under someone's unsaved edit or mid-drag
-  if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText' || document.activeElement?.closest?.('.rule-row'))) return
+  if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText' || document.activeElement?.closest?.('.rule-panel'))) return
   document.querySelectorAll('.dock-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
   if (!page || !PAGES[page]) { panel.hidden = true; return }
   panel.hidden = false
@@ -1079,6 +1307,18 @@ function renderPeoplePage () {
       <p class="note">On the other machine: <b>rkeychat room join</b> with this code. It'll hand you back a request to approve under Keys.</p></section>` : ''}`
 }
 let expanded = new Set() // rows opened in the room list
+let promptOpen = false // the room prompt costs no real estate until you ask for it
+const rulesOpen = new Set() // agents whose settings drawer is showing
+const tipsOpen = new Set() // info dots left open; hovering works either way
+// the detail behind each label: one tap away instead of permanently in the way
+const TIPS = {
+  rounds: 'A round is one hop of agents replying to agents. When they run out everyone waits for you, and your next message starts the count fresh. Add gives them that many more right now.',
+  runfor: 'Instead of counting rounds, let them talk until a time — for overnight work. Your own messages don\'t cancel it; Pause does.',
+  prompt: 'Standing instructions every agent gets with every turn: what the room is for and how you work here. Each agent\'s own role is added to it.',
+  agents: 'Who answers a message that names nobody: number 1 first, then the next in line after 45s of silence. Drag the grab pad to reorder. @mentions skip the order entirely, and an agent set to "only when named" never takes the open floor.',
+  settings: 'Roles go out with every turn, as part of the room prompt. The token budget is the hard limit: once an agent has spent it for the day it stops being woken at all, which costs nothing — a wake is expensive because the agent re-reads its whole context before it writes a word.',
+  style: 'On: agents post their full output here. Off: short posts, detail in files. Off is right for rooms where agents talk to each other, since they pay to read each other.'
+}
 function renderRoomPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const b = c.budget
@@ -1088,6 +1328,41 @@ function renderRoomPage () {
   const owner = c.participants.find((p) => p.role === 'human' && c.members.some((m) => m.name === p.name && m.depth === 1 && !m.device && !m.label?.startsWith('device:'))) // first human under the root
   const ownerName = c.owner ? me() : (owner?.name ?? 'the owner')
   const order = [...(c.charter?.order ?? []).filter((n) => agents.some((a) => a.name === n)), ...agents.map((a) => a.name).filter((n) => !(c.charter?.order ?? []).includes(n))]
+  // one labelled line, its info dot, and the tip it opens. Tips and drawers are
+  // always in the DOM and only toggle `hidden`, so opening one never repaints the
+  // panel out from under an unsaved edit.
+  const ctl = (k, label, right) => `<div class="ctl-row"><span class="ctl-label">${esc(label)}<button class="info${tipsOpen.has(k) ? ' is-on' : ''}" data-tip="${k}" title="${esc(TIPS[k])}" aria-label="What ${esc(label)} does">i</button></span><span class="grow"></span>${right}</div>
+      <p class="tip" data-tip-for="${k}" ${tipsOpen.has(k) ? '' : 'hidden'}>${esc(TIPS[k])}</p>`
+  const rules = c.charter?.agents ?? {}
+  let slot = 0
+  const agentRow = (n) => {
+    const r = rules[n] ?? {}
+    const wake = r.wake === 'mention' ? 'mention' : 'order' // 'backup' has no control any more; the record keeps working
+    const num = wake === 'order' ? ++slot : null
+    const paused = b.agents?.paused.includes(n)
+    const over = c.overBudget?.[n]
+    return `<div class="order-item${paused ? ' is-off' : ''}" data-order="${esc(n)}" data-wake="${wake}" data-draggable="${c.owner ? '1' : ''}">
+        <span class="idx${num ? '' : ' is-mention'}" title="${num === 1 ? 'answers first' : num ? `steps in after ${(num - 1) * 45}s of silence` : 'only when named'}">${num ?? '@'}</span>
+        <div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div>
+        <span class="nm">${esc(n)}${paused ? ' <span class="pill tone-dim">off</span>' : ''}${over ? ' <span class="pill tone-bad">over</span>' : ''}</span>
+        <button class="gear${rulesOpen.has(n) ? ' is-on' : ''}" data-rule-open="${esc(n)}" title="${esc(n)}'s settings" aria-label="${esc(n)}'s settings">${icon('gear')}</button>
+        ${c.owner ? `<span class="grip" title="Drag to reorder">${icon('grip')}</span>` : ''}
+        ${rulePanel(n, r, wake, paused, over)}</div>`
+  }
+  const rulePanel = (n, r, wake, paused, over) => {
+    const sp = c.spend?.[n]; const lim = b.agents?.limits[n] ?? ''
+    const opt = (label, control) => `<div class="agent-opts"><span>${label}</span>${control}</div>`
+    return `<div class="rule-panel${over ? ' is-over' : ''}" data-rule-row="${esc(n)}" ${rulesOpen.has(n) ? '' : 'hidden'}>
+      ${opt('Can speak here', `<label class="switch" title="${paused ? 'Let it speak' : 'Silence it in this room'}"><input type="checkbox" data-agent-toggle="${esc(n)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label>`)}
+      ${opt('When it wakes', c.owner
+        ? `<select class="sel" data-rule-wake="${esc(n)}"><option value="order" ${wake === 'order' ? 'selected' : ''}>In the turn order</option><option value="mention" ${wake === 'mention' ? 'selected' : ''}>Only when named</option></select>`
+        : `<span class="ctl-val">${wake === 'mention' ? 'only when named' : 'in the turn order'}</span>`)}
+      ${opt('Max posts per message', c.owner ? `<input class="num" data-agent-limit="${esc(n)}" value="${esc(lim)}" placeholder="any">` : `<span class="ctl-val">${esc(lim || 'any')}</span>`)}
+      ${opt(`Token budget per day${over ? ' <span class="pill tone-bad">over</span>' : ''}`, c.owner ? `<input class="num" style="width:78px" data-rule-cap="${esc(n)}" value="${esc(r.tokensPerDay || '')}" placeholder="none">` : `<span class="ctl-val">${r.tokensPerDay ? fmtTok(r.tokensPerDay) : 'none'}</span>`)}
+      ${c.owner ? `<textarea class="text-input role" data-rule-role="${esc(n)}" rows="3" placeholder="Its role in this room (optional)">${esc(r.role ?? '')}</textarea>` : (r.role ? `<div class="note" style="white-space:pre-wrap">${esc(r.role)}</div>` : '')}
+      <div class="agent-opts"><span class="spend">${sp ? `${fmtTok(sp.total)} tokens today · ${sp.wakes} wake${sp.wakes === 1 ? '' : 's'} · ${fmtTok(sp.cacheRead)} re-reading context${r.tokensPerDay ? ` · cap ${fmtTok(r.tokensPerDay)}` : ''}` : 'nothing spent today'}</span><button class="info${tipsOpen.has('settings') ? ' is-on' : ''}" data-tip="settings" title="${esc(TIPS.settings)}" aria-label="What these settings do">i</button></div>
+      <p class="tip" data-tip-for="settings" ${tipsOpen.has('settings') ? '' : 'hidden'}>${esc(TIPS.settings)}</p></div>`
+  }
   const keyRow = (p, k) => {
     const short = k.ref.slice(8, 20)
     const what = k.account ? 'account root' : k.device ? `session on ${k.device}` : 'key'
@@ -1119,34 +1394,20 @@ function renderRoomPage () {
     <section class="section"><div class="section-title-row"><h3 class="section-title">In this room</h3><span class="note">tap one for keys and options</span></div>${everyone.map(row).join('') || '<p class="note">Nobody yet.</p>'}
       ${addable.length ? `<details style="margin-top:8px"><summary class="note">Add someone you already know</summary>${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already approved in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}</details>` : ''}
     </section>
-    <section class="section"><details ${agents.length && (b.paused || !open && b.used > 0) ? 'open' : ''}><summary class="section-title" style="cursor:pointer">Agent rules${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</summary>
-      <div style="margin-top:10px">
-      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No round limit' : `Open until ${time(b.until)}`) : 'Rounds used since the last human message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
-      <div class="inline wrap"><button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause all'}</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button><button class="btn btn-soft btn-sm" data-ctl="reset">Reset</button>
-        <button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">h</span></div>
-      <div class="agent-opts" style="padding-left:0;margin-top:8px"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
-      <h4 class="section-title" style="margin-top:14px">Purpose</h4>
+    <section class="section is-tight">
+      <div class="section-title-row"><h3 class="section-title">Agents${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</h3>
+        <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause'}</button></div>
+      ${ctl('rounds', 'Rounds', `<span class="ctl-val">${b.paused ? 'paused' : open ? (b.unlimited ? 'no limit' : `open until ${time(b.until)}`) : `${b.used} / ${b.limit} used`}</span><input class="num" id="roundsN" value="3" inputmode="numeric" aria-label="Rounds to add"><button class="btn btn-soft btn-sm" id="roundsAdd">Add</button>`)}
+      ${ctl('runfor', 'Run for', `<input class="num" id="runHours" value="8" inputmode="numeric" aria-label="Hours"><span class="ctl-val">h</span><button class="btn btn-soft btn-sm" id="runFor">Set</button>`)}
+      ${ctl('prompt', 'Room Prompt', `<button class="btn btn-soft btn-sm" id="promptEdit">${promptOpen ? 'Done' : c.owner ? 'Edit' : 'Read'}</button>`)}
       ${c.owner
-        ? `<textarea class="text-input" id="charterText" rows="6" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>`
-        : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>`}
-      <p class="note" style="margin-top:10px">Who answers a message that names nobody. The next in line steps in after 45s of silence.</p>
-      <div class="order-list" id="orderList">${order.map((n, i) => `<div class="order-item" data-order="${esc(n)}" data-draggable="${c.owner ? '1' : ''}"><span class="idx">${i + 1}</span><div class="avatar" style="width:22px;height:22px;font-size:10px">${esc(n.slice(0, 1))}</div><span class="nm">${esc(n)}</span>${(c.charter?.agents?.[n]?.wake === 'mention') ? '<span class="wait">mentioned only</span>' : (c.charter?.agents?.[n]?.wake === 'backup') ? `<span class="wait">backup for ${esc(c.charter.agents[n].backupFor ?? '?')}</span>` : i ? `<span class="wait">waits ${i * 45}s</span>` : '<span class="wait">answers first</span>'}${c.owner ? '<span class="grip">⋮⋮</span>' : ''}</div>`).join('') || '<p class="note">No agents in this room.</p>'}</div>
-      ${c.owner ? '<div class="apply-bar" id="charterApply" hidden><button class="btn btn-primary btn-sm" id="charterSave">Apply</button><span class="note">Sends the change to the room.</span></div><p class="note">Drag to reorder. @mentions skip the order.</p>' : ''}
-      ${agents.length ? `<h4 class="section-title" style="margin-top:14px">Each agent in this room</h4><p class="note">On/off, when it wakes, and its role here. Roles are part of the room's purpose: every agent gets its own with each turn.</p>${agents.map((p) => {
-        const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
-        const r = c.charter?.agents?.[p.name] ?? {}; const wake = r.wake ?? 'order'
-        const others = agents.filter((a) => a.name !== p.name)
-        const wakeSel = c.owner
-          ? `<select class="sel" data-rule-wake="${esc(p.name)}" title="When this agent is woken"><option value="order" ${wake === 'order' ? 'selected' : ''}>In the turn order</option><option value="mention" ${wake === 'mention' ? 'selected' : ''}>Mentioned only</option><option value="backup" ${wake === 'backup' ? 'selected' : ''} ${others.length ? '' : 'disabled'}>Backup for…</option></select>${wake === 'backup' ? `<select class="sel" data-rule-backup="${esc(p.name)}">${others.map((a) => `<option value="${esc(a.name)}" ${r.backupFor === a.name ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}`
-          : `<span class="note">${wake === 'mention' ? 'mentioned only' : wake === 'backup' ? `backup for ${esc(r.backupFor ?? '?')}` : 'in the turn order'}</span>`
-        return `<div class="rule-row${paused ? ' is-off' : ''}" data-rule-row="${esc(p.name)}"><div class="avatar" style="width:28px;height:28px;font-size:12px">${esc(p.name.slice(0, 1))}</div>
-          <span class="nm">${esc(p.name)}${paused ? ' <span class="pill tone-dim">off</span>' : ''}</span>
-          <span class="inline" style="gap:6px;align-items:center">${wakeSel}</span>
-          <label class="switch" title="${paused ? 'Let it speak' : 'Silence it in this room'}"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label>
-          ${c.owner ? `<textarea class="text-input role" data-rule-role="${esc(p.name)}" rows="2" placeholder="Its role in this room (optional)">${esc(r.role ?? '')}</textarea>` : (r.role ? `<div class="role-ro">${esc(r.role)}</div>` : '')}
-          ${c.owner ? `<div class="agent-opts" style="grid-column:2 / -1;padding-left:0"><span>Max posts per human message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>` : ''}</div>`
-      }).join('')}` : ''}
-      </div></details></section>`
+        ? `<textarea class="text-input" id="charterText" rows="7" placeholder="What this room is for and how you work here. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px" ${promptOpen ? '' : 'hidden'}>${esc(c.charter?.text ?? '')}</textarea>`
+        : `<p class="note" id="charterRead" style="white-space:pre-wrap" ${promptOpen ? '' : 'hidden'}>${esc(c.charter?.text || 'The owner hasn\'t set a prompt for this room.')}</p>`}
+      ${ctl('agents', 'Agents', `<span class="ctl-val">${agents.length || 'none'}</span>`)}
+      <div class="order-list" id="orderList">${order.map(agentRow).join('') || '<p class="note">No agents in this room.</p>'}</div>
+      ${c.owner ? '<div class="apply-bar" id="charterApply" hidden><button class="btn btn-primary btn-sm" id="charterSave">Apply</button><span class="note">Sends the change to the room.</span></div>' : ''}
+      ${ctl('style', 'Full output welcome', `<label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label>`)}
+    </section>`
 }
 
 // ---------- contacts: everyone you share a room with, across rooms
@@ -1171,6 +1432,7 @@ function renderContactsPage () {
 
 // ---------- profile: you, your devices, the agents you host, approvals
 let loginOffer = null
+let roomOffer = null // a scannable invitation to the room being viewed
 function renderProfilePage () {
   const c = cur()
   const d = S?.device ?? {}
@@ -1179,7 +1441,13 @@ function renderProfilePage () {
   const hosted = (d.participants ?? []).filter((p) => p.role === 'agent')
   const mine = c ? c.members.filter((m) => m.status !== 'orphaned' && (m.ref === d.ref || m.name === meName)) : []
   const glyph = (m) => m.label?.startsWith('device:') ? 'device' : m.device ? 'human' : 'root'
-  const tree = mine.map((m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`).join('')
+  // Who is logged in now is the answer to the usual question; keys that were removed
+  // are history and stay out of the way until asked for. They never leave the chain:
+  // the record is what lets a peer reject a signature the revoked key can still make.
+  const treeRow = (m) => `<div class="tree-row is-${m.status}" style="padding-left:${4 + m.depth * 16}px" title="${esc(m.ref)}">${icon(glyph(m), 'tree-glyph')}<span class="tree-label">${esc(m.label?.replace(/^device:/, '') ?? '?')}</span><span class="tree-ref">${esc(m.ref.split(':')[1].slice(0, 6))}</span>${m.status !== 'active' ? `<span class="pill tone-bad">${esc(m.status)}</span>` : ''}</div>`
+  const live = mine.filter((m) => m.status === 'active')
+  const gone = mine.filter((m) => m.status !== 'active')
+  const tree = live.map(treeRow).join('')
   return `<div class="room-profile"><div class="big" style="border-radius:50%">${esc(meName.slice(0, 1).toUpperCase())}</div><h2>${esc(meName)}</h2><div class="meta">on ${esc(d.name ?? 'this device')}</div>
       <div class="inline"><button class="btn btn-primary btn-sm" id="loginOffer">${icon('qr')}Log in a new device</button><button class="btn btn-soft btn-sm" data-go="settings">${icon('gear')}Settings</button></div></div>
     ${loginOffer ? `<section class="section" style="text-align:center"><div style="display:inline-grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px)">${loginOffer.qr}</div><p class="note" style="margin-top:8px">Scan this on the new device. Good once, for 10 minutes.</p><details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(loginOffer.code)}</div></details></section>` : ''}
@@ -1188,6 +1456,7 @@ function renderProfilePage () {
       <p class="note">One account, a key per device, all shown as you. The root lives on this Mac for now; it moves to an NFC card later.</p></section>
     ${c ? `<section class="section"><div class="section-title-row"><h3 class="section-title">Your keys in ${esc(c.name)}</h3><span class="pill tone-dim">${mine.filter((m) => m.status === 'active').length} active</span></div>
       <div class="tree"><div class="tree-row" title="${esc(c.root)}">${icon('root', 'tree-glyph')}<span class="tree-label">root</span><span class="tree-ref">${esc((c.root ?? '').split(':')[1]?.slice(0, 6) ?? '')}</span>${c.owner ? '<span class="pill tone-accent">yours</span>' : ''}</div>${tree}</div>
+      ${gone.length ? `<details style="margin-top:8px"><summary class="note">${gone.length} removed key${gone.length === 1 ? '' : 's'}</summary><div class="tree" style="margin-top:6px">${gone.map(treeRow).join('')}</div><p class="note" style="margin-top:6px">Kept so this room can still tell which of their old messages were signed while the key was live. They can't sign anything new here.</p></details>` : ''}
       <p class="note">Each key sits under the key that signed it in (your root signs your devices and chat keys; an agent's root signs its sessions). Revoke a key and everything under it goes too.</p></section>` : ''}
     <section class="section"><h3 class="section-title">Agents you host</h3>${hosted.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub mono">${esc(p.ref.slice(0, 26))}… · ${esc(p.bridge ?? 'stream')}</span></div></div>`).join('') || '<p class="note">None on this device. <b>rkeychat add NAME</b> adds one.</p>'}</section>
     ${c?.owner ? `<section class="section"><h3 class="section-title">Approve a device or agent into ${esc(c.name)}</h3>
@@ -1195,52 +1464,6 @@ function renderProfilePage () {
       <button class="btn btn-primary btn-sm" id="approveBtn">Enroll it</button></section>` : ''}`
 }
 
-function renderAgentsPage () {
-  const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
-  const b = c.budget
-  const open = b.unlimited || (b.until && b.until > Date.now())
-  const agents = c.participants.filter((p) => p.role === 'agent' && p.status === 'active')
-  return `<section class="section">
-      <h3 class="section-title">Rounds</h3>
-      <div class="stat-row"><span>${b.paused ? 'Everyone paused' : open ? (b.unlimited ? 'No limit' : `Open until ${time(b.until)}`) : 'Used since your last message'}</span><span class="stat-val">${open || b.paused ? '' : `${b.used} / ${b.limit}`}</span></div>
-      ${open || b.paused ? '' : `<div class="progress"><div class="progress-fill" style="width:${b.limit ? Math.min(100, (b.used / b.limit) * 100) : 0}%"></div></div>`}
-      <p class="note">A round is one hop of agents replying to agents. When they run out, everyone waits for you; your next message starts fresh at 3.</p>
-      <div class="inline"><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="3">+3</button><button class="btn btn-soft btn-sm" data-ctl="extend" data-n="10">+10</button>
-        <button class="btn btn-soft btn-sm" data-ctl="reset" title="Back to 3 rounds per message">Reset</button></div>
-    </section>
-    <section class="section">
-      <h3 class="section-title">Purpose</h3>
-      ${c.owner
-        ? `<textarea class="text-input" id="charterText" rows="5" placeholder="What this room is for, and each agent's role. Every agent gets this with every turn." style="resize:vertical;font:inherit;font-size:13px">${esc(c.charter?.text ?? '')}</textarea>
-        <div class="inline" style="margin-top:8px"><span class="note" style="align-self:center">Answers first:</span><input class="text-input" id="charterOrder" placeholder="${esc(agents.map((p) => p.name).join(', ')) || 'agent names, in order'}" value="${esc((c.charter?.order ?? []).join(', '))}" style="flex:1"><button class="btn btn-soft btn-sm" id="charterSave">Save</button></div>
-        <p class="note">A message that names nobody goes to the first agent listed; the next steps in only if the one before stays silent for 45s. @mentions skip the order.</p>`
-        : `<p class="note" style="white-space:pre-wrap">${esc(c.charter?.text || 'The owner hasn\'t set a purpose for this room.')}</p>${c.charter?.order?.length ? `<p class="note">Answers first: ${esc(c.charter.order.join(' → '))}</p>` : ''}`}
-    </section>
-    <section class="section">
-      <h3 class="section-title">Message style</h3>
-      <div class="agent-opts" style="padding-left:0"><span>Verbose: full output welcome here</span><label class="switch"><input type="checkbox" id="styleVerbose" ${c.style === 'verbose' ? 'checked' : ''}><span class="switch-track"></span></label></div>
-      <p class="note">Off = concise: agents keep posts short and put detail behind Thinking. Good for rooms where agents talk to each other. On = for one-on-one rooms where you want everything.</p>
-    </section>
-    <section class="section">
-      <h3 class="section-title">Let them run</h3>
-      <div class="inline"><button class="btn btn-soft btn-sm" id="runFor">Run for</button><input class="num" id="runHours" value="8"><span class="note" style="align-self:center">hours</span></div>
-      <button class="btn btn-soft btn-sm" data-ctl="unlimited" data-confirm="Let the agents talk with no limit until you reset?">No limit</button>
-      <p class="note">For overnight work. Your messages don't cancel it; Reset or Pause does.</p>
-    </section>
-    <section class="section">
-      <h3 class="section-title">Each agent</h3>
-      ${agents.map((p) => {
-        const paused = b.agents?.paused.includes(p.name); const lim = b.agents?.limits[p.name] ?? ''
-        const [tone, label] = personStatus(p, b)
-        return `<div class="agent-card"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div>
-            <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : 'remote'} · ${b.agents?.posts?.[p.name] ?? 0} posts since your last message</span></div>
-            <span class="status ${tone}">${esc(label)}</span></div>
-          <div class="agent-opts"><span>Can speak</span><label class="switch"><input type="checkbox" data-agent-toggle="${esc(p.name)}" ${paused ? '' : 'checked'}><span class="switch-track"></span></label></div>
-          <div class="agent-opts"><span>Max posts per message</span><input class="num" data-agent-limit="${esc(p.name)}" value="${esc(lim)}" placeholder="any"></div>
-        </div>`
-      }).join('') || '<p class="note">No agents in this room.</p>'}
-    </section>`
-}
 function renderKeysPage () {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const sel = selectedMsg && c.log.find((r) => r.id === selectedMsg)
@@ -1282,6 +1505,7 @@ function renderKeysPage () {
 // ---------- QR scanner (camera + jsQR per frame; lifted from peardrop-desktop/lib/qr-scanner)
 let scan = null
 async function openScanner (onResult) {
+  log.info('ui', 'scanner opened')
   if (scan) return
   if (!navigator.mediaDevices?.getUserMedia) { toast('No camera here: paste the code instead'); return }
   if (!window.jsQR) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = '/jsQR.js'; s.onload = res; s.onerror = rej; document.head.append(s) }).catch(() => {})
@@ -1360,9 +1584,23 @@ es.addEventListener('record', (e) => {
   const c = cur(); if (!c || topic !== c.topic) return
   if (!c.log.some((x) => x.id === rec.id)) { c.log.push(rec); c.log.sort((a, b) => a.ts - b.ts) }
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
-  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'agents') renderPanel()
+  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'room') renderPanel()
 })
-es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'agents') renderPanel() } })
+// Nothing is granted until this is answered. The key fragment is here because it is
+// the one thing that can be checked against the other person's screen.
+let asking = null
+function renderAsk () {
+  const el = $('loginAsk'); if (!el) return
+  el.hidden = !asking
+  if (!asking) return
+  el.innerHTML = `<h4>Let ${esc(asking.deviceName)} in?</h4>
+    <div class="ask-body">${asking.room ? `They would join <b>${esc(asking.room)}</b>, and nothing else.` : 'They would log in as you on a new device.'}<br>
+      Their key starts <span class="ask-key">${esc(asking.device.replace(/^\w+:/, '').slice(0, 12))}</span> — check it matches their screen.</div>
+    <div class="ask-row"><button class="btn btn-primary btn-sm" data-ask-grant="${esc(asking.topic)}">Let them in</button>
+      <button class="btn btn-soft btn-sm is-stop" data-ask-deny="${esc(asking.topic)}">No</button></div>`
+}
+es.addEventListener('login-ask', (e) => { asking = JSON.parse(e.data); renderAsk(); toast(`${asking.deviceName} is asking to join`, 'hold') })
+es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'room') renderPanel() } })
 es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
 es.addEventListener('activity', (e) => {
   const { topic, rec } = JSON.parse(e.data)
@@ -1422,7 +1660,7 @@ function pickMention (name) {
 }
 ta.addEventListener('input', updateMentions)
 ta.addEventListener('input', () => setDraft(cur()?.topic, ta.value)) // keep the draft current as you type
-addEventListener('pagehide', () => setDraft(cur()?.topic, ta.value)) // and when iOS puts the app away
+addEventListener('beforeunload', () => setDraft(cur()?.topic, ta.value)) // and on the way out, however you leave
 ta.addEventListener('click', updateMentions)
 ta.addEventListener('blur', () => setTimeout(() => { $('mentionMenu').hidden = true; mention = null }, 150))
 $('mentionMenu').addEventListener('mousedown', (e) => { const b = e.target.closest('[data-mention]'); if (b) { e.preventDefault(); pickMention(b.dataset.mention) } })
@@ -1432,9 +1670,9 @@ ta.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(mention.items[mention.i].name); return }
     if (e.key === 'Escape') { e.preventDefault(); mention = null; $('mentionMenu').hidden = true; return }
   }
-  // Enter makes a line break; only Send posts, so a message can have paragraphs and half a thought is never
-  // sent by reflex. On a hardware keyboard Cmd/Ctrl-Enter still sends.
-  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
+  // Desktop keeps the keyboard convention your hands already know: Enter sends, ⇧Enter makes a line break. The
+  // phone does the opposite (Enter breaks, the button sends), because there is no modifier to reach for there.
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('composer').requestSubmit() }
 })
 $('composer').addEventListener('submit', async (e) => {
   e.preventDefault()
@@ -1443,6 +1681,7 @@ $('composer').addEventListener('submit', async (e) => {
   if (pendingFile && !pendingFile.hash) { toast('One second, the file is still being indexed.'); return }
   const via = dictatedThisMessage ? 'voice' : undefined
   const att = pendingMemo ? [{ hash: pendingMemo.hash, mime: pendingMemo.mime, size: pendingMemo.size, duration: pendingMemo.duration, peaks: pendingMemo.peaks, transcript: pendingMemo.transcript }] : pendingFile ? [pendingFile] : undefined
+  log.info('room', `sent ${text.length} char${text.length === 1 ? '' : 's'}${att ? ` + ${att.name}` : ''}${replyTo ? ', a reply' : ''}${via ? ` (${via})` : ''}`)
   await api('POST', '/api/send', { room: roomArg(), text, via, att, re: replyTo ? [replyTo] : undefined })
   ta.value = ''; setDraft(roomArg(), ''); dictatedThisMessage = false; clearPending(); clearReply(); grow() // sent: the draft is spent
 })
@@ -1697,6 +1936,7 @@ function clearPending () { if (pendingMemo?.url) URL.revokeObjectURL(pendingMemo
 // media that finishes loading after render grows the feed: stay pinned to the bottom if we were there
 window.mediaLoaded = (el) => { const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 400 + el.offsetHeight) feed.scrollTop = feed.scrollHeight }
 const AUTO_FETCH = 25 * 1024 * 1024 // media up to this size shows inline; bigger files are a card you tap
+const fmtTok = (n) => !n ? '0' : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n)
 const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
 function fileHTML (a, r) {
   const src = `/api/file/${esc(a.hash)}/${encodeURIComponent(a.name)}?room=${encodeURIComponent(roomArg())}`
@@ -1729,6 +1969,7 @@ function paintRing (hash) {
 }
 async function getFile (hash) {
   if (fileProgress.has(hash)) return
+  log.info('files', `fetching ${hash.slice(0, 12)}`)
   fileProgress.set(hash, null); paintRing(hash)
   try {
     await api('POST', '/api/fetch', { room: roomArg(), hash })
@@ -1811,18 +2052,56 @@ $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); a
 $('roomHead').addEventListener('click', (e) => { if (e.target.closest('[data-open-room]')) openPage(page === 'room' ? null : 'room') })
 // purpose + order: the Apply bar shows only once something changed
 function charterDirty () { const bar = document.getElementById('charterApply'); if (bar) bar.hidden = false }
-document.addEventListener('input', (e) => { if (e.target.id === 'charterText' || e.target.dataset.ruleRole !== undefined) charterDirty() })
-// wake-mode selects: re-render the row's companion select, then mark dirty
+// Collect the room prompt, the order and every agent's rule, and send one charter.
+// Rules start from the charter we're looking at, so a rule the UI has no control
+// for (an agent set to back another up from the CLI) is carried through untouched.
+function saveCharter () {
+  const c = cur(); if (!c) return
+  const order = $('orderList') ? [...$('orderList').querySelectorAll('[data-order]')].map((el) => el.dataset.order) : []
+  const agents = {}
+  for (const [n, r] of Object.entries(c.charter?.agents ?? {})) agents[n] = { ...r }
+  document.querySelectorAll('.rule-panel[data-rule-row]').forEach((row) => {
+    const name = row.dataset.ruleRow
+    const rule = { ...(agents[name] ?? {}) }
+    const role = row.querySelector('[data-rule-role]')?.value?.trim()
+    if (role !== undefined) rule.role = role
+    const wake = row.querySelector('[data-rule-wake]')?.value
+    if (wake === 'order') { delete rule.wake; delete rule.backupFor } else if (wake) rule.wake = wake
+    const cap = Number(row.querySelector('[data-rule-cap]')?.value) || 0
+    if (cap > 0) rule.tokensPerDay = cap; else delete rule.tokensPerDay
+    if (!rule.role) delete rule.role
+    if (Object.keys(rule).length) agents[name] = rule; else delete agents[name]
+  })
+  const text = $('charterText') ? $('charterText').value : c.charter?.text ?? ''
+  control({ action: 'charter', text, order, agents })
+    .then(() => { toast('Applied'); const bar = document.getElementById('charterApply'); if (bar) bar.hidden = true })
+    .catch((err) => toast(err.message))
+}
+document.addEventListener('input', (e) => { if (e.target.id === 'charterText' || e.target.dataset.ruleRole !== undefined || e.target.dataset.ruleCap !== undefined) charterDirty() })
+// changing when an agent wakes renumbers the order and needs an Apply
 document.addEventListener('change', (e) => {
-  if (e.target.dataset.ruleWake !== undefined) { charterDirty(); const row = e.target.closest('.rule-row'); const have = row.querySelector('[data-rule-backup]'); if (e.target.value === 'backup' && !have) { const name = e.target.dataset.ruleWake; const others = (cur()?.participants ?? []).filter((p) => p.role === 'agent' && p.status === 'active' && p.name !== name); e.target.insertAdjacentHTML('afterend', `<select class="sel" data-rule-backup="${esc(name)}">${others.map((a) => `<option value="${esc(a.name)}">${esc(a.name)}</option>`).join('')}</select>`) } else if (e.target.value !== 'backup' && have) have.remove() }
-  if (e.target.dataset.ruleBackup !== undefined) charterDirty()
+  if (e.target.dataset.ruleWake === undefined) return
+  const it = e.target.closest('.order-item')
+  if (it) { it.dataset.wake = e.target.value; const idx = it.querySelector('.idx'); idx.classList.toggle('is-mention', e.target.value === 'mention'); renumber(it.closest('.order-list')) }
+  charterDirty()
 })
+// the badge counts only agents that take the open floor; the rest show @
+function renumber (list) {
+  if (!list) return
+  let n = 0
+  for (const el of list.querySelectorAll('.order-item')) {
+    const idx = el.querySelector('.idx'); if (!idx) continue
+    if (el.dataset.wake === 'mention') { idx.textContent = '@'; idx.title = 'only when named'; continue }
+    n++; idx.textContent = n; idx.title = n === 1 ? 'answers first' : `steps in after ${(n - 1) * 45}s of silence`
+  }
+}
 // drag to reorder who answers first: rows slide out of the way as you cross their midpoints
 {
   let drag = null
-  const relabel = (list) => [...list.querySelectorAll('.order-item')].forEach((el, i) => { el.querySelector('.idx').textContent = i + 1; el.querySelector('.wait').textContent = i ? `waits ${i * 45}s` : 'answers first' })
+  const relabel = renumber
   document.addEventListener('pointerdown', (e) => {
-    const it = e.target.closest?.('.order-item[data-draggable="1"]'); if (!it || e.button) return
+    if (!e.target.closest?.('.grip')) return
+    const it = e.target.closest('.order-item[data-draggable="1"]'); if (!it || e.button) return
     e.preventDefault()
     const list = it.parentElement
     drag = { it, list, startY: e.clientY, offset: 0 }
@@ -1907,6 +2186,36 @@ document.addEventListener('click', async (e) => {
     const r = bars.getBoundingClientRect(); player.audio.currentTime = ((e.clientX - r.left) / r.width) * player.audio.duration; return
   }
   const t = e.target.closest('button, [data-room], [data-jump], [data-expand]')
+  // info dots, agent drawers and the prompt editor only flip `hidden`: opening one
+  // never repaints the panel out from under an unsaved edit somewhere else in it
+  const inf = e.target.closest('.info')
+  if (inf) {
+    const k = inf.dataset.tip
+    tipsOpen.has(k) ? tipsOpen.delete(k) : tipsOpen.add(k)
+    const on = tipsOpen.has(k)
+    document.querySelectorAll(`.info[data-tip="${k}"]`).forEach((el) => el.classList.toggle('is-on', on))
+    document.querySelectorAll(`.tip[data-tip-for="${k}"]`).forEach((el) => { el.hidden = !on })
+    return
+  }
+  const gearEl = e.target.closest('[data-rule-open]')
+  if (gearEl) {
+    const n = gearEl.dataset.ruleOpen
+    rulesOpen.has(n) ? rulesOpen.delete(n) : rulesOpen.add(n)
+    const on = rulesOpen.has(n)
+    gearEl.classList.toggle('is-on', on)
+    const pane = gearEl.closest('.order-item')?.querySelector('.rule-panel')
+    if (pane) pane.hidden = !on
+    return
+  }
+  if (t?.id === 'promptEdit') {
+    promptOpen = !promptOpen
+    const el = $('charterText') ?? $('charterRead')
+    if (el) { el.hidden = !promptOpen; if (promptOpen && el.tagName === 'TEXTAREA') el.focus() }
+    t.textContent = promptOpen ? 'Done' : cur()?.owner ? 'Edit' : 'Read'
+    return
+  }
+  if (t?.id === 'roundsAdd') return control({ action: 'extend', n: Math.max(1, Number($('roundsN').value) || 3) })
+  if (t?.id === 'charterSave') { saveCharter(); return }
   if (e.target.closest('[data-open-invite]')) { openPage('invite'); loadPeople(); return }
   if (e.target.closest('[data-get-file]')) { getFile(e.target.closest('[data-get-file]').dataset.getFile); return }
   if (e.target.closest('[data-open-file]')) { openFile(e.target.closest('[data-open-file]').dataset.openFile); return }
@@ -1945,8 +2254,18 @@ document.addEventListener('click', async (e) => {
   if (d.glossRm) { glossary = await api('POST', '/api/glossary', { from: d.glossRm, remove: true }); renderPanel(); return }
   if (t.id === 'runFor') return control({ action: 'until', hours: Number($('runHours').value) || 8 })
   if (t.id === 'renameBtn') return renameRoom()
+  if (d.askGrant) { const r = await api('POST', '/api/login/grant', { topic: d.askGrant }); asking = null; renderAsk(); toast(`Letting ${r.granted} in…`); return }
+  if (d.askDeny) { await api('POST', '/api/login/deny', { topic: d.askDeny }); asking = null; renderAsk(); toast('Declined'); return }
+  if (t.id === 'inviteQr') {
+    try {
+      roomOffer = await api('POST', '/api/login/offer', { room: roomArg() })
+      renderPanel()
+      setTimeout(() => { roomOffer = null; if (page === 'invite') renderPanel() }, 10 * 60_000)
+    } catch (err) { toast(err.message, 'bad') }
+    return
+  }
   if (t.id === 'loginOffer') { api('POST', '/api/login/offer').then((o) => { loginOffer = o; renderPanel(); setTimeout(() => { loginOffer = null; if (page === 'profile') renderPanel() }, 10 * 60_000) }).catch((err) => toast(err.message)); return }
-  if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^rkl1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
+  if (t.dataset.scanLogin !== undefined) { openScanner((text) => { if (/^pearcore:\/\//.test(text) || /^rk[lp]1\./.test(text)) claimLogin(text); else if (/^rkc1\./.test(text)) api('POST', '/api/rooms/join', { invite: text }).then(() => load()).catch((err) => toast(err.message)); else toast('Not an rKeyChat code') }); return }
   if (d.expand !== undefined && !e.target.closest('button')) { expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand); renderPanel(); return }
   if (d.startRoom) { api('POST', '/api/rooms', { name: `${me()} & ${d.startRoom}`, members: [d.startRoom] }).then((r) => { toast(`Room with ${d.startRoom} created`); load(r.topic) }).catch((err) => toast(err.message)); return }
   if (t.id === 'leaveBtn') { if (!confirm(t.dataset.confirm)) return }
@@ -1961,30 +2280,25 @@ document.addEventListener('click', async (e) => {
   if (d.keyUnban) { if (!confirm(`Lift the ban on ${d.who}'s key ${d.keyUnban.slice(8, 20)}? They still need a fresh invite to come back.`)) return; return api('POST', '/api/unban', { room: roomArg(), ref: d.keyUnban }).then(() => toast('Ban lifted')).catch((err) => toast(err.message)) }
   if (t.id === 'clearSel') { selectedMsg = null; renderPanel(); renderFeed(); return }
   if (t.id === 'inviteBtn') { const { invite } = await api('GET', `/api/invite?room=${encodeURIComponent(roomArg())}`); const o = $('inviteOut'); o.textContent = invite; o.hidden = false; navigator.clipboard?.writeText(invite).then(() => toast('Invite copied.')); return }
+  if (t.id === 'debugNote') { toggleNote(); return }
+  if (t.id === 'debugShare') {
+    await refreshDebugSpace()
+    if (!debugSpace?.sharelink) return toast('The notes space isn\'t up yet — try again in a moment', 'warn')
+    try { await navigator.clipboard.writeText(debugSpace.sharelink); toast('Notes link copied. Whoever joins can read the notes, not change them.') } catch { toast(debugSpace.sharelink, 'hold') }
+    return
+  }
+  if (t.id === 'debugNotes') { const n = await api('GET', '/api/debug/notes'); toast(n.notes.length ? `${n.notes.length} notes in ${n.dir}` : 'No notes yet', 'hold'); return }
   if (t.id === 'approveBtn') { const { enrolled } = await api('POST', '/api/approve', { room: roomArg(), code: $('reqIn').value }); toast(`Enrolled ${enrolled} key${enrolled === 1 ? '' : 's'}.`); return }
 })
 document.addEventListener('change', (e) => {
   if (e.target.id === 'styleVerbose') { control({ action: 'style', style: e.target.checked ? 'verbose' : 'concise' }); return }
-  if (e.target.id === 'charterSave') {
-    const order = $('orderList') ? [...$('orderList').querySelectorAll('[data-order]')].map((el) => el.dataset.order) : $('charterOrder').value.split(',').map((x) => x.trim().replace(/^@/, '')).filter(Boolean)
-    const agents = {}
-    document.querySelectorAll('.rule-row[data-rule-row]').forEach((row) => {
-      const name = row.dataset.ruleRow
-      const wake = row.querySelector('[data-rule-wake]')?.value ?? 'order'
-      const rule = { role: row.querySelector('[data-rule-role]')?.value?.trim() ?? '' }
-      if (wake !== 'order') rule.wake = wake
-      if (wake === 'backup') rule.backupFor = row.querySelector('[data-rule-backup]')?.value ?? ''
-      if (rule.role || rule.wake) agents[name] = rule
-    })
-    control({ action: 'charter', text: $('charterText').value, order, agents }).then(() => { toast('Applied'); const bar = document.getElementById('charterApply'); if (bar) bar.hidden = true }).catch((err) => toast(err.message))
-    return
-  }
   if (e.target.id === 'autofix') { api('POST', '/api/settings', { autofix: e.target.checked }).then((x) => { settings = { ...settings, ...x } }); return }
+  if (e.target.id === 'debugMode') { store.set('rk.debug', e.target.checked ? '1' : '0'); refreshDebugSpace().then(() => { renderPanel(); renderHead() }); return }
   const d = e.target.dataset
   if (d.agentToggle) control({ action: e.target.checked ? 'resume' : 'pause', agent: d.agentToggle })
   if (d.agentLimit) control({ action: 'limit', agent: d.agentLimit, n: Number(e.target.value) || 0 })
 })
-setInterval(() => S && (renderStrip(), page === 'agents' && renderPanel()), 30_000)
+setInterval(() => S && (renderStrip(), page === 'room' && renderPanel()), 30_000)
 </script>
 </body>
 </html>
