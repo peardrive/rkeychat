@@ -12,8 +12,9 @@
 // src/trace.js, unchanged in shape. Only the save path differs — there it is IPC to Electron's main process,
 // here it is an HTTP POST to this daemon. When a third app wants it, that is the seam to lift into a package.
 
-import { mkdirSync, writeFileSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { decodeShareLink } from 'pearcore/src/utils/sharelink.utils.js'
 import { dataDir } from './config.js'
 
 const EXT = (type) => /ogg/.test(type) ? 'ogg' : /mp4|m4a|aac/.test(type) ? 'm4a' : /wav/.test(type) ? 'wav' : 'webm'
@@ -52,13 +53,64 @@ export class DebugNotes {
     }
   }
 
+  // Our own notes, then the ones pulled from other devices (under from/<host>/), newest first. Each carries
+  // `dir`, where its files are; a pulled one also says which device (`from`) it came from.
   list () {
-    try {
-      return readdirSync(join(this.dir, 'notes')).filter((n) => !n.startsWith('.')).sort().reverse().map((id) => {
-        const p = join(this.dir, 'notes', id, 'note.json')
-        try { return { id, ...JSON.parse(readFileSync(p, 'utf8')) } } catch { return { id } }
+    const read = (base, extra = {}) => {
+      try {
+        return readdirSync(join(base, 'notes')).filter((n) => !n.startsWith('.')).map((id) => {
+          const d = join(base, 'notes', id)
+          try { return { id, ...JSON.parse(readFileSync(join(d, 'note.json'), 'utf8')), dir: d, ...extra } } catch { return { id, dir: d, ...extra } }
+        })
+      } catch { return [] }
+    }
+    let all = read(this.dir)
+    try { for (const host of readdirSync(join(this.dir, 'from')).filter((n) => !n.startsWith('.'))) all = all.concat(read(join(this.dir, 'from', host), { from: host })) } catch {}
+    return all.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+  }
+
+  // Read another device's notes by the link it shows under Settings → Debug: join that space (we can read, not
+  // write), wait for its file list, and fetch what we do not have yet into from/<host>/notes/<id>/. The other
+  // device has to be awake with rKeyChat open: it is the only one holding the files.
+  async pull (link, { waitMs = 45_000 } = {}) {
+    link = String(link ?? '').trim()
+    let d = null
+    try { d = decodeShareLink(link) } catch {}
+    const [kind, host] = String(d?.spaceName ?? '').split(':')
+    if (!d || kind !== SPACE || !host) throw new Error(`that isn't a debug-notes link${d?.spaceName ? ` (it names "${d.spaceName}")` : ''}`)
+    const core = this.app.core
+    let space = (await core.space.list()).find((s) => s.sharelink === link || s.spaceName === d.spaceName)
+    if (!space) space = await core.space.join(link)
+    const topic = space.topicHash
+    const peers = () => { try { return core.managers.sockets.getConnectedSockets({ topics: [topic] }).length } catch { return 0 } }
+    const listing = () => Object.entries(core.managers.spaceFileList.get(topic) ?? {}).filter(([p]) => /^\/?notes\//.test(p))
+    const t0 = Date.now()
+    while (!listing().length && Date.now() - t0 < waitMs) await new Promise((r) => setTimeout(r, 1000))
+    const files = listing()
+    if (!files.length) throw new Error(`no notes seen from ${host} after ${Math.round(waitMs / 1000)}s (${peers()} of its peers connected). Is their rKeyChat open, and have they saved a note?`)
+    const browser = core.drives.get(space)
+    const base = join(this.dir, 'from', host)
+    const ids = new Set(); let pulled = 0
+    for (const [path, variants] of files) {
+      const [id, ...rest] = path.replace(/^\/?notes\//, '').split('/'); const file = rest.join('/')
+      if (!id || !file || id.startsWith('.') || file.includes('..')) continue
+      ids.add(id)
+      const dest = join(base, 'notes', id, file)
+      if (existsSync(dest)) continue
+      // the newest variant of the path, by its providers' timestamps
+      const newest = (v) => Math.max(0, ...Object.values(v.peers ?? {}).map((p) => Number(p.timestamp) || 0))
+      const root = Object.entries(variants).sort((a, b) => newest(b[1]) - newest(a[1]))[0]?.[0]
+      if (!root) continue
+      mkdirSync(dirname(dest), { recursive: true })
+      const entry = await browser.getFile(path)
+      const task = await entry.download(root, dest)
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`timed out fetching ${id}/${file}`)), 10 * 60_000); t.unref?.()
+        task.onComplete(() => { clearTimeout(t); resolve() }); task.onError?.((e) => { clearTimeout(t); reject(e instanceof Error ? e : new Error(String(e))) })
       })
-    } catch { return [] }
+      pulled++
+    }
+    return { host, topic, peers: peers(), notes: [...ids].sort().reverse(), files: files.length, pulled, dir: base }
   }
 
   // Save one note and announce its files to the space. The write happens whether or not the space is up:

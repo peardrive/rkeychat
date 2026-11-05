@@ -49,6 +49,7 @@ agents
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
+  rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
@@ -308,6 +309,14 @@ switch (cmd) {
   case 'notes': {
     // The other end of Debug notes: what was recorded while using the app. `notes` lists them,
     // `notes ID` prints one trace; the audio sits beside it and its path is printed.
+    if (pos[0] === 'pull') {
+      const link = pos[1] ?? die('usage: rkeychat notes pull LINK   (the pearcore:// link under their Settings → Debug)')
+      console.log('Joining their notes space and waiting for the list (they need rKeyChat open)…')
+      const r = await api('POST', '/api/debug/pull', { link })
+      console.log(`${r.notes.length} note${r.notes.length === 1 ? '' : 's'} from ${r.host}, ${r.pulled} new file${r.pulled === 1 ? '' : 's'} → ${r.dir}`)
+      for (const id of r.notes) console.log(`  ${id}    rkeychat notes ${id}`)
+      break
+    }
     if (pos[0] === 'share') {
       const id = pos[1] ?? die('usage: rkeychat notes share ID --room ROOM')
       const r = await api('POST', '/api/debug/share', { id, room: opt.room })
@@ -318,14 +327,14 @@ switch (cmd) {
     const id = pos[0]
     if (!id) {
       if (!notes.length) { console.log(`no notes yet (${dir})`); break }
-      for (const n of notes) console.log(`${n.id}  ${String(n.steps ?? '?').padStart(4)} steps  ${String(n.seconds ?? '?').padStart(7)}s  ${n.room ?? ''}`)
+      for (const n of notes) console.log(`${n.id}  ${String(n.steps ?? '?').padStart(4)} steps  ${String(n.seconds ?? '?').padStart(7)}s  ${n.room ?? ''}${n.from ? `  (from ${n.from})` : ''}`)
       if (sharelink) console.log(`\nshare: ${sharelink}`)
       break
     }
     const n = notes.find((x) => x.id === id || x.id.startsWith(id)) ?? die(`no note matching "${id}"`)
     const { readFileSync } = await import('node:fs')
-    const d = join(dir, 'notes', n.id)
-    console.log(`${n.id} · ${n.seconds ?? '?'}s · ${n.room ?? 'no room'} · ${n.window ?? ''}`)
+    const d = n.dir ?? join(dir, 'notes', n.id)
+    console.log(`${n.id} · ${n.seconds ?? '?'}s · ${n.room ?? 'no room'} · ${n.window ?? ''}${n.from ? ` · from ${n.from}` : ''}`)
     if (n.audio) console.log(`audio: ${join(d, n.audio)}`)
     console.log('')
     for (const line of readFileSync(join(d, 'trace.jsonl'), 'utf8').trim().split('\n')) {

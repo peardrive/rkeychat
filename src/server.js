@@ -280,6 +280,12 @@ export function serve ({ app }) {
       const rec = await room.post(localHuman(), text, { via: 'note', att })
       return { ...rec, roomName: room.cfg.name, files: att.length }
     },
+    // Read another device's notes by its link (Settings → Debug → the notes link). Waits for that device.
+    'POST /api/debug/pull': async (req) => {
+      const { link, wait } = await body(req)
+      need(link, 'paste the notes link')
+      return notes.pull(link, { waitMs: Math.min(Number(wait) || 45_000, 180_000) })
+    },
 
     'GET /api/invite': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))

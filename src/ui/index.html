@@ -719,15 +719,18 @@ function createTrace ({ log, save }) {
     const id = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     // No microphone outside a secure context (the phone over plain http) and the person may say no: a note
     // without audio is still a note, so neither case stops anything.
-    let stream = null
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch (err) { log.warn('debug', `Note without audio: ${err.message}`) }
+    let stream = null; let why = null
+    if (!navigator.mediaDevices?.getUserMedia) why = 'no microphone API here (not a secure context)'
+    else try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch (err) { why = `${err.name}: ${err.message}` }
     const chunks = []
     let rec = null
     if (stream) {
-      try { rec = new MediaRecorder(stream); rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data) }; rec.start(1000) } catch (err) { log.warn('debug', `Note without audio: ${err.message}`); rec = null }
+      try { rec = new MediaRecorder(stream); rec.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data) }; rec.start(1000) } catch (err) { why = `${err.name}: ${err.message}`; rec = null }
     }
-    note = { id, t0: performance.now(), steps: [], rec, chunks, stream }
+    note = { id, t0: performance.now(), steps: [], rec, chunks, stream, why: rec ? null : (why ?? 'unknown') }
     log.info('debug', `Debug note started${rec ? '' : ' (no audio)'}`)
+    // the reason goes into the trace (so a reader sees it) and to the person, with the fix when we know it
+    if (!rec) { log.warn('debug', `No audio: ${note.why}`); explainNoMic(note.why) }
     emit()
   }
 
@@ -741,7 +744,7 @@ function createTrace ({ log, save }) {
     const meta = {
       startedAt: new Date(Date.now() - (performance.now() - n.t0)).toISOString(),
       seconds: Math.round(performance.now() - n.t0) / 1000,
-      steps: n.steps.length, app: 'rkeychat', userAgent: navigator.userAgent, window: `${innerWidth}×${innerHeight}`, ...extra
+      steps: n.steps.length, app: 'rkeychat', userAgent: navigator.userAgent, window: `${innerWidth}×${innerHeight}`, ...(n.why ? { noAudio: n.why } : {}), ...extra
     }
     const saved = await save({ id: n.id, blob, trace: n.steps, meta })
     log.info('debug', `Debug note saved: ${n.steps.length} step(s), ${meta.seconds} s`)
@@ -757,6 +760,17 @@ function createTrace ({ log, save }) {
   }
 }
 
+// Why a note or dictation got no microphone, said so the person can fix it. In the desktop app on macOS the usual
+// cause is the system permission (the first denial sticks to "Electron" for every dev app); in a browser it is
+// the site permission; over plain http on a phone there is no microphone at all.
+async function explainNoMic (why) {
+  const mac = window.rkc?.desktop && window.rkc.platform === 'darwin'
+  const status = mac && window.rkc.micStatus ? await window.rkc.micStatus() : 'unknown'
+  if (status === 'denied' || status === 'restricted') return toast('No audio: macOS is blocking the microphone for this app. System Settings → Privacy & Security → Microphone → allow Electron (or rKeyChat), then relaunch.', 'bad')
+  if (/NotAllowedError/.test(why)) return toast(window.rkc?.desktop ? `No audio: the app refused the microphone (${status}). Relaunch and allow it when asked.` : 'No audio: the browser blocked the microphone. Allow it for this site and try again.', 'bad')
+  if (/secure context/.test(why)) return toast('No audio over plain http. The note still records every tap.', 'warn')
+  toast(`No audio for this note: ${why}. It still records every tap.`, 'warn')
+}
 const b64 = (buf) => { let s = ''; const a = new Uint8Array(buf); for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s) }
 const trace = createTrace({
   log,
@@ -1234,6 +1248,8 @@ function renderSettingsPage () {
       <p class="note">Puts a mic button in the room header. Press it, say what you're seeing and keep using the app: what you touch is written down beside the recording, so a note never has to describe which thing you meant. Press again to save.</p>
       ${debugOn() ? `<div class="inline wrap"><button class="btn btn-soft btn-sm" id="debugShare">${icon('copy')}Copy the notes link</button><button class="btn btn-soft btn-sm" id="debugNotes">${debugSpace?.count ?? 0} saved</button></div>
       ${debugSpace?.sharelink ? `<div class="code" id="debugLink" style="margin-top:8px" title="Click to select, then copy">${esc(debugSpace.sharelink)}</div>` : ''}
+      <form class="inline" id="debugPull" style="margin-top:10px"><input class="text-input mono" name="link" placeholder="Someone else's notes link (pearcore://…)" autocomplete="off"><button class="btn btn-soft btn-sm">Pull</button></form>
+      <p class="note">Reads their notes into this device's notes folder. Their rKeyChat has to be open while it pulls.</p>
       <p class="note">Notes live in a space of their own, not in any room. Whoever you hand the link to can read and pull them; nobody else can write to it.${debugSpace?.sharelink ? '' : ' The link appears once the space is up.'}</p>` : ''}
     </section>
     <section class="section">
@@ -1609,6 +1625,8 @@ function bindRoomForms (root) {
   if (ga) ga.onsubmit = async (e) => { e.preventDefault(); const f = new FormData(ga); glossary = await api('POST', '/api/glossary', { from: f.get('from'), to: f.get('to') }); renderPanel() }
   const create = root.querySelector('#heroCreate, #panelCreate')
   if (create) create.onsubmit = async (e) => { e.preventDefault(); const f = new FormData(create); const r = await api('POST', '/api/rooms', { name: f.get('name'), members: f.getAll('m') }); toast(`Created "${r.name}".`); openPage('people'); await load(r.topic) }
+  const pull = root.querySelector('#debugPull')
+  if (pull) pull.onsubmit = async (e) => { e.preventDefault(); toast('Pulling their notes… their rKeyChat has to be open', 'hold'); const r = await api('POST', '/api/debug/pull', { link: new FormData(pull).get('link') }); toast(`${r.notes.length} note${r.notes.length === 1 ? '' : 's'} from ${r.host}, ${r.pulled} new file${r.pulled === 1 ? '' : 's'}. rkeychat notes lists them.`); refreshDebugSpace().then(renderPanel) }
   const join = root.querySelector('#heroJoin, #panelJoin')
   if (join) join.onsubmit = async (e) => {
     e.preventDefault(); const text = String(new FormData(join).get('invite') ?? '').trim()
@@ -2107,7 +2125,8 @@ const applySide = () => {
 }
 applySide()
 $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
-$('roomHead').addEventListener('click', (e) => { if (e.target.closest('[data-open-room]')) openPage(page === 'room' ? null : 'room') })
+// the room's name opens its details, and so does the empty header around it: people tap the header expecting it to
+$('roomHead').addEventListener('click', (e) => { if (e.target.closest('button, a, .face, [data-who], [data-person]')) return; openPage(page === 'room' ? null : 'room') })
 // purpose + order: the Apply bar shows only once something changed
 function charterDirty () { const bar = document.getElementById('charterApply'); if (bar) bar.hidden = false }
 // Collect the room prompt, the order and every agent's rule, and send one charter.

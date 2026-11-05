@@ -20,7 +20,7 @@
  * icon reopens it. Quit stops a daemon this process owns (2 or 3), never one it only
  * attached to (1).
  */
-import { app, BrowserWindow, dialog, session, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session, shell, systemPreferences } from 'electron'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -90,6 +90,8 @@ function allowMicrophone () {
   })
   session.defaultSession.setPermissionCheckHandler((wc, permission, requestingOrigin) =>
     String(requestingOrigin || '').startsWith(origin()) && ALLOWED.has(permission))
+  // the page asks this when a debug note or dictation gets no microphone, so it can say whether macOS is the one blocking
+  ipcMain.handle('mic-status', () => (process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'unknown'))
   if (process.platform === 'darwin') {
     systemPreferences.askForMediaAccess('microphone')
       .then((granted) => { if (!granted) console.warn('[desktop] macOS denied the microphone: System Settings → Privacy & Security → Microphone') })
