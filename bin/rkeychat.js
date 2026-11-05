@@ -227,6 +227,16 @@ switch (cmd) {
       console.log(`created "${r.name}". Invite others: rkeychat invite --room "${r.name}"`)
     } else if (sub === 'join') {
       const invite = pos[0] ?? die('usage: rkeychat room join INVITE')
+      // Two shapes of invitation. A pearcore:// link ("Show an invitation to scan", rkeychat invite --qr) is
+      // claimed in band: the host is asked to approve and nothing is pasted back. An rkc1. code is the older
+      // way: join the room's space, then send the owner the request this prints.
+      if (/:\/\//.test(invite)) {
+        if (!(await running())) die('start the daemon first (rkeychat start --background), then run this again')
+        console.log('Asking to join. The owner has to approve on their side; this waits for them…')
+        const r = await api('POST', '/api/login/claim', { code: invite })
+        console.log(r.joined?.length ? `You're in: ${r.joined.join(', ')}` : 'Approved, but no room was granted yet.')
+        break
+      }
       if (!(await running())) {
         // daemon down: remember it; it joins on next start
         const cfg = cfgOrDie(); const inv = decodeInvite(invite)

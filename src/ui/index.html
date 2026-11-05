@@ -1053,7 +1053,7 @@ function renderNoRooms () {
     <h2>Start a room</h2>
     <form class="inline" id="heroCreate"><input class="text-input" name="name" placeholder="Room name, e.g. lab" autocomplete="off"><button class="btn btn-primary">Create</button></form>
     <div class="or">or join one</div>
-    <form class="inline" id="heroJoin"><input class="text-input mono" name="invite" placeholder="Paste an invite (rkc1.…)" autocomplete="off"><button class="btn btn-soft">Join</button></form>
+    <form class="inline" id="heroJoin"><input class="text-input mono" name="invite" placeholder="Paste an invite (pearcore:// link or rkc1.…)" autocomplete="off"><button class="btn btn-soft">Join</button></form>
     <div class="or">already have an account on another device?</div>
     <div class="inline"><button class="btn btn-primary" data-scan-login>${icon('qr')}Scan its login code</button></div>
     <form class="inline" id="heroLogin" style="margin-top:8px"><input class="text-input mono" name="code" placeholder="or paste the code (rkl1.…)" autocomplete="off"><button class="btn btn-soft">Log in</button></form>
@@ -1183,7 +1183,7 @@ function renderInvitePage () {
       ${c.owner ? `<button class="btn btn-primary btn-block" id="inviteQr">${icon('qr')}Show an invitation to scan</button>
       <p class="note">A plain pearcore link. They scan it, you get asked to approve, and they are in — no code to send back. Good once, for an hour, and it grants this room only.</p>` : ''}
       ${roomOffer ? `<div style="display:grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px);margin:0 auto">${roomOffer.qr}</div>
-      <p class="note" style="text-align:center;margin-top:8px">Scan this in their rKeyChat.</p>
+      <p class="note" style="text-align:center;margin-top:8px">Scan this in their rKeyChat, or send the code below: it works pasted into their join bar or <b>rkeychat room join</b>.</p>
       <details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(roomOffer.code)}</div></details>` : ''}
       <details style="margin-top:10px"><summary class="note">Send a code instead (they paste a request back)</summary>
         <button class="btn btn-soft btn-block" id="inviteBtn" style="margin-top:8px">${icon('plus')}Copy an invite code</button>
@@ -1321,7 +1321,7 @@ function renderRoomsPage () {
     </section>
     <section class="section">
       <h3 class="section-title">Join with an invite</h3>
-      <form class="inline" id="panelJoin"><input class="text-input mono" name="invite" placeholder="rkc1.…" autocomplete="off"><button class="btn btn-soft btn-sm">Join</button></form>
+      <form class="inline" id="panelJoin"><input class="text-input mono" name="invite" placeholder="pearcore:// link or rkc1.…" autocomplete="off"><button class="btn btn-soft btn-sm">Join</button></form>
     </section>`
 }
 function renderPeoplePage () {
@@ -1610,7 +1610,12 @@ function bindRoomForms (root) {
   const create = root.querySelector('#heroCreate, #panelCreate')
   if (create) create.onsubmit = async (e) => { e.preventDefault(); const f = new FormData(create); const r = await api('POST', '/api/rooms', { name: f.get('name'), members: f.getAll('m') }); toast(`Created "${r.name}".`); openPage('people'); await load(r.topic) }
   const join = root.querySelector('#heroJoin, #panelJoin')
-  if (join) join.onsubmit = async (e) => { e.preventDefault(); const r = await api('POST', '/api/rooms/join', { invite: new FormData(join).get('invite') }); joinedRequest = r.request; await load(r.room.topic) }
+  if (join) join.onsubmit = async (e) => {
+    e.preventDefault(); const text = String(new FormData(join).get('invite') ?? '').trim()
+    // a pearcore:// link is claimed in band (the host approves, nothing to paste back); an rkc1. code joins the space and hands back a request
+    if (/:\/\//.test(text)) return claimLogin(text)
+    const r = await api('POST', '/api/rooms/join', { invite: text }); joinedRequest = r.request; await load(r.room.topic)
+  }
 }
 
 // ---------- events
