@@ -332,6 +332,11 @@ export class Room extends EventEmitter {
     if (rec.kind === 'control' && rec.action === 'rename') this.applyRename()
     if (rec.kind === 'invite' && rec.to === this.device.ref) this.emit('invite', { code: rec.code, from: this.cfg.name })
     if (!quiet) this.emit('record', this.view(rec))
+    // a debug note shared from another device (a phone, mostly): fetch its files now, while that device is
+    // awake, so a helper can read them later from here. Phones don't; they're the ones sleeping.
+    if (!quiet && rec.kind === 'msg' && rec.via === 'note' && typeof Bare === 'undefined') {
+      for (const a of rec.att ?? []) if (a.kind === 'file' && !this.localFile(a.hash)) setTimeout(() => this.fetchFile(a).catch(() => {}), 1500)
+    }
     return true
   }
 
@@ -619,7 +624,7 @@ export class Room extends EventEmitter {
     const triggers = re.map((id) => this.store.get(id)).filter(Boolean).map((r) => this.view(r))
     const human = p.role === 'human'
     // an agent speaking without answering anything continues the current thread
-    const mirror = via === 'mirror'
+    const mirror = via === 'mirror' || via === 'note'
     const depth = human || mirror ? 0 : triggers.length ? replyDepth(triggers) : this.budget().used + 1
     if (!human && !mirror && !this.budget().allows(depth, name)) throw new Error('not allowed to post right now (paused, limited, or out of rounds) — waiting for a human')
     const rec = await makeMessage(p.signer, {
@@ -628,7 +633,7 @@ export class Room extends EventEmitter {
       mentions: parseMentions(text, this.names()),
       re: triggers.map((t) => t.id),
       depth,
-      via: via === 'voice' || via === 'mirror' ? via : undefined,
+      via: via === 'voice' || via === 'mirror' || via === 'note' ? via : undefined,
       att
     })
     if (!this.#ingest(rec)) throw new Error('your key is not an active chat member of this room')

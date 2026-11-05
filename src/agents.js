@@ -6,9 +6,17 @@
 //   hermes — calls the local Hermes Agent API server and posts the reply.
 //   stream — delivers the turn to whoever is listening on /api/wait (Claude
 //            Code via `rkeychat wait`), who replies with `rkeychat send`.
+//   claude — a *project agent*: the daemon owns a headless Claude Code process
+//            (`claude -p` with stream-json on both ends) started in the project
+//            folder, one conversation per room, resumed across restarts. The
+//            daemon sees it start, answer and die, so no turn is ever stranded
+//            on a listener that went away. (What Buzz gets right, done here.)
 
+import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
+import { agentSession } from './config.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
 // turn per process means a listener reconnects immediately, and it must not be
@@ -148,8 +156,34 @@ export class AgentRunner {
       return
     }
     if (this.bridge.kind === 'hermes') this.#runHermes().catch((err) => this.#fail(err))
+    if (this.bridge.kind === 'claude') this.#runClaude().catch((err) => this.#fail(err))
     if (this.bridge.kind === 'stream') this.#offer()
   }
+
+  // ---- claude bridge (a project agent) ----
+
+  async #runClaude () {
+    this.busy = true
+    this.room.setAgentState(this.name, 'thinking')
+    const turn = renderTurn(this.room, this.name, { intro: false })
+    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}`, { claim: turn.triggers.map((t) => t.id) }).catch(() => {})
+    if (!this.proc) {
+      this.proc = new ClaudeProcess({
+        name: this.name,
+        room: this.room,
+        participant: this.room.local[this.name],
+        bridge: this.bridge,
+        // the standing rules go in once, as system prompt; turns arrive as messages
+        system: renderTurn(this.room, this.name, { intro: true }).text.split('\n[room ')[0],
+        onActivity: (text, extra) => this.room.activity(this.name, text, extra).catch(() => {})
+      })
+    }
+    const { reply, usage } = await this.proc.prompt(turn.text)
+    if (usage) await this.room.activity(this.name, 'answered', { usage }).catch(() => {})
+    await this.#deliver(reply, turn.triggers.map((t) => t.id))
+  }
+
+  stop () { this.proc?.stop() }
 
   #fail (err) {
     this.busy = false
@@ -251,4 +285,154 @@ export class AgentRunner {
       setImmediate(() => this.poke())
     }
   }
+}
+
+// One headless Claude Code process for one agent in one room, owned by the daemon.
+//
+// `claude -p --input-format stream-json --output-format stream-json` reads user messages
+// as JSON lines on stdin and writes events on stdout: `system/init` (with the session id),
+// `assistant` (text and tool_use blocks as they happen), and one `result` per prompt.
+// The process stays up between turns so the conversation is warm; after IDLE_MS it is
+// stopped and the next turn resumes the same session by id. The id lives in the agent's
+// key file, per room, so a daemon restart (or a move to another machine, with the folder)
+// picks the conversation back up — and `claude --resume <id>` from the project folder
+// opens it for a person.
+//
+// Permissions are the agent's own setting (default acceptEdits: it may edit inside the
+// project folder, and anything else asks — which, headless, means "no"). Never bypass.
+const IDLE_MS = 30 * 60_000
+const TURN_TIMEOUT_MS = 20 * 60_000
+
+export class ClaudeProcess {
+  constructor ({ name, room, participant, bridge, system, onActivity }) {
+    this.name = name
+    this.room = room
+    this.p = participant
+    this.bridge = bridge // { kind: 'claude', dir, permissionMode?, tools?: [] , model? }
+    this.system = system
+    this.onActivity = onActivity ?? (() => {})
+    this.child = null
+    this.pending = null // { resolve, reject, timer }
+    this.buf = ''
+    this.stderr = []
+    this.failures = 0
+    this.sessionId = null
+  }
+
+  #spawn () {
+    const topic = this.room.topic
+    let sessionId = agentSession(this.p, topic)
+    const fresh = !sessionId
+    if (fresh) { sessionId = randomUUID(); agentSession(this.p, topic, sessionId) }
+    this.sessionId = sessionId
+    const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+      '--permission-mode', this.bridge.permissionMode ?? 'acceptEdits',
+      fresh ? '--session-id' : '--resume', sessionId]
+    if (this.bridge.model) args.push('--model', this.bridge.model)
+    if (this.bridge.tools?.length) args.push('--allowedTools', ...this.bridge.tools)
+    if (this.system) args.push('--append-system-prompt', this.system)
+    // never inherit a parent Claude Code's session markers: this is its own process
+    const env = { ...process.env }
+    for (const k of Object.keys(env)) if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_SESSION')) delete env[k]
+    const child = spawn(this.bridge.command ?? 'claude', args, { cwd: this.bridge.dir, env, stdio: ['pipe', 'pipe', 'pipe'] })
+    this.child = child
+    this.buf = ''; this.stderr = []
+    child.stdout.on('data', (d) => this.#onData(d))
+    child.stderr.on('data', (d) => { this.stderr.push(String(d)); if (this.stderr.length > 40) this.stderr.shift() })
+    child.on('error', (err) => this.#gone(`could not start claude: ${err.message}`))
+    child.on('exit', (code, sig) => this.#gone(code === 0 || sig === 'SIGTERM' ? null : `claude exited (${code ?? sig}): ${this.stderr.join('').trim().split('\n').slice(-3).join(' | ') || 'no stderr'}`))
+    this.onActivity(`${fresh ? 'started' : 'resumed'} Claude Code in ${this.bridge.dir} (session ${sessionId.slice(0, 8)})`)
+    return child
+  }
+
+  #onData (d) {
+    this.buf += String(d)
+    let i
+    while ((i = this.buf.indexOf('\n')) >= 0) {
+      const line = this.buf.slice(0, i).trim(); this.buf = this.buf.slice(i + 1)
+      if (!line) continue
+      let ev
+      try { ev = JSON.parse(line) } catch { continue }
+      if (ev.type === 'system' && ev.subtype === 'init' && ev.session_id && ev.session_id !== this.sessionId) {
+        this.sessionId = ev.session_id; agentSession(this.p, this.room.topic, ev.session_id)
+      }
+      if (ev.type === 'assistant') {
+        for (const b of ev.message?.content ?? []) {
+          if (b.type === 'tool_use') this.onActivity(`${b.name}: ${summarize(b.input)}`)
+        }
+      }
+      if (ev.type === 'result') {
+        const pend = this.pending; this.pending = null
+        if (!pend) continue
+        clearTimeout(pend.timer)
+        const u = ev.usage
+        const usage = u ? { model: ev.model ?? this.bridge.model ?? 'claude', in: u.input_tokens, out: u.output_tokens, cacheRead: u.cache_read_input_tokens, cacheWrite: u.cache_creation_input_tokens, costUsd: ev.total_cost_usd } : null
+        if (ev.is_error) pend.reject(new Error(`claude: ${ev.result || ev.subtype || 'error'}`))
+        else pend.resolve({ reply: typeof ev.result === 'string' ? ev.result : '', usage })
+        this.failures = 0
+        this.#armIdle()
+      }
+    }
+  }
+
+  #gone (error) {
+    const pend = this.pending; this.pending = null
+    this.child = null
+    clearTimeout(this.idleTimer)
+    if (!pend) return
+    clearTimeout(pend.timer)
+    // a session that cannot be resumed (moved machine, wiped ~/.claude) starts over once
+    if (error && /No conversation found|session.*not found|could not resume/i.test(error) && !pend.retried) {
+      agentSession(this.p, this.room.topic, null)
+      this.onActivity('the saved session is gone; starting a fresh one')
+      pend.retried = true
+      try { this.#send(pend.text, pend); return } catch (err) { error = err.message }
+    }
+    this.failures++
+    pend.reject(new Error(error ?? 'claude stopped before answering'))
+  }
+
+  #armIdle () {
+    clearTimeout(this.idleTimer)
+    this.idleTimer = setTimeout(() => { if (!this.pending) this.stop('idle') }, IDLE_MS)
+    this.idleTimer.unref?.()
+  }
+
+  #send (text, pend) {
+    if (!this.child) this.#spawn()
+    this.pending = pend
+    pend.text = text
+    pend.timer = setTimeout(() => { this.stop('turn timed out'); }, TURN_TIMEOUT_MS)
+    this.child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } }) + '\n')
+  }
+
+  // One turn in, one reply out. Rejects if the process dies or the turn times out; the
+  // runner marks the agent as errored and the next poke tries again (a fresh process).
+  prompt (text) {
+    if (this.pending) return Promise.reject(new Error('a turn is already in flight'))
+    // crash loop guard: after three failures in a row, wait before trying again
+    if (this.failures >= 3 && Date.now() - (this.lastFailAt ?? 0) < 5 * 60_000) return Promise.reject(new Error('claude keeps failing; backing off for five minutes'))
+    return new Promise((resolve, reject) => {
+      const pend = { resolve, reject: (e) => { this.lastFailAt = Date.now(); reject(e) }, timer: null, retried: false }
+      try { this.#send(text, pend) } catch (err) { this.pending = null; pend.reject(err) }
+    })
+  }
+
+  stop (why = 'stopped') {
+    const c = this.child
+    if (!c) return
+    this.child = null
+    clearTimeout(this.idleTimer)
+    try { c.stdin.end() } catch {}
+    const t = setTimeout(() => { try { c.kill('SIGKILL') } catch {} }, 3000); t.unref?.()
+    try { c.kill('SIGTERM') } catch {}
+    if (why !== 'idle') this.onActivity(`Claude Code ${why}`)
+    if (this.pending) { const p = this.pending; this.pending = null; clearTimeout(p.timer); p.reject(new Error(why)) }
+  }
+}
+
+function summarize (input) {
+  if (!input || typeof input !== 'object') return ''
+  const s = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.description ?? JSON.stringify(input)
+  return String(s).replace(/\s+/g, ' ').slice(0, 100)
 }

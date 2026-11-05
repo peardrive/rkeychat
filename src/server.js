@@ -180,6 +180,14 @@ export function serve ({ app }) {
       need(room.isOwner, 'only the room\'s owner can do that')
       return { added: await app.enrollOwnDevices(room) }
     },
+    // Project agents (src/agents.js, claude bridge): a Claude Code conversation per room,
+    // keyed from a project folder. Adding one is live; no restart.
+    'GET /api/agents': async () => app.agents(),
+    'POST /api/agents': async (req) => {
+      const { name, dir, permissionMode, tools, model } = await body(req)
+      need(name, 'an agent needs a name'); need(dir, 'an agent needs a project folder (dir)')
+      return app.addAgent({ name, dir, permissionMode, tools: Array.isArray(tools) ? tools : String(tools ?? '').split(',').map((s) => s.trim()).filter(Boolean), model })
+    },
     'POST /api/rooms/add': async (req) => {
       const { room: key, name } = await body(req)
       const { room } = pick(key)
@@ -255,6 +263,22 @@ export function serve ({ app }) {
       need(Array.isArray(n.trace), 'a note needs its trace')
       const saved = await notes.save({ id: n.id, audio, audioType: n.audioType, trace: n.trace, meta: n.meta })
       return { ...saved, sharelink: (await notes.info()).sharelink }
+    },
+    // Share a saved note into a room: its files by hash (like any shared file) and one message that opens no
+    // turn (via 'note'). This is how a note taken on the phone reaches the machine where someone can read it;
+    // desktops fetch the files as soon as the message lands, so the phone need not stay awake.
+    'POST /api/debug/share': async (req) => {
+      const { id, room: key } = await body(req)
+      const { room } = pick(key)
+      const n = notes.list().find((x) => x.id === id || (id && x.id.startsWith(id)))
+      need(n, 'no such note', 404)
+      const dir = join(notes.dir, 'notes', n.id)
+      const att = []
+      for (const f of [n.audio, n.trace ?? 'trace.jsonl', 'note.json'].filter(Boolean)) att.push(await room.shareFile(join(dir, f), { name: `${n.id}-${f}` }))
+      const secs = Math.round(Number(n.seconds) || 0)
+      const text = `Debug note ${n.id} · ${Math.floor(secs / 60)}m${String(secs % 60).padStart(2, '0')}s · ${n.steps ?? '?'} steps${n.room ? ` · in ${n.room}` : ''}${n.audio ? '' : ' · no audio'}${n.window ? ` · ${n.window}` : ''}`
+      const rec = await room.post(localHuman(), text, { via: 'note', att })
+      return { ...rec, roomName: room.cfg.name, files: att.length }
     },
 
     'GET /api/invite': (req, res, url) => {

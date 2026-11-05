@@ -9,6 +9,20 @@
 3. Safari → Share → **Add to Home Screen**. It runs full screen, without Safari's bars.
 4. Unpair from the same Settings section. The phone is locked out on its next request.
 
+## Where the phone's pearcore comes from (2026-10-28)
+
+The Bare backend (`bare/package.json`) pins pearcore from the mobile repo, by tag:
+`git+https://github.com/peardrive/pearcore-mobile.git#v0.1.0-bare.N`. That repo is the home of the former
+`feat/bare-mobile` branch of `peardrive/pearcore`; every mobile/iOS app works from it, and the desktop engine stays
+on `peardrive/pearcore`. The old `file:../../pearcore-mobile` worktree path is gone: never point at a local folder.
+
+To take a new pearcore: bump the tag in `bare/package.json`, `cd bare && npm install --ignore-scripts`, then
+`cd ../mobile && npm run bundle` (which regenerates `bare/core` from `../src` and packs `mobile/app.bundle.mjs`),
+and reinstall the app on the phone. The desktop daemon still vendors `vendor/pearcore-156a268.tgz`.
+
+Debug notes taken on the phone stay on the phone until shared: after saving one, tap **Share** in the prompt and
+it goes into the current room as files (no agent turn); the Mac fetches them at once. See `docs/debug-notes-module.md`.
+
 ## Security
 
 - The page is only reachable on the tailnet: `http://macbook-pro-2.tailb0cab1.ts.net:4455`, or the https name once certs are on. Nothing is public.

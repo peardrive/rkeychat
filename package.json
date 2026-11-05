@@ -7,7 +7,11 @@
     "rkeychat": "bin/rkeychat.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "app": "electron .",
+    "dist:mac": "bash scripts/build-app.sh mac",
+    "dist:linux": "bash scripts/build-app.sh linux",
+    "dist": "bash scripts/build-app.sh"
   },
   "engines": {
     "node": ">=20"
@@ -18,8 +22,106 @@
     "hyperdht": "^6.34.0",
     "pearcore": "file:vendor/pearcore-156a268.tgz",
     "qrcode": "^1.5.4",
-    "rkey": "file:../rKey",
+    "rkey": "file:vendor/rkey-66862ba.tgz",
     "sherpa-onnx-node": "^1.13.8",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.1",
+    "electron": "^43.8.1",
+    "electron-builder": "^26.15.3"
+  },
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.rkeychat.app",
+    "productName": "rKeyChat",
+    "asar": false,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**",
+      "bin/**",
+      "src/**",
+      "package.json",
+      "!bench/**",
+      "!test/**",
+      "!docs/**",
+      "!dist/**",
+      "!build/**",
+      "!vendor/**",
+      "!**/.DS_Store"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.js"
+    },
+    "mac": {
+      "category": "public.app-category.social-networking",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "rKeyChat uses the microphone for dictation and debug notes.",
+        "NSCameraUsageDescription": "rKeyChat uses the camera to scan invitation codes."
+      }
+    },
+    "dmg": {
+      "title": "rKeyChat"
+    },
+    "icon": "build/icon.png",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "linux": {
+      "category": "Network",
+      "maintainer": "Guy Swann",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "desktop": {
+        "entry": {
+          "Name": "rKeyChat",
+          "Comment": "A room for humans and their agents"
+        }
+      }
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0"
+      ]
+    }
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
   }
 }

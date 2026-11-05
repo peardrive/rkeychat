@@ -49,7 +49,7 @@ rKey's own signature (domain-separated) stays the source of truth. A Nostr mirro
    - make, verify and aggregate records;
    - `reactions(records)`, `replies(records, id)`, rounds/turn logic for agent threads.
    - Transport-agnostic: rKeyChat gossips records over room messages; PearDrive can carry them in its existing gossip, or as `.pearmeta/social` files.
-2. **Pear UI elements** (CSS tokens + template functions, Pearcast look), as `pear-ui.css` / `pear-ui.js`:
+2. **Pear UI elements** (CSS tokens + template functions, Pearcast look), as `pear-ui.css` / `pear-ui.js`, living in the Pearkit library repo (`github.com/peardrive/pearkit`):
    - message bubble (mine right, others left, continuation grouping);
    - **reaction row** on the bubble's bottom edge: [add-emoji on hover, sticky once used] [chips] [reply, always shown];
    - emoji picker; who-reacted popover (right-click or long-press);

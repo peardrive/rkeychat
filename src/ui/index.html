@@ -199,6 +199,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   border: 1px solid var(--line); box-shadow: var(--shadow-float); transition: width 0.25s var(--ease); }
 .side.is-collapsed { width: 72px; }
 .side-top { flex: none; padding: 12px; border-bottom: 1px solid var(--line); }
+.side-actions { display: flex; gap: 8px; }
+.side-actions .btn { flex: 1; justify-content: center; white-space: nowrap; }
 .side-add { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(0,0,0,0.35); color: var(--text-3); }
 .side-add .ico { width: 15px; height: 15px; flex: none; }
 .side-add input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12.5px; }
@@ -483,7 +485,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .toast { position: fixed; left: 50%; bottom: 96px; z-index: 50; max-width: min(520px, calc(100% - 32px)); padding: 10px 16px; border-radius: 12px; text-align: center;
   background: rgba(40, 42, 51, 0.97); border: 1px solid var(--line-strong); box-shadow: var(--shadow-float); color: var(--text);
   transform: translate(-50%, 12px); opacity: 0; pointer-events: none; transition: transform 0.3s var(--ease), opacity 0.25s; }
-.toast.is-on { transform: translate(-50%, 0); opacity: 1; }
+.toast.is-on { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; cursor: pointer; }
 .toast.tone-bad { border-color: rgba(255, 107, 97, 0.5); color: #ffb3ac; }
 
 @media (max-width: 900px) { :root { --panel-w: 280px; } .msg { max-width: 88%; } }
@@ -565,7 +567,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 <div class="room">
   <aside class="side" id="side">
-    <div class="side-top"><label class="side-add" title="Type a name to create a room, or paste an invite (rkc1…) to join one"><svg class="ico"><use href="#i-plus"/></svg><input id="sideAdd" placeholder="New room, or paste an invite" autocomplete="off"></label></div>
+    <div class="side-top"><div class="side-actions"><button class="btn btn-primary btn-sm" id="newRoomBtn" title="Start a room and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg>New room</button><button class="btn btn-soft btn-sm" id="addPeopleBtn" title="Invite a person, an agent or one of your own devices into this room"><svg class="ico"><use href="#i-people"/></svg>Add someone</button></div></div>
     <div class="side-body" id="sideBody"></div>
     <div class="side-grip" id="sideGrip" title="Drag to resize · double-click to collapse"></div>
   </aside>
@@ -617,6 +619,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 <div class="toast" id="toast"></div>
 <div class="ask" id="loginAsk" hidden></div>
+<div class="ask" id="noteAsk" hidden></div>
 
 <script>
 const $ = (id) => document.getElementById(id)
@@ -673,8 +676,9 @@ let toastTimer
 function toast (text, tone) {
   const el = $('toast'); el.textContent = text; el.className = `toast is-on${tone ? ` tone-${tone}` : ''}`
   clearTimeout(toastTimer)
-  if (tone !== 'hold') toastTimer = setTimeout(() => el.classList.remove('is-on'), 3600) // 'hold' stays until the next toast
+  toastTimer = setTimeout(() => el.classList.remove('is-on'), tone === 'hold' ? 7000 : 3600) // 'hold' lingers, but goes away
 }
+$('toast').onclick = () => $('toast').classList.remove('is-on')
 async function api (method, path, body) {
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined })
   const out = await res.json()
@@ -763,6 +767,15 @@ const trace = createTrace({
   })
 })
 let debugSpace = null
+// A saved note sits in this device's own notes space. Sharing it into the room is how it reaches whoever
+// helps (and their machine fetches the files at once, so a phone can go back to sleep).
+function offerNoteShare (saved) {
+  const el = $('noteAsk'); const c = cur(); if (!el || !c || !saved?.id) return
+  el.hidden = false
+  el.innerHTML = `<h4>Share this note to ${esc(c.name)}?</h4>
+    <div class="ask-body">Its recording and trace go into the room as files, with no agent turn. Anyone there can read it; the Mac keeps a copy.</div>
+    <div class="ask-row"><button class="btn btn-primary btn-sm" data-note-share="${esc(saved.id)}">Share</button><button class="btn btn-soft btn-sm" data-note-skip="1">Keep it here</button></div>`
+}
 const debugOn = () => store.get('rk.debug', '0') === '1'
 async function refreshDebugSpace () { try { debugSpace = await api('GET', '/api/debug/space') } catch { debugSpace = null } }
 function syncDebugBtn () {
@@ -777,7 +790,7 @@ setInterval(() => { if (trace.active) syncDebugBtn() }, 500)
 async function toggleNote () {
   if (trace.active) {
     const saved = await trace.stop({ room: cur()?.name, panel: page || null })
-    if (saved) toast(saved.shared ? 'Debug note saved and shared' : 'Debug note saved (not shared: the space is offline)')
+    if (saved) { toast('Debug note saved'); offerNoteShare(saved) }
   } else {
     await trace.start()
     trace.step('ui', `room: ${cur()?.name ?? 'none'}; panel: ${page || 'none'}`)
@@ -785,14 +798,44 @@ async function toggleNote () {
   }
   syncDebugBtn()
 }
-// Every button by its label, with where it was: the cheap half of knowing what was touched.
+// What was touched, and where it was — both ways of saying it. The name is the semantic half
+// ("Invite", "room: PearDrive Lab", the message by its author); `at`/`el`/`rect` are the
+// literal half: where the pointer was, the element's short DOM path and its box on screen,
+// so a reader can line the recording up with the exact spot without guessing from words.
+const region = (el) => el.closest('#panel') ? `panel:${page}` : el.closest('#side') ? 'rooms list' : el.closest('.composer') ? 'composer' : el.closest('.room-head') ? 'room header' : el.closest('.feed') ? 'feed' : 'window'
+const domPath = (el) => {
+  const parts = []
+  for (let n = el, i = 0; n && n !== document.body && i < 4; n = n.parentElement, i++) {
+    const cls = [...n.classList].filter((c) => !/^is-|^has-/.test(c)).slice(0, 2).join('.')
+    parts.unshift(`${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''}${cls ? '.' + cls : ''}`)
+  }
+  return parts.join(' > ')
+}
+const box = (el) => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round) }
+const touched = (e, el) => ({ in: region(el), at: [Math.round(e.clientX), Math.round(e.clientY)], el: domPath(el), rect: box(el) })
+const nameOf = (el) => (el.getAttribute('aria-label') || el.title || el.textContent.trim() || el.id || el.className || '?').replace(/\s+/g, ' ').slice(0, 70)
 document.addEventListener('click', (e) => {
   if (!trace.active) return
-  const b = e.target.closest('button, [data-room], [data-go], [data-order]')
-  if (!b || b.id === 'debugNote') return
-  const name = (b.getAttribute('aria-label') || b.title || b.textContent.trim() || b.id || b.className || '?').replace(/\s+/g, ' ').slice(0, 70)
-  const where = b.closest('#panel') ? `panel:${page}` : b.closest('#side') ? 'rooms list' : b.closest('.composer') ? 'composer' : b.closest('.room-head') ? 'room header' : b.closest('.feed') ? 'feed' : 'window'
-  trace.step('click', name, { in: where })
+  const b = e.target.closest('button, [data-room], [data-go], [data-order], a, input, select, textarea, label')
+  if (b?.id === 'debugNote') return
+  if (b) return trace.step('click', nameOf(b), touched(e, b))
+  // not a control: a message bubble, a name, empty space — still worth knowing which one and where
+  const m = e.target.closest('.msg, .bubble, [data-ts], [data-id]')
+  const el = m || e.target
+  const who = m ? (m.querySelector('.who, .name, .author')?.textContent.trim() || '') : ''
+  trace.step('tap', `${m ? `message${who ? ` by ${who}` : ''}` : (el.tagName || '?').toLowerCase()}`, touched(e, el))
+}, true)
+// the field being typed into (never what is typed) and scrolling, as one step per run
+document.addEventListener('focusin', (e) => {
+  if (!trace.active) return
+  const f = e.target.closest('input, textarea, select, [contenteditable]')
+  if (f) trace.step('focus', `${f.placeholder || f.getAttribute('aria-label') || f.name || f.id || f.tagName.toLowerCase()}`, { in: region(f), el: domPath(f), rect: box(f) })
+})
+document.addEventListener('scroll', (e) => {
+  if (!trace.active) return
+  const el = e.target === document ? document.scrollingElement : e.target
+  if (!el?.getBoundingClientRect) return
+  trace.step('scroll', `${region(el)} at ${Math.round(el.scrollTop)}`, undefined, { group: `scroll:${region(el)}` })
 }, true)
 
 const roomArg = () => cur()?.topic
@@ -1190,6 +1233,7 @@ function renderSettingsPage () {
       <div class="agent-opts" style="padding-left:0"><span>Debug mode</span><label class="switch"><input type="checkbox" id="debugMode" ${debugOn() ? 'checked' : ''}><span class="switch-track"></span></label></div>
       <p class="note">Puts a mic button in the room header. Press it, say what you're seeing and keep using the app: what you touch is written down beside the recording, so a note never has to describe which thing you meant. Press again to save.</p>
       ${debugOn() ? `<div class="inline wrap"><button class="btn btn-soft btn-sm" id="debugShare">${icon('copy')}Copy the notes link</button><button class="btn btn-soft btn-sm" id="debugNotes">${debugSpace?.count ?? 0} saved</button></div>
+      ${debugSpace?.sharelink ? `<div class="code" id="debugLink" style="margin-top:8px" title="Click to select, then copy">${esc(debugSpace.sharelink)}</div>` : ''}
       <p class="note">Notes live in a space of their own, not in any room. Whoever you hand the link to can read and pull them; nobody else can write to it.${debugSpace?.sharelink ? '' : ' The link appears once the space is up.'}</p>` : ''}
     </section>
     <section class="section">
@@ -1617,6 +1661,18 @@ es.addEventListener('fork', () => toast('The key chain forked: a writer key sign
 // a file arriving (ours or another window's request): fill the ring, then offer Open
 es.addEventListener('file-progress', (e) => { const { topic, hash, percent, done } = JSON.parse(e.data); if (topic !== cur()?.topic) return; if (done) { haveFile.add(hash); fileProgress.delete(hash) } else if (fileProgress.has(hash) || !haveFile.has(hash)) fileProgress.set(hash, percent); paintRing(hash) })
 es.onerror = () => { const cs = $('connStatus'); cs.className = 'status tone-bad'; cs.textContent = 'daemon unreachable, retrying' }
+// Back from the background (the phone, mostly): with the keyboard up, iOS can bring the page back shifted or
+// unpainted, and the event stream may have died while the app slept. Put the viewport back, drop a focus the
+// keyboard no longer has, repaint everything, and reload if the stream is gone for good.
+function resumeUI () {
+  try { window.scrollTo(0, 0) } catch {}
+  const ta0 = $('text')
+  if (document.activeElement === ta0 && window.visualViewport && window.visualViewport.height > window.innerHeight - 80) ta0.blur()
+  if (es.readyState === EventSource.CLOSED) { location.reload(); return }
+  if (S) { renderAll(); if (cur()) load(cur().topic).catch(() => {}) }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeUI() })
+window.addEventListener('pageshow', (e) => { if (e.persisted) resumeUI() })
 
 // ---------- interactions
 const ta = $('text')
@@ -2032,14 +2088,11 @@ document.querySelectorAll('.dock-btn[data-page]').forEach((b) => (b.onclick = ()
 $('panelClose').onclick = () => openPage('')
 // no microphone outside a secure context (phone over plain http): the keyboard's own dictation still works
 if (!navigator.mediaDevices?.getUserMedia) { $('micBtn').hidden = true; $('memoBtn').hidden = true }
-$('sideAdd').addEventListener('keydown', async (e) => {
-  if (e.key !== 'Enter') return
-  const v = e.target.value.trim(); if (!v) return
-  try {
-    if (v.startsWith('rkc1.')) { const r = await api('POST', '/api/rooms/join', { invite: v }); joinedRequest = r.request; e.target.value = ''; await load(r.room.topic) }
-    else { const r = await api('POST', '/api/rooms', { name: v }); e.target.value = ''; toast(`Created "${r.name}". Invite people from the header.`); await load(r.topic) }
-  } catch {}
-})
+// Two plain buttons where a bare text field used to be: the field read as a search box
+// and nobody found room creation (Guy's debug note, Oct 28). "New room" opens the form
+// with the name focused; "Add someone" opens the invite page for the current room.
+$('newRoomBtn').onclick = () => { log.info('ui', 'New room'); openPage('rooms'); loadPeople(); setTimeout(() => $('panelCreate')?.querySelector('input[name=name]')?.focus(), 50) }
+$('addPeopleBtn').onclick = () => { log.info('ui', 'Add someone'); openPage('invite'); loadPeople() }
 const side = $('side')
 let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
 const applySide = () => {
@@ -2281,10 +2334,17 @@ document.addEventListener('click', async (e) => {
   if (t.id === 'clearSel') { selectedMsg = null; renderPanel(); renderFeed(); return }
   if (t.id === 'inviteBtn') { const { invite } = await api('GET', `/api/invite?room=${encodeURIComponent(roomArg())}`); const o = $('inviteOut'); o.textContent = invite; o.hidden = false; navigator.clipboard?.writeText(invite).then(() => toast('Invite copied.')); return }
   if (t.id === 'debugNote') { toggleNote(); return }
+  if (d.noteSkip) { $('noteAsk').hidden = true; return }
+  if (d.noteShare) { $('noteAsk').hidden = true; const r = await api('POST', '/api/debug/share', { id: d.noteShare, room: roomArg() }); toast(`Note shared to ${r.roomName} (${r.files} files)`); return }
   if (t.id === 'debugShare') {
     await refreshDebugSpace()
     if (!debugSpace?.sharelink) return toast('The notes space isn\'t up yet — try again in a moment', 'warn')
-    try { await navigator.clipboard.writeText(debugSpace.sharelink); toast('Notes link copied. Whoever joins can read the notes, not change them.') } catch { toast(debugSpace.sharelink, 'hold') }
+    // if the clipboard is refused (a browser without a secure context, a permission handler), the
+    // link is on the page in a selectable block — select it so a plain ⌘C works
+    try { await navigator.clipboard.writeText(debugSpace.sharelink); toast('Notes link copied. Whoever joins can read the notes, not change them.') } catch {
+      renderPanel(); const el = $('debugLink')
+      if (el) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('Couldn\'t reach the clipboard — the link is selected below, press ⌘C', 'warn') } else toast(debugSpace.sharelink, 'hold')
+    }
     return
   }
   if (t.id === 'debugNotes') { const n = await api('GET', '/api/debug/notes'); toast(n.notes.length ? `${n.notes.length} notes in ${n.dir}` : 'No notes yet', 'hold'); return }

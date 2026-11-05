@@ -42,10 +42,13 @@ talk                                   (--room R picks the room; default: the fi
 
 agents
   rkeychat add NAME [--hermes URL --key KEY]   add an agent on this device
+  rkeychat agent init NAME [--dir DIR]         a project agent: this folder gets its own seat (key in DIR/.rkeychat, a Claude Code conversation per room, run by the daemon)
+  rkeychat agent list                          project and device agents, with their rooms and session ids
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
@@ -65,6 +68,9 @@ const { values: opt, positionals: pos } = parseArgs({
     hermes: { type: 'string' },
     key: { type: 'string' },
     model: { type: 'string' },
+    dir: { type: 'string' },
+    permission: { type: 'string' },
+    tools: { type: 'string' },
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
@@ -149,6 +155,33 @@ switch (cmd) {
     if (await running()) console.log('restart the daemon to bring it online: rkeychat stop && rkeychat start --background')
     if (cfg.rooms.length) console.log('existing rooms need it enrolled: the room owner approves `rkeychat request --room ROOM` from this device')
     break
+  }
+  case 'agent': {
+    // Project agents: `rkeychat agent init NAME` from inside a project folder gives that
+    // folder its own seat in the rooms — key in <dir>/.rkeychat/agent.json, a Claude Code
+    // conversation per room, owned and resumed by the daemon.
+    const sub = pos[0] ?? 'list'
+    if (sub === 'init' || sub === 'add') {
+      const name = pos[1] ?? die('usage: rkeychat agent init NAME [--dir DIR] [--permission acceptEdits|plan|default] [--tools Read,Edit,Bash] [--model M]')
+      const dir = resolve(opt.dir ?? process.cwd())
+      if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
+      const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model })
+      console.log(`@${r.name} lives in ${r.dir}\n  key: ${r.keyFile}\n  session key ${r.ref.slice(0, 24)}… · account ${r.account?.slice(0, 24) ?? '—'}…`)
+      console.log(r.enrolled.length ? `  signed into: ${r.enrolled.join(', ')}` : '  no rooms owned on this device; for others: rkeychat request --room ROOM, then the owner approves')
+      console.log(`  mention @${r.name} in a room and that folder answers. Open its conversation by hand: cd ${r.dir} && claude --resume <session id from rkeychat agent list>`)
+      break
+    }
+    if (sub === 'list') {
+      if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
+      const agents = await api('GET', '/api/agents')
+      if (!agents.length) { console.log('no agents on this device. rkeychat agent init NAME (project) or rkeychat add NAME (device)'); break }
+      for (const a of agents) {
+        console.log(`@${a.name.padEnd(18)} ${a.bridge.padEnd(7)} ${a.dir ?? ''}`)
+        for (const r of a.rooms) console.log(`    ${r.name.padEnd(18)} ${r.enrolled ? 'enrolled' : 'not enrolled'}  ${r.state}${a.sessions[r.topic] ? `  session ${a.sessions[r.topic]}` : ''}`)
+      }
+      break
+    }
+    die('usage: rkeychat agent init NAME [--dir DIR] | rkeychat agent list')
   }
   case 'start': {
     if (await running()) {
@@ -265,6 +298,12 @@ switch (cmd) {
   case 'notes': {
     // The other end of Debug notes: what was recorded while using the app. `notes` lists them,
     // `notes ID` prints one trace; the audio sits beside it and its path is printed.
+    if (pos[0] === 'share') {
+      const id = pos[1] ?? die('usage: rkeychat notes share ID --room ROOM')
+      const r = await api('POST', '/api/debug/share', { id, room: opt.room })
+      console.log(`shared ${r.files} files to "${r.roomName}": ${r.text}`)
+      break
+    }
     const { notes, dir, sharelink } = await api('GET', '/api/debug/notes')
     const id = pos[0]
     if (!id) {
