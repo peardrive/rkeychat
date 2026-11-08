@@ -93,3 +93,10 @@ device's notes space, waits for its file list and fetches the notes into `debug-
 `rkeychat notes` lists them with `from`. The other device must have rKeyChat open: it is the only holder. A note
 that got no microphone now records why (`noAudio` in note.json, a `No audio:` line in the trace) and tells the person
 the fix; in the desktop app on macOS that is System Settings → Privacy & Security → Microphone.
+
+**In Pearkit (2026-11-08).** The module now lives in the library repo as TypeScript: `pearkit/src/debug/` (trace,
+web recorder, DOM capture, `createDebugNotes`) and `DebugNotesButton` / `useDebugNotes` in
+`pearkit/src/components/DebugNotes/`, guide `pearkit/docs/debug-notes.md` (issue peardrive/pearkit#13). Same three
+files per note, same step shapes, so this app's store, `rkeychat notes` and the reader side are unchanged. rKeyChat's
+in-page copy (`createTrace` in `src/ui/index.html`) stays until the GUI moves onto Pearkit; `~/Anjou/pear-ui/debug/`
+is the plain-JS mirror for the vanilla apps.
