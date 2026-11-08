@@ -87,3 +87,9 @@ files by hash (`<id>-note.m4a`, `<id>-trace.jsonl`, `<id>-note.json`) and posts 
 which opens no agent turn and spends no rounds (`turns.js`). Desktop daemons fetch the files the moment that
 message lands (`room.js`, `#ingest`), so a phone can go back to sleep; phones never auto-fetch. From the CLI:
 `rkeychat notes share <id> --room <room>`; a helper reads them with `rkeychat files` / `rkeychat get ROOT`.
+
+**Pulling by link (2026-11-05).** `rkeychat notes pull <link>` (or the field under Settings → Debug) joins the other
+device's notes space, waits for its file list and fetches the notes into `debug-notes/from/<host>/notes/<id>/`;
+`rkeychat notes` lists them with `from`. The other device must have rKeyChat open: it is the only holder. A note
+that got no microphone now records why (`noAudio` in note.json, a `No audio:` line in the trace) and tells the person
+the fix; in the desktop app on macOS that is System Settings → Privacy & Security → Microphone.
