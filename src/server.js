@@ -57,22 +57,23 @@ const serializeBudget = (b) => ({
 })
 
 export function roomSnapshot (room) {
+  const participants = room.participantsList()
   return {
     name: room.cfg.name,
     topic: room.topic,
     owner: room.isOwner,
     root: room.cfg.root,
     admitted: !!room.chain,
-    participants: room.participantsList(),
+    participants,
     members: room.members(),
     budget: serializeBudget(room.budget()),
     reactions: room.reactions(),
     style: room.style(),
     charter: room.charter(),
     spend: room.spend(),
-    overBudget: Object.fromEntries(room.participantsList().filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
+    overBudget: Object.fromEntries(participants.filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
     connections: room.connections(),
-    log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
+    log: room.recent(500, ['react', 'redact', 'invite'])
   }
 }
 
@@ -88,22 +89,36 @@ export function serve ({ app }) {
     res.on('close', done); res.on('error', done); res.on('finish', done)
     return (data) => { if (gone) return false; try { return res.write(data) } catch { done(); return false } }
   }
+  // `data` may be a function: it is only called when a page is listening, so the daemon builds no
+  // snapshots while nobody has the UI open (the usual case for an agent machine).
   const push = (event, data) => {
-    const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+    if (!sse.size) return
+    const frame = `event: ${event}\ndata: ${JSON.stringify(typeof data === 'function' ? data() : data)}\n\n`
     for (const w of sse) w(frame)
   }
+  // The heavy, whole-state events come in bursts (an agent at work emits a step every few hundred ms, and each
+  // one marks the room changed). Send the latest state once per burst instead of once per step: the page only
+  // ever shows the newest one anyway.
+  const COALESCE_MS = 250
+  const pending = new Map() // key -> timer
+  const pushSoon = (key, event, data) => {
+    if (!sse.size || pending.has(key)) return
+    pending.set(key, setTimeout(() => { pending.delete(key); push(event, data) }, COALESCE_MS))
+  }
+  const pushRooms = () => pushSoon('rooms', 'rooms', () => app.list())
 
   const wire = ({ room }) => {
     const t = room.topic
+    const pushRoom = () => pushSoon(`room:${t}`, 'room', () => roomSnapshot(room))
     room.on('record', (rec) => {
-      if (rec.kind === 'react') return push('reactions', { topic: t, reactions: room.reactions() })
-      if (rec.kind === 'redact' || rec.kind === 'invite') return push('room', roomSnapshot(room))
-      push('record', { topic: t, rec, budget: serializeBudget(room.budget()) })
-      push('rooms', app.list())
+      if (rec.kind === 'react') return push('reactions', () => ({ topic: t, reactions: room.reactions() }))
+      if (rec.kind === 'redact' || rec.kind === 'invite') return pushRoom()
+      push('record', () => ({ topic: t, rec, budget: serializeBudget(room.budget()) }))
+      pushRooms()
     })
-    room.on('changed', () => push('room', roomSnapshot(room)))
-    room.on('chain', () => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
-    room.on('presence', () => { push('participants', { topic: t, participants: room.participantsList() }); push('rooms', app.list()) })
+    room.on('changed', pushRoom)
+    room.on('chain', () => { pushRoom(); pushRooms() })
+    room.on('presence', () => { pushSoon(`participants:${t}`, 'participants', () => ({ topic: t, participants: room.participantsList() })); pushRooms() })
     room.on('agent-error', (e) => push('agent-error', { topic: t, ...e }))
     room.on('activity', (rec) => push('activity', { topic: t, rec }))
     room.on('fork', (f) => push('fork', { topic: t, seq: f.seq }))
@@ -122,8 +137,8 @@ export function serve ({ app }) {
     }
   }
   for (const r of app.rooms.values()) wire(r)
-  app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
-  app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
+  app.on('room-added', (r) => { wire(r); pushRooms() })
+  app.on('room-renamed', ({ room }) => { push('room', () => roomSnapshot(room)); pushRooms() })
   app.on('login-ask', (ask) => push('login-ask', ask))
   app.on('login-progress', (p) => push('login-progress', p))
   app.on('login', (p) => push('login', p))

@@ -250,12 +250,36 @@ export class Room extends EventEmitter {
 
   log () {
     const { ids } = this.blocked()
-    return this.store.ordered.map((r) => {
-      const v = this.view(r)
-      const red = ids.get(r.id)
-      if (!red || r.kind !== 'msg') return v
-      return { ...v, text: '', att: undefined, mentions: [], redacted: { by: this.view(red).name, ts: red.ts } }
-    })
+    return this.store.ordered.map((r) => this.#viewLogged(r, ids))
+  }
+
+  // The newest `limit` records, oldest first, leaving out `skip` kinds: what log().filter().slice(-limit)
+  // gives, without decorating the whole history to keep the tail of it.
+  recent (limit, skip = []) {
+    const { ids } = this.blocked()
+    const out = []
+    const all = this.store.ordered
+    for (let i = all.length - 1; i >= 0 && out.length < limit; i--) {
+      if (!skip.includes(all[i].kind)) out.push(this.#viewLogged(all[i], ids))
+    }
+    return out.reverse()
+  }
+
+  // The newest message that was not removed, as log() would show it, or null.
+  lastMessage () {
+    const { ids } = this.blocked()
+    const all = this.store.ordered
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (all[i].kind === 'msg' && !ids.has(all[i].id)) return this.view(all[i])
+    }
+    return null
+  }
+
+  #viewLogged (r, ids) {
+    const v = this.view(r)
+    const red = ids.get(r.id)
+    if (!red || r.kind !== 'msg') return v
+    return { ...v, text: '', att: undefined, mentions: [], redacted: { by: this.view(red).name, ts: red.ts } }
   }
 
   budget () { return budget(this.log()) }
@@ -846,8 +870,9 @@ export class Room extends EventEmitter {
   // Current reactions per message: { msgId: { emoji: [names] } } (last toggle wins).
   reactions () {
     const state = new Map()
-    for (const r of this.log()) {
-      if (r.kind !== 'react') continue
+    for (const raw of this.store.ordered) {
+      if (raw.kind !== 'react') continue
+      const r = this.view(raw)
       const key = `${r.target}\u0000${r.emoji}\u0000${r.name}`
       if (r.on) state.set(key, r); else state.delete(key)
     }
