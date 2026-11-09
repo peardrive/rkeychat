@@ -44,6 +44,7 @@ agents
   rkeychat add NAME [--hermes URL --key KEY]   add an agent on this device
   rkeychat agent init NAME [--dir DIR]         a project agent: this folder gets its own seat (key in DIR/.rkeychat, a Claude Code conversation per room, run by the daemon)
   rkeychat agent list                          project and device agents, with their rooms and session ids
+  rkeychat agent tools NAME lab|none|RULES     what a project agent may do without asking (default lab: git, npm, node, rkeychat, read-only shell, reading the folders beside it)
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
@@ -132,7 +133,7 @@ async function nextStep () {
 
 switch (cmd) {
   case undefined:
-    console.log(await nextStep())
+    console.log(opt.help ? USAGE : await nextStep())
     break
   case 'help':
     console.log(USAGE)
@@ -168,6 +169,7 @@ switch (cmd) {
       if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
       const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model })
       console.log(`@${r.name} lives in ${r.dir}\n  key: ${r.keyFile}\n  session key ${r.ref.slice(0, 24)}… · account ${r.account?.slice(0, 24) ?? '—'}…`)
+      console.log(`  ${r.tools}   (change it: rkeychat agent tools ${r.name} lab|none|RULE,RULE…)`)
       console.log(r.enrolled.length ? `  signed into: ${r.enrolled.join(', ')}` : '  no rooms owned on this device; for others: rkeychat request --room ROOM, then the owner approves')
       console.log(`  mention @${r.name} in a room and that folder answers. Open its conversation by hand: cd ${r.dir} && claude --resume <session id from rkeychat agent list>`)
       break
@@ -178,11 +180,19 @@ switch (cmd) {
       if (!agents.length) { console.log('no agents on this device. rkeychat agent init NAME (project) or rkeychat add NAME (device)'); break }
       for (const a of agents) {
         console.log(`@${a.name.padEnd(18)} ${a.bridge.padEnd(7)} ${a.dir ?? ''}`)
+        if (a.tools) console.log(`    ${a.tools}`)
         for (const r of a.rooms) console.log(`    ${r.name.padEnd(18)} ${r.enrolled ? 'enrolled' : 'not enrolled'}  ${r.state}${a.sessions[r.topic] ? `  session ${a.sessions[r.topic]}` : ''}`)
       }
       break
     }
-    die('usage: rkeychat agent init NAME [--dir DIR] | rkeychat agent list')
+    if (sub === 'tools') {
+      // what the seat may do without asking; headless, anything else is refused
+      const name = pos[1] ?? die('usage: rkeychat agent tools NAME lab|none|RULE,RULE…   e.g. rkeychat agent tools peardrive "Bash(git:*),Bash(npm:*),Read"')
+      const r = await api('POST', '/api/agents/tools', { name, tools: pos[2] ?? opt.tools ?? 'lab' })
+      console.log(`@${r.name}: ${r.tools}\n  in effect from its next turn`)
+      break
+    }
+    die('usage: rkeychat agent init NAME [--dir DIR] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES')
   }
   case 'start': {
     if (await running()) {

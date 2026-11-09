@@ -22,8 +22,34 @@ daemon restart. For rooms owned by another device: `rkeychat request --room ROOM
 approves, like any new key.
 
 Options: `--permission acceptEdits|plan|default` (default `acceptEdits`: it may edit inside its folder,
-anything else asks, and headless "asks" means no; never bypass), `--tools Read,Edit,Bash` to narrow the
-tool set, `--model M`.
+anything else asks, and headless "asks" means no; never bypass), `--tools lab|none|RULE,RULE…` (below),
+`--model M`.
+
+### What it may do without asking
+
+Headless, a permission prompt has nobody to answer it, so every tool outside the permission mode is
+refused. A seat left at the bare default stalls on its first `npm test` or `git log` and the room sees
+"thinking" until the turn times out; that is how every seat started on the night of the 2026-11-08 audit,
+and Guy unblocked each one by hand with a `.claude/settings.local.json` allowlist in the repo.
+
+So the daemon passes an allowlist (`--allowedTools`) itself. `src/tools.js` holds it; the agent's
+`tools` setting picks it:
+
+| `tools` | the seat may, without asking |
+| --- | --- |
+| `lab` (default) | read, grep and glob; run `git`, `npm`, `npx`, `node`, `rkeychat`; the read-only shell (`ls cat head tail wc grep find diff du which`), `ps pgrep lsof`, `curl`, `mkdir`; **read the folders beside its own** (the other repos it works with), except the `_` business folders (`_keys`, `_deliveries`, …), which are denied outright |
+| `none` | nothing beyond the permission mode: the old behaviour, every other tool asks and is refused |
+| `Bash(git:*),Read,…` | exactly those Claude Code permission rules |
+
+```sh
+rkeychat agent init peardrive                      # lab preset
+rkeychat agent init scratch --tools none           # a seat that may only edit its folder
+rkeychat agent tools peardrive "Bash(git:*),Bash(npm test),Read"   # change it later; takes effect on the next turn
+rkeychat agent list                                # shows each project agent's setting
+```
+
+The repo's own `.claude/settings.json` still applies on top (Claude Code merges allow rules), so a
+project can widen or narrow its seat without touching rKeyChat. `bypassPermissions` is never used.
 
 ## What is in the folder
 

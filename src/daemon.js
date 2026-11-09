@@ -10,6 +10,7 @@ import { loadConfig, saveConfig, dataDir, participantSigners, rootSigner, device
 import { RoomStore } from './store.js'
 import { Room, joinRequest } from './room.js'
 import { AgentRunner } from './agents.js'
+import { parseTools, resolveTools, describeTools } from './tools.js'
 import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
 import { Login } from './login.js'
@@ -104,11 +105,15 @@ export class App extends EventEmitter {
   // in `dir/.rkeychat/agent.json`. Added live — no daemon restart — and signed into
   // every room this device owns right away; rooms owned elsewhere need the usual
   // `rkeychat request` + approval, like any new key on this device.
-  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools = [], model = null }) {
+  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null }) {
     dir = resolve(String(dir ?? '').trim() || process.cwd())
     if (!existsSync(dir)) throw new Error(`no such folder: ${dir}`)
     const keyFile = join(dir, '.rkeychat', 'agent.json')
-    const bridge = { kind: 'claude', dir, permissionMode, ...(tools.length ? { tools } : {}), ...(model ? { model } : {}) }
+    // `tools` is what it may do without asking (src/tools.js): a preset name, or a list.
+    // Unset means the lab preset; `none` is the old behaviour (ask, so headless: refuse).
+    tools = parseTools(tools)
+    if (tools !== undefined) resolveTools(tools, dir) // throws on an unknown preset, before anything is written
+    const bridge = { kind: 'claude', dir, permissionMode, ...(tools !== undefined ? { tools } : {}), ...(model ? { model } : {}) }
     addParticipant(this.cfg, name, { role: 'agent', bridge, keyFile })
     saveConfig(this.cfg)
     // the key is a secret: keep it out of the project's git history
@@ -130,12 +135,30 @@ export class App extends EventEmitter {
       }
     }
     this.emit('agents-changed')
-    return { name, dir, keyFile, ref: p.signer.ref, account: p.account?.ref ?? null, enrolled }
+    return { name, dir, keyFile, ref: p.signer.ref, account: p.account?.ref ?? null, enrolled, tools: describeTools(tools) }
+  }
+
+  // Change what a project agent may do without asking. Live: its process is retired (after
+  // its turn, if one is in flight) and the next turn starts one with the new flags.
+  setAgentTools (name, tools) {
+    const raw = this.cfg.participants[name]
+    if (!raw) throw new Error(`no agent ${name} on this device`)
+    if (raw.bridge?.kind !== 'claude') throw new Error(`${name} is not a project agent (its bridge is ${raw.bridge?.kind ?? 'stream'}); tools apply to project agents only`)
+    tools = parseTools(tools) ?? 'lab'
+    resolveTools(tools, raw.bridge.dir)
+    if (tools === 'lab') delete raw.bridge.tools; else raw.bridge.tools = tools
+    saveConfig(this.cfg)
+    // the runners hold the same bridge object (participantSigners passes it through), so
+    // they already see the change; retire the processes that were started with the old flags
+    for (const { runners } of this.rooms.values()) runners.get(name)?.reconfigured?.()
+    this.emit('agents-changed')
+    return { name, tools: describeTools(tools) }
   }
 
   agents () {
     return Object.entries(this.cfg.participants).filter(([, p]) => p.role === 'agent').map(([name, p]) => ({
       name, bridge: p.bridge?.kind ?? 'stream', dir: p.bridge?.dir ?? null, keyFile: p.keyFile ?? null, ref: p.ref,
+      tools: p.bridge?.kind === 'claude' ? describeTools(p.bridge.tools) : null,
       sessions: p.keyFile ? (() => { try { return readKeyFile(p.keyFile).sessions ?? {} } catch { return {} } })() : {},
       rooms: [...this.rooms.values()].map(({ room, runners }) => ({ name: room.cfg.name, topic: room.topic, enrolled: !!(room.state && room.local[name] && room.state.isActive(room.local[name].signer.ref)), state: room.agentState.get(name) ?? 'idle', busy: !!runners.get(name)?.busy }))
     }))

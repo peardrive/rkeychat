@@ -186,7 +186,13 @@ export function serve ({ app }) {
     'POST /api/agents': async (req) => {
       const { name, dir, permissionMode, tools, model } = await body(req)
       need(name, 'an agent needs a name'); need(dir, 'an agent needs a project folder (dir)')
-      return app.addAgent({ name, dir, permissionMode, tools: Array.isArray(tools) ? tools : String(tools ?? '').split(',').map((s) => s.trim()).filter(Boolean), model })
+      return app.addAgent({ name, dir, permissionMode, tools, model })
+    },
+    // what a project agent may do without asking: a preset (lab, none) or a list of rules
+    'POST /api/agents/tools': async (req) => {
+      const { name, tools } = await body(req)
+      need(name, 'which agent?')
+      return app.setAgentTools(name, tools)
     },
     'POST /api/rooms/add': async (req) => {
       const { room: key, name } = await body(req)

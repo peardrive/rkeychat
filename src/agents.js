@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
 import { agentSession } from './config.js'
+import { resolveTools } from './tools.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
 // turn per process means a listener reconnects immediately, and it must not be
@@ -185,6 +186,14 @@ export class AgentRunner {
 
   stop () { this.proc?.stop() }
 
+  // The bridge's tool list changed (rkeychat agent tools): the flags are fixed at spawn,
+  // so the process is retired — now if it is idle, after its turn if one is in flight.
+  reconfigured () {
+    if (!this.proc) return
+    if (this.busy) this.proc.retireAfterTurn = true
+    else this.proc.stop('idle')
+  }
+
   #fail (err) {
     this.busy = false
     this.room.setAgentState(this.name, 'error')
@@ -300,6 +309,8 @@ export class AgentRunner {
 //
 // Permissions are the agent's own setting (default acceptEdits: it may edit inside the
 // project folder, and anything else asks — which, headless, means "no"). Never bypass.
+// What it may do without asking is the bridge's `tools` (src/tools.js; default: the lab
+// preset), passed as --allowedTools, so a seat can run its own tests from its first turn.
 const IDLE_MS = 30 * 60_000
 const TURN_TIMEOUT_MS = 20 * 60_000
 
@@ -329,7 +340,9 @@ export class ClaudeProcess {
       '--permission-mode', this.bridge.permissionMode ?? 'acceptEdits',
       fresh ? '--session-id' : '--resume', sessionId]
     if (this.bridge.model) args.push('--model', this.bridge.model)
-    if (this.bridge.tools?.length) args.push('--allowedTools', ...this.bridge.tools)
+    const { allow, deny } = resolveTools(this.bridge.tools, this.bridge.dir)
+    if (allow.length) args.push('--allowedTools', ...allow)
+    if (deny.length) args.push('--disallowedTools', ...deny)
     if (this.system) args.push('--append-system-prompt', this.system)
     // never inherit a parent Claude Code's session markers: this is its own process
     const env = { ...process.env }
@@ -370,7 +383,8 @@ export class ClaudeProcess {
         if (ev.is_error) pend.reject(new Error(`claude: ${ev.result || ev.subtype || 'error'}`))
         else pend.resolve({ reply: typeof ev.result === 'string' ? ev.result : '', usage })
         this.failures = 0
-        this.#armIdle()
+        // the tool list changed while this turn ran: the next turn gets a process with the new flags
+        if (this.retireAfterTurn) { this.retireAfterTurn = false; this.stop('idle') } else this.#armIdle()
       }
     }
   }
