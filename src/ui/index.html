@@ -969,6 +969,10 @@ function adoptRoom (r) {
     const held = new Set(c.log.map((x) => x.id))
     const gap = c.log.length && r.log.length && !r.log.some((x) => held.has(x.id)) && r.log[0].ts > c.log.at(-1).ts
     if (!gap) { // otherwise (back after a long quiet) the snapshot's page simply is the window
+      // a message that reaches this page first in a snapshot (history sync from another device stores it without
+      // a live 'record' event) still arrived just now: it gets its entrance too, if it's newer than what's shown
+      const end = c.log.at(-1)?.ts ?? 0
+      for (const x of r.log) if (x.kind === 'msg' && !held.has(x.id) && x.ts >= end) arrivals.add(x.id)
       const top = c.log[0]?.id
       const snapOlder = r.hasOlder
       const merged = { log: c.log }; mergeInto(merged, r.log)
@@ -1144,7 +1148,7 @@ function renderFeed () {
   feed.dataset.sig = sig
   // At the live end, stay at the bottom. Anywhere else, the line at the top of the view stays exactly where it
   // is while lines load, unload or change around it (falling back to the distance from the bottom).
-  const stick = (atBottom || headingDown) && !c.hasNewer
+  const stick = (atBottom || headingDown || following()) && !c.hasNewer
   const anchor = stick ? null : anchorOf(feed)
   const fromBottom = feed.scrollHeight - feed.scrollTop
   if (!c.log.length) {
@@ -1218,9 +1222,13 @@ function renderFeed () {
     prev = r
   }
   const created = patchList(feed, items)
+  const arriving = greets(created)
   greetArrivals(created)
   for (const n of created.values()) for (const m of n.querySelectorAll('.fmedia')) mediaSizes.observe(m)
-  if (stick) feed.scrollTop = feed.scrollHeight
+  // at the live end and a message just came in: the feed glides up to make room for it while it fades in,
+  // instead of jumping a message's height in one frame (on the way down to the latest, it just lands)
+  if (stick && arriving && !headingDown) riseToBottom(feed)
+  else if (stick && !following()) feed.scrollTop = feed.scrollHeight // (mid-rise, the rise itself keeps up)
   else if (!restoreAnchor(feed, anchor)) feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
 }
 // Bring `parent`'s children in line with `items` ({ key, html }, each html one element) touching only what
@@ -1266,11 +1274,39 @@ const mediaSizes = new ResizeObserver((entries) => {
 // rooms, or a message redrawn for a reaction shows up as it is, without motion.
 const arrivals = new Set()
 const calmMotion = matchMedia('(prefers-reduced-motion: reduce)')
+const ENTER_MS = 520
+// While the feed glides up to a message that just came in, it isn't quite at the bottom yet; until the glide
+// is over it still counts as following the live end, so a second message mid-glide carries on down. The
+// reader scrolling or touching the feed takes over at once.
+let followUntil = 0; let riseRaf = 0
+const following = () => performance.now() < followUntil
+const stopRise = () => { followUntil = 0; cancelAnimationFrame(riseRaf); riseRaf = 0 }
+for (const ev of ['wheel', 'touchstart', 'keydown']) document.addEventListener(ev, (e) => { if (e.target.closest?.('#feed') || ev === 'wheel') stopRise() }, { passive: true })
+// The feed rises to its new bottom over RISE_MS, eased, in step with the message fading in. The browser's own
+// smooth scroll covers one message's height in a frame or two, which reads as a jump. If another message
+// comes in mid-rise, the rise carries on from where it is to the new bottom.
+const RISE_MS = 420
+function riseToBottom (feed) {
+  cancelAnimationFrame(riseRaf)
+  followUntil = performance.now() + RISE_MS + 200
+  const from = feed.scrollTop; const t0 = performance.now()
+  const ease = (t) => 1 - Math.pow(1 - t, 3)
+  const step = () => {
+    const to = feed.scrollHeight - feed.clientHeight // read each frame: the bottom may move again mid-rise
+    const t = Math.min(1, (performance.now() - t0) / RISE_MS)
+    feed.scrollTop = from + (to - from) * ease(t)
+    if (t < 1) riseRaf = requestAnimationFrame(step); else { riseRaf = 0; feed.scrollTop = feed.scrollHeight }
+  }
+  riseRaf = requestAnimationFrame(step)
+}
+// Did this paint add a message that just arrived? (renderFeed then glides the feed up to it, not a jump)
+const greets = (created) => !calmMotion.matches && !document.hidden && [...arrivals].some((id) => created.has(id))
 function greetArrivals (created) {
   if (!calmMotion.matches && !document.hidden) {
     for (const id of arrivals) {
       // opacity and transform only: nothing around it moves, and the feed's scroll position is untouched
-      created.get(id)?.animate?.([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 180, easing: 'cubic-bezier(0.22, 0.8, 0.24, 1)' })
+      // slow enough to see: half a second on a gentle curve (a sharp ease-out is over before the eye catches it)
+      created.get(id)?.animate?.([{ opacity: 0, transform: 'translateY(22px) scale(0.97)' }, { opacity: 1, transform: 'none' }], { duration: ENTER_MS, easing: 'cubic-bezier(0.25, 0.5, 0.35, 1)' })
     }
   }
   arrivals.clear()
@@ -1981,7 +2017,7 @@ es.addEventListener('record', (e) => {
   }
   if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort(byTs); if (rec.kind === 'msg') arrivals.add(rec.id) }
   // at the bottom, a long-running room keeps a window, not a growing pile
-  const feed = $('feed'); if (headingDown || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140) trimTop(c)
+  const feed = $('feed'); if (headingDown || following() || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140) trimTop(c)
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
   paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
 })
