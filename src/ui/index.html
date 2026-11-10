@@ -916,20 +916,21 @@ function renderFeed () {
       if (!e.live && e.lastOut) joins.push({ ts: e.lastOut, kind: 'member', text: `${e.name} left the room` })
     }
   }
-  let html = ''; let prev = null; let lastDay = ''
+  // one { key, html } per line of the feed; patchList() keeps every line whose html is unchanged
+  const items = []; let prev = null; let lastDay = ''
   let roomWas = null // the room's name as of this point in the log, so a rename can show what it was
   let lastCharter = null // ...and the rules as of this point, so a change can show only what moved
   for (const r of [...c.log, ...joins].sort((x, y) => x.ts - y.ts)) {
     const d = day(r.ts)
-    if (d !== lastDay) { html += `<div class="day-line">${esc(d)}</div>`; lastDay = d; prev = null }
-    if (r.kind === 'member') { html += `<div class="ctl-line">${esc(r.text)} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (d !== lastDay) { items.push({ key: `d:${d}`, html: `<div class="day-line">${esc(d)}</div>` }); lastDay = d; prev = null }
+    if (r.kind === 'member') { items.push({ key: `m:${r.ts}:${r.text}`, html: `<div class="ctl-line">${esc(r.text)} · ${time(r.ts)}</div>` }); prev = null; continue }
     if (r.kind === 'control') {
-      html += `<div class="ctl-line">${esc(ctlText(r, roomWas, lastCharter))} · ${time(r.ts)}</div>`
+      items.push({ key: `c:${r.id}`, html: `<div class="ctl-line">${esc(ctlText(r, roomWas, lastCharter))} · ${time(r.ts)}</div>` })
       if (r.action === 'rename' && r.roomName) roomWas = r.roomName
       if (r.action === 'charter') lastCharter = r
       prev = null; continue
     }
-    if (r.redacted) { html += `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>`; prev = null; continue }
+    if (r.redacted) { items.push({ key: `x:${r.id}`, html: `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>` }); prev = null; continue }
     const isMine = r.name === mine
     const cont = prev && prev.name === r.name && r.ts - prev.ts < 5 * 60_000
     const agent = !r.human
@@ -943,19 +944,53 @@ function renderFeed () {
       `<button class="act" data-info="${esc(r.id)}" title="Verified · details">${icon('info')}</button>`,
       c.owner ? `<button class="act is-stop" data-redact="${esc(r.id)}" title="Remove this message for everyone">${icon('x')}</button>` : ''
     ].join('')
-    html += `<div class="msg${isMine ? ' is-mine' : ''}${cont ? ' is-cont' : ''}${selectedMsg === r.id ? ' is-selected' : ''}" data-id="${esc(r.id)}">
+    items.push({ key: r.id, html: `<div class="msg${isMine ? ' is-mine' : ''}${cont ? ' is-cont' : ''}${selectedMsg === r.id ? ' is-selected' : ''}" data-id="${esc(r.id)}">
       <div class="avatar${r.human ? ' is-human' : ''}">${esc(r.name.slice(0, 1))}</div>
       <div class="msg-main">
         <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${r.device ? `<span class="pill tone-dim" title="Posted from ${esc(r.device)}">${esc(r.device)}</span>` : ''}${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
         <div class="bubble">${quoteHTML(r, prev)}${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => a.kind === 'file' ? fileHTML(a, r) : memoHTML(a, r)).join('')}</div>
         ${reactsHTML(r, isMine)}
         ${isMine ? `<span class="mine-time">${time(r.ts)}</span>` : ''}
-      </div></div>`
+      </div></div>` })
     prev = r
   }
-  feed.innerHTML = html
+  patchList(feed, items)
   if (atBottom) feed.scrollTop = feed.scrollHeight
   else feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
+}
+// Bring `parent`'s children in line with `items` ({ key, html }, each html one element) touching only what
+// changed: a line whose html is the same as last time keeps its node (and whatever was painted into it since,
+// like a file's progress ring), new or changed lines are parsed, and the rest are moved or dropped. A new
+// message in a 500-message room is one parse, not 500.
+const tpl = document.createElement('template')
+function patchList (parent, items) {
+  const old = new Map()
+  for (const n of parent.children) if (n.dataset.k) old.set(n.dataset.k, n)
+  let at = parent.firstChild
+  for (const { key, html } of items) {
+    let n = old.get(key)
+    if (!n || n._html !== html) {
+      tpl.innerHTML = html
+      n = tpl.content.firstElementChild
+      n.dataset.k = key; n._html = html
+    }
+    old.delete(key) // a key repeated in one render gets a fresh node, never the one already placed
+    if (n === at) at = n.nextSibling
+    else parent.insertBefore(n, at)
+  }
+  while (at) { const next = at.nextSibling; at.remove(); at = next }
+}
+// innerHTML that skips the write (and the reflow) when nothing changed since the last write through here.
+function setHTML (el, html) {
+  if (!el || el._html === html) return false
+  el.innerHTML = html; el._html = html
+  return true
+}
+// Many events in one frame (a burst from the daemon) paint once, at the frame.
+const paintQueue = new Set(); let paintRaf = 0
+function paintSoon (...fns) {
+  for (const fn of fns) paintQueue.add(fn)
+  if (!paintRaf) paintRaf = requestAnimationFrame(() => { paintRaf = 0; const fns2 = [...paintQueue]; paintQueue.clear(); for (const fn of fns2) fn() })
 }
 // One row on the message's bottom edge, right side:
 //   [add emoji] [reaction chips] [reply]
@@ -1108,7 +1143,7 @@ function renderStrip () {
     if (isPhone()) { if (thinking.length) parts.push(`<span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause</button>`) } else parts.push(`<span class="pill tone-dim">${open ? (b.unlimited ? 'no round limit' : `open until ${time(b.until)}`) : `round ${b.used} of ${b.limit}`}</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause agents</button>`)
   }
   strip.hidden = !parts.length
-  strip.innerHTML = parts.join('')
+  setHTML(strip, parts.join(''))
 }
 
 // ---------- left sidebar: rooms (open one shows its people, like a folder)
@@ -1120,7 +1155,7 @@ function stackHTML (people) {
 function renderSide () {
   const body = $('sideBody'); if (!body || !S) return
   const c = cur()
-  body.innerHTML = (S.rooms ?? []).map((r) => {
+  setHTML(body, (S.rooms ?? []).map((r) => {
     const open = r.topic === c?.topic
     const others = (r.people ?? []).filter((p) => p.name !== me())
     const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
@@ -1132,7 +1167,7 @@ function renderSide () {
     return `<button class="room-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${unread ? '<span class="unread" title="New since you looked"></span>' : ''}${stackHTML(others.length ? others : r.people)}
         <div class="room-main"><span class="room-name"><span class="n">${esc(r.name)}</span><span class="count">${r.members}</span></span><span class="room-last">${esc(last)}</span></div></button>
       ${open ? `<div class="room-people">${peopleRows}${c?.owner ? `<button class="person-row" data-open-invite style="color:var(--text-3)"><div class="avatar" style="background:none;box-shadow:0 0 0 1px var(--line-strong) inset">${icon('plus')}</div><span class="nm">Invite</span></button>` : ''}</div>` : ''}`
-  }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>'
+  }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>')
 }
 function renderHead () {
   const h = $('roomHead'); const c = cur()
@@ -1140,13 +1175,13 @@ function renderHead () {
   h.hidden = false
   const active = c.participants.filter((p) => p.status === 'active')
   const online = active.filter((p) => p.online).length
-  h.innerHTML = `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
+  setHTML(h, `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
     <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
     <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
-    <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
+    <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`)
   syncDebugBtn()
 }
 async function renameRoom () {
@@ -1263,11 +1298,12 @@ async function openActivity (name) {
   if (page === 'activity') { renderPanel(); scrollActivity() }
 }
 function scrollActivity () { const el = $('panelBody'); if (el) el.scrollTop = el.scrollHeight }
+const actRowHTML = (r, isNew) => `<div class="act-row${isNew ? ' is-new' : ''}"><span class="act-time">${new Date(r.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="act-text">${esc(r.text)}</span></div>`
 function renderActivityPage () {
   const c = cur(); const p = c?.participants.find((x) => x.name === activityAgent)
   if (!p) return '<p class="note">Pick an agent: click its name or status.</p>'
   const [tone, label] = personStatus(p, c.budget)
-  const rows = activityLog.map((r, i) => `<div class="act-row${i >= activityLog.length - 1 ? ' is-new' : ''}"><span class="act-time">${new Date(r.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="act-text">${esc(r.text)}</span></div>`).join('')
+  const rows = activityLog.map((r, i) => actRowHTML(r, i >= activityLog.length - 1)).join('')
   return `<section class="section"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div>
       <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">what it's doing behind the scenes</span></div><span class="status ${tone}">${esc(label)}</span></div>
       <p class="note">Only people see this. It never goes into any agent's prompt, so it costs no tokens.</p></section>
@@ -1277,6 +1313,7 @@ function openPage (p) {
   page = p; store.set('rk.page', p || '')
   log.info('ui', p ? `panel: ${p}` : 'panel closed')
   if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room') loadPeople()
+  $('panelBody')._html = null // opening a page always paints it fresh: a half-done drag or an open drawer starts over
   renderPanel()
 }
 function renderPanel () {
@@ -1290,8 +1327,8 @@ function renderPanel () {
   $('panelIcon').innerHTML = `<use href="#i-${PAGES[page].icon}"/>`
   // phone: a tab strip on top of the sheet, so the main pages are one tap apart
   const tabs = [['room', 'Room'], ['contacts', 'Contacts'], ['profile', 'Profile'], ['settings', 'Settings']]
-  $('sheetTabs').innerHTML = tabs.some(([k]) => k === page) ? tabs.map(([k, t]) => `<button data-go="${k}" class="${k === page ? 'is-on' : ''}">${t}</button>`).join('') : ''
-  $('panelBody').innerHTML = PAGES[page].render()
+  setHTML($('sheetTabs'), tabs.some(([k]) => k === page) ? tabs.map(([k, t]) => `<button data-go="${k}" class="${k === page ? 'is-on' : ''}">${t}</button>`).join('') : '')
+  setHTML($('panelBody'), PAGES[page].render())
   bindRoomForms($('panelBody'))
 }
 function personStatus (p, b) {
@@ -1593,7 +1630,7 @@ function renderChrome () {
   const b = c?.budget
   const pa = $('pauseAll'); const paused = !!b?.paused
   pa.classList.toggle('is-stop', paused)
-  pa.innerHTML = paused ? `${icon('play')}<span>Resume</span>` : `${icon('pause')}<span>Pause</span>`
+  setHTML(pa, paused ? `${icon('play')}<span>Resume</span>` : `${icon('pause')}<span>Pause</span>`)
   pa.title = paused ? 'Let the agents speak again' : 'Pause every agent in this room'
   pa.disabled = !c?.admitted
   $('agentsBadge').hidden = !c?.participants.some((p) => p.role === 'agent' && p.online && p.state === 'thinking')
@@ -1626,14 +1663,18 @@ let lastEvent = Date.now()
 for (const t of ['message', 'record', 'room', 'rooms', 'participants', 'activity']) es.addEventListener(t, () => { lastEvent = Date.now() }, true)
 setInterval(() => { if (Date.now() - lastEvent > 60_000 && cur()) { lastEvent = Date.now(); load(cur().topic).catch(() => {}) } }, 15_000)
 es.onopen = () => load(store.get('rk.room', null))
-es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else { renderSide(); renderChrome() } })
-es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { S.current = r; renderAll() } })
+// The handlers below only update S, then ask for a paint: a burst of events (an agent at work) is one paint.
+const paintPanelIf = (...pages) => () => { if (pages.includes(page)) renderPanel() }
+const paintRoomPanel = paintPanelIf('room')
+const paintPeoplePanel = paintPanelIf('people', 'room')
+es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else paintSoon(renderSide, renderChrome) })
+es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { S.current = r; paintSoon(renderAll) } })
 es.addEventListener('record', (e) => {
   const { topic, rec, budget } = JSON.parse(e.data)
   const c = cur(); if (!c || topic !== c.topic) return
-  if (!c.log.some((x) => x.id === rec.id)) { c.log.push(rec); c.log.sort((a, b) => a.ts - b.ts) }
+  if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort((a, b) => a.ts - b.ts) }
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
-  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'room') renderPanel()
+  c.budget = budget; paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
 })
 // Nothing is granted until this is answered. The key fragment is here because it is
 // the one thing that can be checked against the other person's screen.
@@ -1649,13 +1690,23 @@ function renderAsk () {
       <button class="btn btn-soft btn-sm is-stop" data-ask-deny="${esc(asking.topic)}">No</button></div>`
 }
 es.addEventListener('login-ask', (e) => { asking = JSON.parse(e.data); renderAsk(); toast(`${asking.deviceName} is asking to join`, 'hold') })
-es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'room') renderPanel() } })
-es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
+es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; paintSoon(renderSide, renderHead, renderChrome, renderStrip, paintPeoplePanel) } })
+es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; paintSoon(renderFeed) } })
 es.addEventListener('activity', (e) => {
   const { topic, rec } = JSON.parse(e.data)
   if (topic !== cur()?.topic || rec.name !== activityAgent) return
-  activityLog.push(rec); if (activityLog.length > 600) activityLog = activityLog.slice(-400)
-  if (page === 'activity') { const el = $('panelBody'); const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60; renderPanel(); if (atEnd) scrollActivity() }
+  activityLog.push(rec)
+  const trimmed = activityLog.length > 600; if (trimmed) activityLog = activityLog.slice(-400)
+  if (page !== 'activity') return
+  const el = $('panelBody'); const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+  // one step: add its row, don't repaint the other several hundred
+  const list = el.querySelector('.act-log')
+  if (!trimmed && list?.querySelector('.act-row')) {
+    list.querySelector('.act-row.is-new')?.classList.remove('is-new')
+    list.insertAdjacentHTML('beforeend', actRowHTML(rec, true))
+    el._html = null // the DOM has moved on from the last full paint
+  } else renderPanel()
+  if (atEnd) scrollActivity()
 })
 es.addEventListener('agent-error', (e) => { const x = JSON.parse(e.data); toast(`${x.name}: ${x.error}`, 'bad') })
 // the new device's login, step by step, while it waits for the other side
