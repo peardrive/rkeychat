@@ -956,7 +956,7 @@ function renderFeed () {
       </div></div>` })
     prev = r
   }
-  patchList(feed, items)
+  greetArrivals(patchList(feed, items))
   if (atBottom) feed.scrollTop = feed.scrollHeight
   else feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
 }
@@ -966,7 +966,7 @@ function renderFeed () {
 // message in a 500-message room is one parse, not 500.
 const tpl = document.createElement('template')
 function patchList (parent, items) {
-  const old = new Map()
+  const old = new Map(); const created = new Map() // key -> node parsed in this pass
   for (const n of parent.children) if (n.dataset.k) old.set(n.dataset.k, n)
   let at = parent.firstChild
   for (const { key, html } of items) {
@@ -975,12 +975,27 @@ function patchList (parent, items) {
       tpl.innerHTML = html
       n = tpl.content.firstElementChild
       n.dataset.k = key; n._html = html
+      if (!old.has(key)) created.set(key, n)
     }
     old.delete(key) // a key repeated in one render gets a fresh node, never the one already placed
     if (n === at) at = n.nextSibling
     else parent.insertBefore(n, at)
   }
   while (at) { const next = at.nextSibling; at.remove(); at = next }
+  return created
+}
+// Messages that arrived live since the last feed paint. Only these get an entrance: opening a room, switching
+// rooms, or a message redrawn for a reaction shows up as it is, without motion.
+const arrivals = new Set()
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)')
+function greetArrivals (created) {
+  if (!calmMotion.matches && !document.hidden) {
+    for (const id of arrivals) {
+      // opacity and transform only: nothing around it moves, and the feed's scroll position is untouched
+      created.get(id)?.animate?.([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 180, easing: 'cubic-bezier(0.22, 0.8, 0.24, 1)' })
+    }
+  }
+  arrivals.clear()
 }
 // innerHTML that skips the write (and the reflow) when nothing changed since the last write through here.
 function setHTML (el, html) {
@@ -1674,7 +1689,7 @@ es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.to
 es.addEventListener('record', (e) => {
   const { topic, rec, budget } = JSON.parse(e.data)
   const c = cur(); if (!c || topic !== c.topic) return
-  if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort((a, b) => a.ts - b.ts) }
+  if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort((a, b) => a.ts - b.ts); if (rec.kind === 'msg') arrivals.add(rec.id) }
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
   c.budget = budget; paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
 })
@@ -2153,7 +2168,6 @@ $('newRoomBtn').onclick = () => { log.info('ui', 'New room'); openPage('rooms');
 $('addPeopleBtn').onclick = () => { log.info('ui', 'Add someone'); openPage('invite'); loadPeople() }
 const side = $('side')
 let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
-const calmMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const applySide = () => {
   const w = Number(store.get('rk.sideW', 272)); side.style.setProperty('--side-w', `${w}px`)
   const wasCollapsed = side.classList.contains('is-collapsed')
