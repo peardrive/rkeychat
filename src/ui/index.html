@@ -635,8 +635,8 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
     <div class="find-bar" id="findBar" hidden>
       <label class="side-add find-field"><svg class="ico"><use href="#i-search"/></svg><input id="findInput" type="search" placeholder="Search this room" autocomplete="off" spellcheck="false" aria-label="Search this room"></label>
       <span class="find-count" id="findCount" aria-live="polite"></span>
-      <button type="button" class="icon-btn" id="findPrev" title="Previous match (Shift+Enter)"><svg class="ico"><use href="#i-up"/></svg></button>
-      <button type="button" class="icon-btn" id="findNext" title="Next match (Enter)"><svg class="ico"><use href="#i-down"/></svg></button>
+      <button type="button" class="icon-btn" id="findUp" title="The match above: older (Enter)"><svg class="ico"><use href="#i-up"/></svg></button>
+      <button type="button" class="icon-btn" id="findDown" title="The match below: newer (Shift+Enter)"><svg class="ico"><use href="#i-down"/></svg></button>
       <button type="button" class="icon-btn" id="findClose" title="Close search (Esc)"><svg class="ico"><use href="#i-x"/></svg></button>
     </div>
     <div class="feed" id="feed"></div>
@@ -2456,7 +2456,7 @@ function closeFind () { $('findBar').hidden = true; $('findInput').value = ''; O
 function paintFind () {
   const n = finder.hits.length
   $('findCount').textContent = !finder.q ? '' : n ? `${finder.i + 1} of ${n}${n >= FIND_MAX ? '+' : ''}` : 'No matches'
-  $('findNext').disabled = finder.i >= n - 1; $('findPrev').disabled = finder.i <= 0
+  $('findUp').disabled = finder.i >= n - 1; $('findDown').disabled = finder.i <= 0
 }
 const runFind = debounce(async (q) => {
   const c = cur(); q = q.trim(); finder.q = q
@@ -2467,7 +2467,9 @@ const runFind = debounce(async (q) => {
   finder.hits = r.results; finder.i = -1; paintFind()
   stepFind(1)
 }, 250)
-function stepFind (d) { // +1 next (the next best), -1 previous
+// Matches are newest first, and the chat has the newest at the bottom: +1 is the match above (older), -1 the
+// match below (newer). The arrows point the way the chat moves.
+function stepFind (d) {
   const i = finder.i + d; if (i < 0 || i >= finder.hits.length) return
   finder.i = i; paintFind()
   const words = searchWords(finder.q)
@@ -2478,8 +2480,8 @@ $('findInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1) }
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind() }
 })
-$('findNext').onclick = () => stepFind(1)
-$('findPrev').onclick = () => stepFind(-1)
+$('findUp').onclick = () => stepFind(1)
+$('findDown').onclick = () => stepFind(-1)
 $('findClose').onclick = closeFind
 
 // Search across every room: the field tops the rooms sidebar, and while it holds words the room list gives way
