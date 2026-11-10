@@ -13,7 +13,7 @@ import { isRemote, authorized, newPairToken, redeem, sessions, revokeSession, ta
 import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
-import { MAX_BLOB } from './room.js'
+import { MAX_BLOB, FEED_SKIP } from './room.js'
 import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
@@ -73,7 +73,7 @@ export function roomSnapshot (room) {
     spend: room.spend(),
     overBudget: Object.fromEntries(participants.filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
     connections: room.connections(),
-    log: room.recent(500, ['react', 'redact', 'invite'])
+    log: room.recent(500, FEED_SKIP)
   }
 }
 
@@ -443,6 +443,15 @@ export function serve ({ app }) {
       const { room } = roomForAgent(as, key)
       const rec = await room.activity(as, String(text).trim())
       return { ok: !!rec }
+    },
+    // A window of the feed: ?room=&limit= plus one of before=<id> (older), after=<id> (newer) or around=<id>
+    // (that message in the middle, for jumping to it); none gives the newest. -> { log, hasOlder, hasNewer }
+    'GET /api/log': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const q = (k) => url.searchParams.get(k) || undefined
+      const out = room.page({ before: q('before'), after: q('after'), around: q('around'), limit: q('limit') })
+      need(out, 'that message is not in this room', 404)
+      return out
     },
     'GET /api/activity': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))

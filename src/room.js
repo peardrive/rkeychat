@@ -11,6 +11,11 @@ import { extname } from 'node:path'
 import { Chain, enroll, revoke, unban, consent } from 'rkey'
 import { SCOPES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
+import { windowOf } from './feed-window.js'
+
+// record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
+// messages they point at; invites are addressed to one device)
+export const FEED_SKIP = ['react', 'redact', 'invite']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -263,6 +268,16 @@ export class Room extends EventEmitter {
       if (!skip.includes(all[i].kind)) out.push(this.#viewLogged(all[i], ids))
     }
     return out.reverse()
+  }
+
+  // One window of what the feed shows (see feed-window.js): { log, hasOlder, hasNewer }, or null when the
+  // named message is not in this room. Decorates only the records it returns.
+  page ({ before, after, around, limit } = {}, skip = FEED_SKIP) {
+    const list = this.store.ordered.filter((r) => !skip.includes(r.kind))
+    const w = windowOf(list, { before, after, around, limit })
+    if (!w) return null
+    const { ids } = this.blocked()
+    return { log: list.slice(w.start, w.end).map((r) => this.#viewLogged(r, ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
   }
 
   // The newest message that was not removed, as log() would show it, or null.
