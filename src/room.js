@@ -12,6 +12,7 @@ import { Chain, enroll, revoke, unban, consent } from 'rkey'
 import { SCOPES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
 import { windowOf } from './feed-window.js'
+import { RoomSearch } from './search.js'
 
 // record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
 // messages they point at; invites are addressed to one device)
@@ -99,7 +100,15 @@ export class Room extends EventEmitter {
     this.#hello()
   }
 
-  stop () { clearInterval(this.timer); clearInterval(this.syncTimer) }
+  stop () { clearInterval(this.timer); clearInterval(this.syncTimer); this._search?.close() }
+
+  // this room's message search (search.js); its index opens on the first search, not at startup
+  get search () { return (this._search ??= new RoomSearch(this)) }
+
+  // Search results as the page shows them: newest first, with who wrote each.
+  find (q, opts) {
+    return this.search.find(q, opts).map((r) => ({ ...r, name: this.view(this.store.get(r.id)).name }))
+  }
 
   async space () {
     const list = await this.core.space.list()

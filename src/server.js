@@ -460,6 +460,23 @@ export function serve ({ app }) {
       need(out, 'that message is not in this room', 404)
       return out
     },
+    // Search. ?q= words; a message matches when it has every one of them, anywhere and in any order (each as a
+    // word or its start). Newest first.
+    //   with &room=: that room only -> { engine, results: [{ id, ts, name, snippet }] }
+    //   without:     every room you're in, merged -> results also carry { topic, room } (the room's name)
+    // Snippets mark each match with \u0002 ... \u0003 for the page to highlight.
+    'GET /api/search': (req, res, url) => {
+      const q = url.searchParams.get('q') ?? ''
+      const limit = Number(url.searchParams.get('limit')) || 50
+      const key = url.searchParams.get('room')
+      if (key) { const { room } = pick(key); return { engine: room.search.engine, results: room.find(q, { limit }) } }
+      const results = []
+      for (const { room } of app.rooms.values()) {
+        if (!room.chain) continue // not admitted yet: nothing of it is ours to read
+        for (const r of room.find(q, { limit })) results.push({ ...r, topic: room.topic, room: room.cfg.name })
+      }
+      return { results: results.sort((a, b) => b.ts - a.ts).slice(0, limit) }
+    },
     // when an agent last posted before a message, for the thinking overlay's look-back: ?room=&id=&name= -> { ts }
     'GET /api/log/previous': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))

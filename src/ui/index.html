@@ -140,13 +140,60 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .quote b { color: var(--text); font-weight: 600; margin-right: 6px; } .quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .quote:hover { background: rgba(255,255,255,0.08); }
 .replybar { display: flex; align-items: center; gap: 8px; margin: 0 14px 6px; } .replybar .quote { flex: 1; margin: 0; }
-.msg.is-flash .bubble { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.2s; }
+/* the message you landed on (a quote, a search match): a hollow ring of light travels round it, fading in and
+   out. Only the ring's angle and opacity animate, on one element, for under three seconds. */
+@property --ring { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.msg.is-flash .bubble::after { content: ''; position: absolute; inset: -3px; z-index: 1; padding: 2px; border-radius: inherit; pointer-events: none;
+  background: conic-gradient(from var(--ring), transparent 0deg, rgba(168, 206, 56, 0.15) 40deg, var(--accent) 110deg, #eaffa0 150deg, var(--accent-2) 190deg, transparent 260deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  filter: drop-shadow(0 0 5px rgba(168, 206, 56, 0.55));
+  animation: ring-turn 1.3s linear infinite, ring-life 2.8s ease forwards; }
+@keyframes ring-turn { to { --ring: 360deg; } }
+@keyframes ring-life { 0% { opacity: 0; } 12% { opacity: 1; } 72% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .msg.is-flash .bubble::after { background: var(--accent); filter: none; } }
+/* the words you searched for, inside that message: they fade in, beat like a heart three times (a strong beat,
+   then a softer echo), and fade out. Colour and glow only, so the text never moves or rewraps. */
+mark.hit-glow { color: inherit; border-radius: 4px; padding: 0 1px; background: rgba(255, 214, 10, 0.4); animation: word-beat 3.2s ease-in-out forwards; }
+@keyframes word-beat {
+  0% { background-color: rgba(255, 214, 10, 0); box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+  8% { background-color: rgba(255, 214, 10, 0.32); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  /* beat one: lub, dub */
+  14% { background-color: rgba(255, 214, 10, 0.62); box-shadow: 0 0 16px 3px rgba(255, 214, 10, 0.55); }
+  19% { background-color: rgba(255, 214, 10, 0.34); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  24% { background-color: rgba(255, 214, 10, 0.5); box-shadow: 0 0 11px 2px rgba(255, 214, 10, 0.4); }
+  32% { background-color: rgba(255, 214, 10, 0.32); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  /* beat two */
+  42% { background-color: rgba(255, 214, 10, 0.62); box-shadow: 0 0 16px 3px rgba(255, 214, 10, 0.55); }
+  47% { background-color: rgba(255, 214, 10, 0.34); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  52% { background-color: rgba(255, 214, 10, 0.5); box-shadow: 0 0 11px 2px rgba(255, 214, 10, 0.4); }
+  60% { background-color: rgba(255, 214, 10, 0.32); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  /* beat three */
+  70% { background-color: rgba(255, 214, 10, 0.62); box-shadow: 0 0 16px 3px rgba(255, 214, 10, 0.55); }
+  75% { background-color: rgba(255, 214, 10, 0.34); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  80% { background-color: rgba(255, 214, 10, 0.5); box-shadow: 0 0 11px 2px rgba(255, 214, 10, 0.4); }
+  88% { background-color: rgba(255, 214, 10, 0.3); box-shadow: 0 0 5px 0 rgba(255, 214, 10, 0.18); }
+  100% { background-color: rgba(255, 214, 10, 0); box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+}
 .jump-back { position: absolute; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 12; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--text); background: rgba(34,35,43,0.97); box-shadow: 0 0 0 1px var(--line-strong) inset, var(--shadow-pop); }
 .jump-back[hidden] { display: none; }
 /* how many messages arrived while you were up in history */
 .jump-back .n { position: absolute; top: -6px; right: -8px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center;
   font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent-ink); background: var(--accent); }
-/* the feed keeps its own place when lines load or unload above (renderFeed); the browser's guess would fight it */
+/* search: the global field tops the rooms sidebar; the room's search is a bar over the chat */
+.side-search { margin-bottom: 8px; }
+.search-hit { width: 100%; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; text-align: left; }
+.search-hit:hover { background: rgba(255, 255, 255, 0.05); }
+.hit-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--text-3); }
+.hit-head b { font-size: 12.5px; font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit-head span { white-space: nowrap; }
+.hit-text { font-size: 12.5px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 3px; padding: 0 1px; }
+.find-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); background: rgba(0, 0, 0, 0.22); animation: tip-in 0.12s var(--ease); }
+.find-field { flex: 1; min-width: 0; }
+.find-count { min-width: 70px; text-align: right; padding-right: 4px; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-bar .icon-btn:disabled { opacity: 0.35; }
+/* the feed keeps its own place (renderFeed's anchor, and keepPlaceForMedia for pictures that load late). The
+   browser's own anchoring would correct the same changes a second time and walk the view away. */
 .feed { overflow-anchor: none; }
 .pending { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; }
 /* the memo block inside a message */
@@ -563,6 +610,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
   <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h2.5v2.5H14zM18 14h2.5M14 18v2.5M18 18h2.5v2.5"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
@@ -577,12 +626,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 <div class="room">
   <aside class="side" id="side">
-    <div class="side-top"><div class="side-actions"><button class="btn btn-primary btn-sm" id="newRoomBtn" title="Start a room and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg>New room</button><button class="btn btn-soft btn-sm" id="addPeopleBtn" title="Invite a person, an agent or one of your own devices into this room"><svg class="ico"><use href="#i-people"/></svg>Add someone</button></div></div>
+    <div class="side-top"><label class="side-add side-search" title="Search the messages in all your rooms"><svg class="ico"><use href="#i-search"/></svg><input id="globalSearch" type="search" placeholder="Search all rooms" autocomplete="off" spellcheck="false" aria-label="Search all rooms"></label><div class="side-actions"><button class="btn btn-primary btn-sm" id="newRoomBtn" title="Start a room and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg>New room</button><button class="btn btn-soft btn-sm" id="addPeopleBtn" title="Invite a person, an agent or one of your own devices into this room"><svg class="ico"><use href="#i-people"/></svg>Add someone</button></div></div>
     <div class="side-body" id="sideBody"></div>
     <div class="side-grip" id="sideGrip" title="Drag to resize · double-click to collapse"></div>
   </aside>
   <main class="column">
     <header class="room-head" id="roomHead"></header>
+    <div class="find-bar" id="findBar" hidden>
+      <label class="side-add find-field"><svg class="ico"><use href="#i-search"/></svg><input id="findInput" type="search" placeholder="Search this room" autocomplete="off" spellcheck="false" aria-label="Search this room"></label>
+      <span class="find-count" id="findCount" aria-live="polite"></span>
+      <button type="button" class="icon-btn" id="findPrev" title="Previous match (Shift+Enter)"><svg class="ico"><use href="#i-up"/></svg></button>
+      <button type="button" class="icon-btn" id="findNext" title="Next match (Enter)"><svg class="ico"><use href="#i-down"/></svg></button>
+      <button type="button" class="icon-btn" id="findClose" title="Close search (Esc)"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
     <div class="feed" id="feed"></div>
     <div class="agent-strip" id="agentStrip" hidden></div>
     <button type="button" class="jump-back" id="jumpBack" hidden><svg class="ico"><use href="#i-down"/></svg><span class="n" hidden></span></button>
@@ -858,7 +914,7 @@ async function load (topic) {
   const state = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
   // the same room again (a catch-up after a quiet minute, coming back to the tab): keep the reader's place
   const staying = leaving && state.current?.topic === leaving
-  if (staying) { const snap = state.current; S = { ...state, current: cur() }; adoptRoom(snap) } else { S = state; resetWindow() }
+  if (staying) { const snap = state.current; S = { ...state, current: cur() }; adoptRoom(snap) } else { S = state; resetWindow(); if (!$('findBar').hidden) closeFind() } // a room search belongs to its room
   if (S.current?.topic !== leaving) log.info('room', `opened ${S.current?.name ?? 'no room'}`)
   if (S.current && S.current.topic !== leaving) { ta.value = draftOf(S.current.topic); grow() } // and the one you arrive in gives its own back
   if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
@@ -960,6 +1016,59 @@ function glide (top) {
   feed.addEventListener('scrollend', land, { once: true })
   feed.scrollTo({ top, behavior: calmMotion.matches ? 'auto' : 'smooth' })
 }
+// On the way down to the latest (the jump button): while this is set, the feed treats the reader as already at
+// the bottom, so a message arriving mid-trip carries them on down instead of re-anchoring and stopping the glide.
+let headingDown = false
+// Landed at the latest: stay there for a moment while pictures and videos that load late grow the feed (they
+// have no size until they load). Every frame for SETTLE ms, back to the very bottom; the reader scrolling,
+// tapping or pressing a key lets go at once.
+const SETTLE = 1200
+let settling = 0; let stopSettling = () => {}
+function settleAtBottom () {
+  const feed = $('feed')
+  stopSettling()
+  const until = performance.now() + SETTLE
+  const letGo = () => {
+    cancelAnimationFrame(settling); settling = 0; headingDown = false; stopSettling = () => {}
+    for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown']) feed.removeEventListener(ev, letGo)
+    updateJumpBack(); checkEdges()
+  }
+  stopSettling = letGo // a jump, a search step or "back" ends the stay at once (jumpTo, jumpBack)
+  for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown']) feed.addEventListener(ev, letGo, { passive: true })
+  const hold = () => {
+    if (cur()?.hasNewer) return letGo() // the window is no longer at the live end: nothing to stay at
+    if (feed.scrollHeight - feed.scrollTop - feed.clientHeight > 1) feed.scrollTop = feed.scrollHeight
+    if (performance.now() < until) settling = requestAnimationFrame(hold); else letGo()
+  }
+  settling = requestAnimationFrame(hold)
+}
+// Does the window reach the room's newest message? hasNewer says not; the room list's last message is a second
+// opinion, in case the window was ever left short of the live end without knowing it.
+function holdsNewest (c) {
+  if (c.hasNewer) return false
+  const newest = S.rooms?.find((r) => r.topic === c.topic)?.last?.ts
+  const held = c.log.filter((r) => r.kind === 'msg').at(-1)?.ts ?? 0
+  return !newest || held >= newest
+}
+async function toLatest () {
+  const feed = $('feed'); const c = cur(); if (!c) return
+  navStack.length = 0 // going to the latest ends any way back
+  if (!holdsNewest(c)) {
+    // the newest messages aren't loaded: load them in place of the window and land at the end
+    headingDown = true
+    if (await showPage(null)) feed.scrollTop = feed.scrollHeight
+    return settleAtBottom()
+  }
+  headingDown = true
+  const done = () => { feed.scrollTop = feed.scrollHeight; settleAtBottom() } // land exactly at the end, and stay
+  // a long way up: cover most of it at once and glide only the last screen
+  const rest = feed.scrollHeight - feed.clientHeight - feed.scrollTop
+  if (rest > feed.clientHeight * 2) feed.scrollTop = feed.scrollHeight - feed.clientHeight * 2
+  clearTimeout(gliding)
+  gliding = setTimeout(() => { gliding = 0; done() }, 900)
+  feed.addEventListener('scrollend', () => { if (headingDown) { clearTimeout(gliding); gliding = 0; done() } }, { once: true })
+  feed.scrollTo({ top: feed.scrollHeight, behavior: calmMotion.matches ? 'auto' : 'smooth' })
+}
 // Within EDGE messages of either end of what is held, and there is more that way: ask for it.
 function checkEdges () {
   const c = cur(); const feed = $('feed'); if (!c?.log.length || gliding) return
@@ -1035,7 +1144,7 @@ function renderFeed () {
   feed.dataset.sig = sig
   // At the live end, stay at the bottom. Anywhere else, the line at the top of the view stays exactly where it
   // is while lines load, unload or change around it (falling back to the distance from the bottom).
-  const stick = atBottom && !c.hasNewer
+  const stick = (atBottom || headingDown) && !c.hasNewer
   const anchor = stick ? null : anchorOf(feed)
   const fromBottom = feed.scrollHeight - feed.scrollTop
   if (!c.log.length) {
@@ -1108,7 +1217,9 @@ function renderFeed () {
       </div></div>` })
     prev = r
   }
-  greetArrivals(patchList(feed, items))
+  const created = patchList(feed, items)
+  greetArrivals(created)
+  for (const n of created.values()) for (const m of n.querySelectorAll('.fmedia')) mediaSizes.observe(m)
   if (stick) feed.scrollTop = feed.scrollHeight
   else if (!restoreAnchor(feed, anchor)) feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
 }
@@ -1136,6 +1247,21 @@ function patchList (parent, items) {
   while (at) { const next = at.nextSibling; at.remove(); at = next }
   return created
 }
+// Pictures and videos have no size until they load. One that grows above what the reader is looking at would
+// push it down the screen, so the view moves by the same amount and what they were reading stays put.
+// (Below the view, growth changes nothing on screen; at the bottom, settleAtBottom and mediaLoaded keep up.)
+const mediaHeight = new WeakMap()
+const mediaSizes = new ResizeObserver((entries) => {
+  const feed = $('feed'); const top = feed.getBoundingClientRect().top
+  let shift = 0
+  for (const e of entries) {
+    const el = e.target; const h = el.getBoundingClientRect().height
+    const was = mediaHeight.get(el); mediaHeight.set(el, h)
+    if (was === undefined || h === was || !el.isConnected) continue
+    if (el.getBoundingClientRect().bottom <= top + 1) shift += h - was // wholly above the view
+  }
+  if (shift && !headingDown) feed.scrollTop += shift
+})
 // Messages that arrived live since the last feed paint. Only these get an entrance: opening a room, switching
 // rooms, or a message redrawn for a reaction shows up as it is, without motion.
 const arrivals = new Set()
@@ -1325,6 +1451,8 @@ function stackHTML (people) {
 }
 function renderSide () {
   const body = $('sideBody'); if (!body || !S) return
+  // searching all rooms: the matches take the list's place until the field is cleared
+  if (globalHits) return setHTML(body, globalHits.length ? globalHits.map(hitHTML).join('') : '<p class="note" style="padding:8px">No messages match.</p>')
   const c = cur()
   setHTML(body, (S.rooms ?? []).map((r) => {
     const open = r.topic === c?.topic
@@ -1350,6 +1478,7 @@ function renderHead () {
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
     <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
+    <button class="icon-btn" data-room-search title="Search this room">${icon('search')}</button>
     <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
     <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`)
@@ -1852,7 +1981,7 @@ es.addEventListener('record', (e) => {
   }
   if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort(byTs); if (rec.kind === 'msg') arrivals.add(rec.id) }
   // at the bottom, a long-running room keeps a window, not a growing pile
-  const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140) trimTop(c)
+  const feed = $('feed'); if (headingDown || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140) trimTop(c)
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
   paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
 })
@@ -2201,42 +2330,146 @@ function clearReply () { replyTo = null; const bar = $('replyBar'); bar.hidden =
 const msgEl = (id) => $('feed').querySelector(`:scope > .msg[data-id="${CSS.escape(id)}"]`)
 async function reach (id) { return msgEl(id) ?? ((await showPage(id)) ? msgEl(id) : null) }
 // Places to return to are messages, not scroll offsets: the window may have loaded or dropped lines since.
-async function jumpTo (id) {
+// `remember: false` for a step through search matches: only the first step of a search keeps a way back.
+async function jumpTo (id, { remember = true } = {}) {
   const feed = $('feed')
+  stopSettling() // going somewhere else: stop holding the bottom
   const back = anchorOf(feed, '.msg')
   const held = !!msgEl(id) // already in the window: glide to it; loaded just now: land on it
   const el = await reach(id)
   if (!el) { toast('That message isn\'t in this room any more'); return }
-  if (back) navStack.push({ id: back.id, top: back.top })
+  if (back && remember) navStack.push({ id: back.id, top: back.top })
+  navLanding = id
   const f = feed.getBoundingClientRect(); const r = el.getBoundingClientRect()
   const centre = feed.scrollTop + r.top - f.top - (f.height - r.height) / 2
   if (held) glide(centre); else { feed.scrollTop = centre; checkEdges() }
-  el.classList.add('is-flash'); setTimeout(() => el.classList.remove('is-flash'), 1600)
+  // the ring of light: restart it if this message was lit a moment ago
+  el.classList.remove('is-flash'); void el.offsetWidth; el.classList.add('is-flash')
+  clearTimeout(el._flash); el._flash = setTimeout(() => el.classList.remove('is-flash'), 2900)
   updateJumpBack()
+  return el
+}
+
+// Light up the searched words inside a message for a few seconds (search.js matches the same way: a word or
+// its start, case and accents ignored). Marks go into the text nodes and come out again; nothing is re-rendered.
+const foldText = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+const searchWords = (q) => [...new Set((String(q ?? '').normalize('NFKC').match(/[\p{L}\p{N}]+/gu) ?? []).map(foldText))].slice(0, 12)
+function glowWords (msg, words) {
+  const bubble = msg?.querySelector('.bubble'); if (!bubble || !words.length) return
+  const res = words.map((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\p{L}\\p{N}]*`, 'gu'))
+  // the message's own words only: not the quote it answers, not a file card or a voice memo
+  const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.parentElement.closest('.quote, .fcard, .memo, mark') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT })
+  const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode)
+  const marks = []
+  for (const node of nodes) {
+    // fold one character at a time, remembering where each folded character came from
+    const text = node.data; let folded = ''; const from = []
+    for (let i = 0; i < text.length;) { const ch = String.fromCodePoint(text.codePointAt(i)); const f = foldText(ch); for (let k = 0; k < f.length; k++) from.push(i); folded += f; i += ch.length }
+    from.push(text.length)
+    const spans = []
+    for (const re of res) for (const m of folded.matchAll(re)) spans.push([from[m.index], from[m.index + m[0].length]])
+    if (!spans.length) continue
+    spans.sort((a, b) => a[0] - b[0])
+    const merged = []; for (const s of spans) { const l = merged.at(-1); if (l && s[0] <= l[1]) l[1] = Math.max(l[1], s[1]); else merged.push([...s]) }
+    // wrap from the end, so the offsets still to come stay where they were
+    for (const [s, e] of merged.reverse()) {
+      const r = document.createRange(); r.setStart(node, s); r.setEnd(node, e)
+      const m = document.createElement('mark'); m.className = 'hit-glow'; r.surroundContents(m); marks.push(m)
+    }
+  }
+  setTimeout(() => { for (const m of marks) { const p = m.parentNode; if (!p) continue; m.replaceWith(...m.childNodes); p.normalize() } }, 3300) // just after word-beat (3.2 s) ends
 }
 async function jumpBack () {
   const feed = $('feed')
   const spot = navStack.pop()
   if (spot) {
+    stopSettling()
     const held = !!msgEl(spot.id)
     const el = await reach(spot.id)
     if (el) { const top = feed.scrollTop + el.getBoundingClientRect().top - spot.top; if (held) glide(top); else { feed.scrollTop = top; checkEdges() } }
-  } else if (cur()?.hasNewer) {
-    // the newest page replaces the window, and the reader lands at its end
-    if (await showPage(null)) feed.scrollTop = feed.scrollHeight
-  } else glide(feed.scrollHeight)
+  } else return toLatest()
   updateJumpBack()
 }
+// The way back after a jump lasts while the reader stays near where they landed. Once they scroll on, well
+// away from it (a screen and a half), the down arrow means the latest again, never an old spot.
+let navLanding = null
+function expireWayBack () {
+  if (!navStack.length || gliding) return
+  const feed = $('feed'); const el = navLanding && msgEl(navLanding)
+  const f = feed.getBoundingClientRect(); const r = el?.getBoundingClientRect()
+  const away = !r || r.bottom < f.top - f.height * 1.5 || r.top > f.bottom + f.height * 1.5
+  if (away) { navStack.length = 0; navLanding = null }
+}
 function updateJumpBack () {
-  const feed = $('feed'); const btn = $('jumpBack')
+  const feed = $('feed'); const btn = $('jumpBack'); const c = cur()
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
-  btn.hidden = !navStack.length && atBottom && !cur()?.hasNewer
+  btn.hidden = !navStack.length && atBottom && (!c || holdsNewest(c))
   btn.title = navStack.length ? 'Back to where you were' : unseen ? `${unseen} new message${unseen === 1 ? '' : 's'}: jump to the latest` : 'Jump to the latest'
   const n = btn.querySelector('.n'); if (n) { n.hidden = !unseen || !!navStack.length; n.textContent = unseen > 99 ? '99+' : String(unseen) }
 }
+// ---------- search (the daemon's index: GET /api/search; matches come marked \u0002…\u0003)
+const snippetHTML = (s) => esc(s).replace(/\u0002/g, '<mark>').replace(/\u0003/g, '</mark>')
+const whenOf = (ts) => new Date(ts).toDateString() === new Date().toDateString() ? time(ts) : `${new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time(ts)}`
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
+
+// The room's search: a bar over the chat that steps through matches, newest first. Up goes older.
+const FIND_MAX = 200
+const finder = { q: '', hits: [], i: -1, seq: 0, remembered: false }
+function openFind () { $('findBar').hidden = false; finder.remembered = false; $('findInput').focus(); $('findInput').select() }
+function closeFind () { $('findBar').hidden = true; $('findInput').value = ''; Object.assign(finder, { q: '', hits: [], i: -1 }); finder.seq++; paintFind() }
+function paintFind () {
+  const n = finder.hits.length
+  $('findCount').textContent = !finder.q ? '' : n ? `${finder.i + 1} of ${n}${n >= FIND_MAX ? '+' : ''}` : 'No matches'
+  $('findNext').disabled = finder.i >= n - 1; $('findPrev').disabled = finder.i <= 0
+}
+const runFind = debounce(async (q) => {
+  const c = cur(); q = q.trim(); finder.q = q
+  const seq = ++finder.seq
+  if (!q || !c) { finder.hits = []; finder.i = -1; return paintFind() }
+  let r; try { r = await api('GET', `/api/search?room=${encodeURIComponent(c.topic)}&q=${encodeURIComponent(q)}&limit=${FIND_MAX}`) } catch { return }
+  if (seq !== finder.seq) return // typed on since
+  finder.hits = r.results; finder.i = -1; paintFind()
+  stepFind(1)
+}, 250)
+function stepFind (d) { // +1 next (the next best), -1 previous
+  const i = finder.i + d; if (i < 0 || i >= finder.hits.length) return
+  finder.i = i; paintFind()
+  const words = searchWords(finder.q)
+  jumpTo(finder.hits[i].id, { remember: !finder.remembered }).then((el) => glowWords(el, words)); finder.remembered = true
+}
+$('findInput').addEventListener('input', (e) => runFind(e.target.value))
+$('findInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1) }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind() }
+})
+$('findNext').onclick = () => stepFind(1)
+$('findPrev').onclick = () => stepFind(-1)
+$('findClose').onclick = closeFind
+
+// Search across every room: the field tops the rooms sidebar, and while it holds words the room list gives way
+// to matches from all rooms. Tapping one opens that room at that message.
+let globalHits = null; let globalSeq = 0 // null: show the room list
+const runGlobal = debounce(async (q) => {
+  q = q.trim(); const seq = ++globalSeq
+  if (!q) { globalHits = null; return renderSide() }
+  let r; try { r = await api('GET', `/api/search?q=${encodeURIComponent(q)}&limit=60`) } catch { return }
+  if (seq !== globalSeq) return
+  globalHits = r.results; renderSide()
+}, 250)
+const hitHTML = (h) => `<button type="button" class="search-hit" data-hit-topic="${esc(h.topic)}" data-hit-id="${esc(h.id)}" title="Open ${esc(h.room)} at this message">
+  <span class="hit-head"><b>${esc(h.room)}</b><span>${esc(h.name === me() ? 'you' : h.name)} · ${whenOf(h.ts)}</span></span><span class="hit-text">${snippetHTML(h.snippet)}</span></button>`
+async function openHit (topic, id) {
+  if (topic !== cur()?.topic) { await load(topic); await new Promise((r) => requestAnimationFrame(r)) } // let the room land first
+  if (window.innerWidth <= 720) { roomsScreen = false; applySide() }
+  const words = searchWords($('globalSearch').value)
+  jumpTo(id).then((el) => glowWords(el, words))
+}
+$('globalSearch').addEventListener('input', (e) => runGlobal(e.target.value))
+$('globalSearch').addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.target.value = ''; runGlobal('') } })
+
 // once per frame while scrolling: the jump button, and whether either end of the window needs more
 let scrollRaf = 0
-$('feed').addEventListener('scroll', () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; updateJumpBack(); checkEdges() }) }, { passive: true })
+$('feed').addEventListener('scroll', () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; expireWayBack(); updateJumpBack(); checkEdges() }) }, { passive: true })
 $('jumpBack').addEventListener('click', jumpBack)
 function renderPending () {
   const el = $('pending')
@@ -2560,6 +2793,8 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-get-file]')) { getFile(e.target.closest('[data-get-file]').dataset.getFile); return }
   if (e.target.closest('[data-open-file]')) { openFile(e.target.closest('[data-open-file]').dataset.openFile); return }
   if (e.target.closest('[data-show-rooms]')) { roomsScreen = true; applySide(); return }
+  if (e.target.closest('[data-room-search]')) { if ($('findBar').hidden) openFind(); else closeFind(); return }
+  const hit = e.target.closest('[data-hit-id]'); if (hit) { openHit(hit.dataset.hitTopic, hit.dataset.hitId); return }
   const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
   const go = e.target.closest('[data-go]')
   if (go) {
