@@ -120,7 +120,7 @@ export function serve ({ app }) {
       // in a room snapshot would not reach
       if (rec.kind === 'redact' && rec.target) push('redact', { topic: t, id: rec.target, by: rec.name, ts: rec.ts })
       if (rec.kind === 'redact' || rec.kind === 'invite') return pushRoom()
-      push('record', () => ({ topic: t, rec: room.withQuote(rec), budget: serializeBudget(room.budget()) }))
+      push('record', () => ({ topic: t, rec: room.decorate(rec), budget: serializeBudget(room.budget()) }))
       pushRooms()
     })
     room.on('changed', pushRoom)
@@ -459,6 +459,11 @@ export function serve ({ app }) {
       const out = room.page({ before: q('before'), after: q('after'), around: q('around'), limit: q('limit') })
       need(out, 'that message is not in this room', 404)
       return out
+    },
+    // when an agent last posted before a message, for the thinking overlay's look-back: ?room=&id=&name= -> { ts }
+    'GET /api/log/previous': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      return { ts: room.previousBy(url.searchParams.get('id'), url.searchParams.get('name')) }
     },
     'GET /api/activity': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))

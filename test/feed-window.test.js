@@ -118,3 +118,26 @@ test('a reply carries a preview of the message it answers, even one far outside 
     assert.equal(log.find((r) => r.id === 'm99').q, undefined, 'a message that answers nothing has no preview')
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+test('a rename and a settings change say what they changed from, even from far outside the window', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rkc-before-'))
+  try {
+    const store = new RoomStore(dir)
+    const t0 = 1_700_000_000_000; const a = 'c'.repeat(64); const ag = 'd'.repeat(64)
+    store.add({ id: 'n1', kind: 'control', action: 'rename', ts: t0, author: a, name: 'Lab' })
+    store.add({ id: 'ch1', kind: 'control', action: 'charter', ts: t0 + 1, author: a, text: 'be brief', order: ['x'], agents: {} })
+    store.add({ id: 'agent-first', kind: 'msg', ts: t0 + 2, author: ag, text: 'hi' })
+    for (let i = 0; i < 200; i++) store.add({ id: `m${i}`, kind: 'msg', ts: t0 + 10 + i, author: a, text: `${i}` })
+    store.add({ id: 'n2', kind: 'control', action: 'rename', ts: t0 + 500, author: a, name: 'Lab 2' })
+    store.add({ id: 'ch2', kind: 'control', action: 'charter', ts: t0 + 501, author: a, text: 'be brief', order: ['x', 'y'], agents: {} })
+    store.add({ id: 'agent-second', kind: 'msg', ts: t0 + 502, author: ag, text: 'again' })
+    const room = new Room({ store, room: { name: 'Lab 2', topic: 'feedcafe' }, device: null })
+    const { log } = room.page({ limit: 5 })
+    assert.equal(log.find((r) => r.id === 'n2').was, 'Lab')
+    assert.deepEqual(log.find((r) => r.id === 'ch2').before, { text: 'be brief', order: ['x'], agents: {} })
+    const first = room.page({ around: 'n1', limit: 3 }).log
+    assert.equal(first.find((r) => r.id === 'n1').was, undefined, 'the first naming has nothing before it')
+    assert.equal(first.find((r) => r.id === 'ch1').before, undefined)
+    assert.equal(room.previousBy('agent-second', ag.slice(0, 16)), t0 + 2)
+    assert.equal(room.previousBy('agent-first', ag.slice(0, 16)), null)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})

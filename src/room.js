@@ -265,7 +265,35 @@ export class Room extends EventEmitter {
     const w = windowOf(list, { before, after, around, limit })
     if (!w) return null
     const { ids } = this.blocked()
-    return { log: list.slice(w.start, w.end).map((r) => this.withQuote(this.#viewLogged(r, ids), ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
+    return { log: list.slice(w.start, w.end).map((r) => this.decorate(this.#viewLogged(r, ids), ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
+  }
+
+  // What a feed line needs from outside the window the page holds: the preview of the message a reply answers
+  // (withQuote), and for a rename or a settings change, what it changed from (withBefore).
+  decorate (v, ids = this.blocked().ids) { return this.withBefore(this.withQuote(v, ids)) }
+
+  // A rename carries the room's name before it (`was`), and a settings change the settings before it
+  // (`before`: { text, order, agents }), so the line can say what moved even when the earlier one is far
+  // outside the window. Absent when there was no earlier one ("named this room", "set who answers first").
+  withBefore (v) {
+    if (v?.kind !== 'control' || (v.action !== 'rename' && v.action !== 'charter')) return v
+    const all = this.store.ordered
+    let i = all.findIndex((r) => r.id === v.id)
+    while (--i >= 0) {
+      const r = all[i]
+      if (r.kind !== 'control' || r.action !== v.action) continue
+      if (v.action === 'rename' && r.name) return { ...v, was: r.name }
+      if (v.action === 'charter') return { ...v, before: { text: r.text ?? '', order: r.order ?? [], agents: r.agents ?? {} } }
+    }
+    return v
+  }
+
+  // When `name` last posted before the message `id` (the thinking overlay's look-back), or null.
+  previousBy (id, name) {
+    const all = this.store.ordered
+    let i = all.findIndex((r) => r.id === id)
+    while (--i >= 0) if (all[i].kind === 'msg' && this.view(all[i]).name === name) return all[i].ts
+    return null
   }
 
   // A reply carries a short summary of the message it answers (`q`), so the page can show the quote even when
