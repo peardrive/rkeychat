@@ -99,3 +99,22 @@ test('room.page() leaves out reactions, shows removals in place, and decorates o
     assert.equal(room.page({ around: 'nope' }), null)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+
+test('a reply carries a preview of the message it answers, even one far outside the window', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rkc-quote-'))
+  try {
+    const store = new RoomStore(dir)
+    const t0 = 1_700_000_000_000; const a = 'b'.repeat(64)
+    for (let i = 0; i < 100; i++) store.add({ id: `m${i}`, kind: 'msg', ts: t0 + i * 1000, author: a, text: `hello ${i}` })
+    store.add({ id: 'gone', kind: 'msg', ts: t0 + 100_500, author: a, text: 'secret' })
+    store.add({ id: 'x', kind: 'redact', ts: t0 + 100_600, author: a, target: 'gone' })
+    store.add({ id: 'reply1', kind: 'msg', ts: t0 + 101_000, author: a, text: 'about that', re: ['m2'] })
+    store.add({ id: 'reply2', kind: 'msg', ts: t0 + 102_000, author: a, text: 'and that', re: ['gone'] })
+    const room = new Room({ store, room: { name: 'test', topic: 'feedcafe' }, device: null })
+    const { log } = room.page({ limit: 10 })
+    assert.ok(!log.some((r) => r.id === 'm2'), 'the quoted message is outside this window')
+    assert.deepEqual(log.find((r) => r.id === 'reply1').q, { id: 'm2', name: a.slice(0, 16), text: 'hello 2' })
+    assert.equal(log.find((r) => r.id === 'reply2').q.text, '(removed)', 'a removed message is never previewed')
+    assert.equal(log.find((r) => r.id === 'm99').q, undefined, 'a message that answers nothing has no preview')
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})

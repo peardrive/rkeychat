@@ -258,18 +258,6 @@ export class Room extends EventEmitter {
     return this.store.ordered.map((r) => this.#viewLogged(r, ids))
   }
 
-  // The newest `limit` records, oldest first, leaving out `skip` kinds: what log().filter().slice(-limit)
-  // gives, without decorating the whole history to keep the tail of it.
-  recent (limit, skip = []) {
-    const { ids } = this.blocked()
-    const out = []
-    const all = this.store.ordered
-    for (let i = all.length - 1; i >= 0 && out.length < limit; i--) {
-      if (!skip.includes(all[i].kind)) out.push(this.#viewLogged(all[i], ids))
-    }
-    return out.reverse()
-  }
-
   // One window of what the feed shows (see feed-window.js): { log, hasOlder, hasNewer }, or null when the
   // named message is not in this room. Decorates only the records it returns.
   page ({ before, after, around, limit } = {}, skip = FEED_SKIP) {
@@ -277,7 +265,19 @@ export class Room extends EventEmitter {
     const w = windowOf(list, { before, after, around, limit })
     if (!w) return null
     const { ids } = this.blocked()
-    return { log: list.slice(w.start, w.end).map((r) => this.#viewLogged(r, ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
+    return { log: list.slice(w.start, w.end).map((r) => this.withQuote(this.#viewLogged(r, ids), ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
+  }
+
+  // A reply carries a short summary of the message it answers (`q`), so the page can show the quote even when
+  // that message is outside the window it holds. `v` is a decorated record; returns it, with `q` when it has one.
+  withQuote (v, ids = this.blocked().ids) {
+    const id = v?.re?.[0]
+    const r = id && this.store.get(id)
+    if (!r) return v
+    const q = this.view(r)
+    const file = q.att?.find((a) => a.kind === 'file')
+    const text = ids.has(r.id) ? '(removed)' : q.text || (file ? `📎 ${file.name}` : q.att?.length ? 'Voice memo' : '')
+    return { ...v, q: { id: r.id, name: q.name, text: text.slice(0, 160) } }
   }
 
   // The newest message that was not removed, as log() would show it, or null.

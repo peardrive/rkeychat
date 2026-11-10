@@ -7,6 +7,7 @@
 // whether there is more on either side, or null when the named id is not in the list.
 
 export const PAGE_MAX = 200
+export const FEED_PAGE = 50 // what a room snapshot carries, and what the page asks for at a time
 
 export function windowOf (list, { before, after, around, limit = 50 } = {}) {
   limit = Math.floor(Number(limit))

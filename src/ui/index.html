@@ -140,6 +140,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .msg.is-flash .bubble { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.2s; }
 .jump-back { position: absolute; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 12; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--text); background: rgba(34,35,43,0.97); box-shadow: 0 0 0 1px var(--line-strong) inset, var(--shadow-pop); }
 .jump-back[hidden] { display: none; }
+/* how many messages arrived while you were up in history */
+.jump-back .n { position: absolute; top: -6px; right: -8px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent-ink); background: var(--accent); }
+/* the feed keeps its own place when lines load or unload above (renderFeed); the browser's guess would fight it */
+.feed { overflow-anchor: none; }
 .pending { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; }
 /* the memo block inside a message */
 /* files shared by hash: inline media under the auto-fetch threshold, a card otherwise */
@@ -577,7 +582,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
     <header class="room-head" id="roomHead"></header>
     <div class="feed" id="feed"></div>
     <div class="agent-strip" id="agentStrip" hidden></div>
-    <button type="button" class="jump-back" id="jumpBack" hidden><svg class="ico"><use href="#i-down"/></svg></button>
+    <button type="button" class="jump-back" id="jumpBack" hidden><svg class="ico"><use href="#i-down"/></svg><span class="n" hidden></span></button>
     <div class="replybar" id="replyBar" hidden></div>
     <div class="pending" id="pending" hidden></div>
     <form class="composer" id="composer">
@@ -659,7 +664,8 @@ const seenAt = (topic) => Number(store.get(`rk.seen.${topic}`, 0))
 const markSeen = (topic, ts) => { if (topic && ts && ts > seenAt(topic)) store.set(`rk.seen.${topic}`, String(ts)) }
 const isUnread = (r) => !!(r.last && r.last.ts > seenAt(r.topic) && r.last.name !== me())
 // coming back to the tab counts as reading the open room
-document.addEventListener('visibilitychange', () => { if (!document.hidden && cur()) { const l = cur().log.filter((r) => r.kind === 'msg').at(-1); markSeen(cur().topic, l?.ts); renderSide() } })
+// (the newest message, not the newest held: the window may be up in history)
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cur()) { const c = cur(); const ts = S.rooms?.find((r) => r.topic === c.topic)?.last?.ts ?? c.log.filter((r) => r.kind === 'msg').at(-1)?.ts; markSeen(c.topic, ts); renderSide() } })
 
 let S = null // { device, rooms, current }
 let page = store.get('rk.page', '')
@@ -846,13 +852,145 @@ const control = (payload) => { log.info('room', `control: ${payload.action}${pay
 async function load (topic) {
   const leaving = cur()?.topic
   if (leaving) setDraft(leaving, ta.value) // the room you are leaving keeps what you had typed
-  S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  const state = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  // the same room again (a catch-up after a quiet minute, coming back to the tab): keep the reader's place
+  const staying = leaving && state.current?.topic === leaving
+  if (staying) { const snap = state.current; S = { ...state, current: cur() }; adoptRoom(snap) } else { S = state; resetWindow() }
   if (S.current?.topic !== leaving) log.info('room', `opened ${S.current?.name ?? 'no room'}`)
   if (S.current && S.current.topic !== leaving) { ta.value = draftOf(S.current.topic); grow() } // and the one you arrive in gives its own back
   if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
   if (S.current) api('GET', `/api/files?room=${encodeURIComponent(S.current.topic)}`).then((list) => { let changed = false; for (const f of list ?? []) if (f.local && !haveFile.has(f.hash)) { haveFile.add(f.hash); changed = true }; if (changed) renderFeed() }).catch(() => {})
   renderAll()
-  requestAnimationFrame(() => { const f = $('feed'); f.scrollTop = f.scrollHeight })
+  if (!staying) requestAnimationFrame(() => { const f = $('feed'); f.scrollTop = f.scrollHeight; updateJumpBack() })
+}
+
+// ---------- the feed window
+// The chat never holds a whole room. It holds a window of at most KEEP lines around where the reader is, asks
+// the daemon (GET /api/log) for PAGE more once they come within EDGE messages of either end, and drops the
+// far end. The room's hasOlder / hasNewer say whether there is more on each side. While hasNewer is set the
+// reader is up in history: live messages wait in `pendingLive` and are counted on the jump button, and the
+// reader is never pulled down to them.
+const PAGE = 50; const EDGE = 15; const KEEP = 150
+let pendingLive = [] // live records that arrived while the reader was up in history (this room only)
+let unseen = 0 // how many of those are messages
+const fetching = { older: false, newer: false }
+const logURL = (c, q = '') => `/api/log?room=${encodeURIComponent(c.topic)}&limit=${PAGE}${q}`
+const byTs = (a, b) => a.ts - b.ts
+function resetWindow () { pendingLive = []; unseen = 0; navStack.length = 0; if (S?.current) S.current.hasNewer = false }
+// merge records into the window by id (a newer copy of a record wins: it may have been removed since)
+function mergeInto (c, recs) {
+  const byId = new Map(c.log.map((x) => [x.id, x]))
+  for (const x of recs) byId.set(x.id, x)
+  c.log = [...byId.values()].sort(byTs)
+}
+// back at the live end. The page just fetched already holds what arrived while the reader was away; only a
+// record that came in during that fetch can be newer than its end, and only those join (an older one would
+// sit apart from the rest, with a hole between).
+function goLive (c) {
+  c.hasNewer = false
+  const end = c.log.at(-1)?.ts ?? -Infinity
+  const late = pendingLive.filter((x) => x.ts > end)
+  if (late.length) mergeInto(c, late)
+  pendingLive = []; unseen = 0
+}
+// keep at most KEEP lines: drop from the end the reader is moving away from
+function trimTop (c) { if (c.log.length > KEEP) { c.log.splice(0, c.log.length - KEEP); c.hasOlder = true } }
+function trimBottom (c) { if (c.log.length > KEEP) { c.log.length = KEEP; c.hasNewer = true } }
+
+// A room snapshot (a 'room' event, or a catch-up load) carries the newest page. Take everything else from it,
+// and fold its page into the window without moving the reader.
+function adoptRoom (r) {
+  const c = cur()
+  if (!c || c.topic !== r.topic) { S.current = r; return }
+  if (c.hasNewer) {
+    // up in history: the newest page says nothing about this window, beyond newer copies of records in it
+    const fresh = new Map(r.log.map((x) => [x.id, x]))
+    r.log = c.log.map((x) => fresh.get(x.id) ?? x); r.hasOlder = c.hasOlder; r.hasNewer = true
+  } else {
+    const held = new Set(c.log.map((x) => x.id))
+    const gap = c.log.length && r.log.length && !r.log.some((x) => held.has(x.id)) && r.log[0].ts > c.log.at(-1).ts
+    if (!gap) { // otherwise (back after a long quiet) the snapshot's page simply is the window
+      const top = c.log[0]?.id
+      const snapOlder = r.hasOlder
+      const merged = { log: c.log }; mergeInto(merged, r.log)
+      r.log = merged.log; r.hasOlder = r.log[0]?.id === top ? c.hasOlder : snapOlder
+    }
+    r.hasNewer = false
+  }
+  S.current = r
+}
+
+async function loadOlder () {
+  const c = cur(); if (!c?.hasOlder || fetching.older || !c.log.length) return
+  const topic = c.topic; const first = c.log[0].id
+  fetching.older = true
+  try {
+    const p = await api('GET', logURL(c, `&before=${encodeURIComponent(first)}`))
+    const now = cur(); if (now?.topic !== topic || now.log[0]?.id !== first) return // the window moved on meanwhile
+    mergeInto(now, p.log); now.hasOlder = p.hasOlder; trimBottom(now)
+    renderFeed(); updateJumpBack()
+  } catch {} finally { fetching.older = false }
+  requestAnimationFrame(checkEdges) // a fast flick may already be at the new edge
+}
+async function loadNewer () {
+  const c = cur(); if (!c?.hasNewer || fetching.newer || !c.log.length) return
+  const topic = c.topic; const last = c.log.at(-1).id
+  fetching.newer = true
+  try {
+    const p = await api('GET', logURL(c, `&after=${encodeURIComponent(last)}`))
+    const now = cur(); if (now?.topic !== topic || now.log.at(-1)?.id !== last) return
+    mergeInto(now, p.log)
+    if (!p.hasNewer) goLive(now)
+    trimTop(now)
+    renderFeed(); updateJumpBack()
+  } catch {} finally { fetching.newer = false }
+  requestAnimationFrame(checkEdges)
+}
+// A smooth scroll we started (a jump to a message, or back). Any change to scrollTop cancels a smooth scroll,
+// and loading at an edge sets it to hold the reader's place, so edges wait until the glide has landed.
+let gliding = 0
+function glide (top) {
+  const feed = $('feed')
+  clearTimeout(gliding)
+  const land = () => { clearTimeout(gliding); gliding = 0; feed.removeEventListener('scrollend', land); updateJumpBack(); checkEdges() }
+  gliding = setTimeout(land, 900) // where scrollend never comes (it was already there, or an older browser)
+  feed.addEventListener('scrollend', land, { once: true })
+  feed.scrollTo({ top, behavior: calmMotion.matches ? 'auto' : 'smooth' })
+}
+// Within EDGE messages of either end of what is held, and there is more that way: ask for it.
+function checkEdges () {
+  const c = cur(); const feed = $('feed'); if (!c?.log.length || gliding) return
+  const msgs = feed.querySelectorAll(':scope > .msg'); if (!msgs.length) return
+  const box = feed.getBoundingClientRect()
+  if (c.hasOlder && msgs[Math.min(EDGE, msgs.length) - 1].getBoundingClientRect().bottom > box.top) loadOlder()
+  if (c.hasNewer && msgs[Math.max(0, msgs.length - EDGE)].getBoundingClientRect().top < box.bottom) loadNewer()
+}
+// Replace the window with the page around a message (or the newest page, with no id), keeping the room.
+async function showPage (id) {
+  const c = cur(); if (!c) return false
+  let p; try { p = await api('GET', logURL(c, id ? `&around=${encodeURIComponent(id)}` : '')) } catch { return false }
+  const now = cur(); if (now?.topic !== c.topic) return false
+  now.log = p.log; now.hasOlder = p.hasOlder; now.hasNewer = !!p.hasNewer
+  if (!now.hasNewer) goLive(now)
+  renderFeed()
+  return true
+}
+
+// The line at the top of the view and where it sits, to put it back there after the lines around it change.
+// `sel` narrows it to messages, for places to return to by id.
+function anchorOf (feed, sel = '[data-k]') {
+  const top = feed.getBoundingClientRect().top
+  for (const el of feed.querySelectorAll(`:scope > ${sel}`)) {
+    const r = el.getBoundingClientRect()
+    if (r.bottom > top) return { key: el.dataset.k, id: el.dataset.id, top: r.top }
+  }
+  return null
+}
+function restoreAnchor (feed, a) {
+  const el = a && feed.querySelector(`:scope > [data-k="${CSS.escape(a.key)}"]`)
+  if (!el) return false
+  feed.scrollTop += el.getBoundingClientRect().top - a.top
+  return true
 }
 
 // ---------- feed
@@ -892,7 +1030,11 @@ function renderFeed () {
   const sig = c.topic + '|' + (c.members ?? []).map((m) => m.ref + m.status).join(',') + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me() + '|' + haveFile.size
   if (feed.dataset.sig === sig) return
   feed.dataset.sig = sig
-  const fromBottom = feed.scrollHeight - feed.scrollTop // keep this distance when re-rendering mid-read
+  // At the live end, stay at the bottom. Anywhere else, the line at the top of the view stays exactly where it
+  // is while lines load, unload or change around it (falling back to the distance from the bottom).
+  const stick = atBottom && !c.hasNewer
+  const anchor = stick ? null : anchorOf(feed)
+  const fromBottom = feed.scrollHeight - feed.scrollTop
   if (!c.log.length) {
     feed.innerHTML = `<div class="hero"><div class="hero-icon">${icon('rooms')}</div><h2>${esc(c.name)}</h2><p>Nothing said yet. Write to everyone, or @mention someone to hand them the floor.</p></div>`
     return
@@ -902,7 +1044,7 @@ function renderFeed () {
   // room's story. The key tree carries a timestamp per key; collapse it to one
   // arrival per person (their earliest key) and one departure (when their last
   // live key went), so a person with three devices is still one line.
-  const joins = []
+  let joins = []
   {
     const by = new Map()
     for (const m of c.members ?? []) {
@@ -918,6 +1060,9 @@ function renderFeed () {
       if (!e.live && e.lastOut) joins.push({ ts: e.lastOut, kind: 'member', text: `${e.name} left the room` })
     }
   }
+  // the window holds only part of the room: a join or a departure outside it would pile up at its edge
+  const from = c.hasOlder ? c.log[0].ts : -Infinity; const to = c.hasNewer ? c.log.at(-1).ts : Infinity
+  joins = joins.filter((j) => j.ts >= from && j.ts <= to)
   // one { key, html } per line of the feed; patchList() keeps every line whose html is unchanged
   const items = []; let prev = null; let lastDay = ''
   let roomWas = null // the room's name as of this point in the log, so a rename can show what it was
@@ -957,8 +1102,8 @@ function renderFeed () {
     prev = r
   }
   greetArrivals(patchList(feed, items))
-  if (atBottom) feed.scrollTop = feed.scrollHeight
-  else feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
+  if (stick) feed.scrollTop = feed.scrollHeight
+  else if (!restoreAnchor(feed, anchor)) feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
 }
 // Bring `parent`'s children in line with `items` ({ key, html }, each html one element) touching only what
 // changed: a line whose html is the same as last time keeps its node (and whatever was painted into it since,
@@ -1677,7 +1822,7 @@ const es = new EventSource('/api/events')
 // the daemon pushes every change down this stream; the page never polls.
 // (If it ever goes quiet for a minute, one catch-up load, then back to the stream.)
 let lastEvent = Date.now()
-for (const t of ['message', 'record', 'room', 'rooms', 'participants', 'activity']) es.addEventListener(t, () => { lastEvent = Date.now() }, true)
+for (const t of ['message', 'record', 'redact', 'room', 'rooms', 'participants', 'activity']) es.addEventListener(t, () => { lastEvent = Date.now() }, true)
 setInterval(() => { if (Date.now() - lastEvent > 60_000 && cur()) { lastEvent = Date.now(); load(cur().topic).catch(() => {}) } }, 15_000)
 es.onopen = () => load(store.get('rk.room', null))
 // The handlers below only update S, then ask for a paint: a burst of events (an agent at work) is one paint.
@@ -1685,13 +1830,29 @@ const paintPanelIf = (...pages) => () => { if (pages.includes(page)) renderPanel
 const paintRoomPanel = paintPanelIf('room')
 const paintPeoplePanel = paintPanelIf('people', 'room')
 es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else paintSoon(renderSide, renderChrome) })
-es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { S.current = r; paintSoon(renderAll) } })
+es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { adoptRoom(r); paintSoon(renderAll) } })
 es.addEventListener('record', (e) => {
   const { topic, rec, budget } = JSON.parse(e.data)
   const c = cur(); if (!c || topic !== c.topic) return
-  if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort((a, b) => a.ts - b.ts); if (rec.kind === 'msg') arrivals.add(rec.id) }
+  c.budget = budget
+  if (c.hasNewer) {
+    // up in history: hold it for when the reader comes back down, and say on the jump button that it came
+    if (!pendingLive.some((x) => x.id === rec.id)) { pendingLive.push(rec); if (rec.kind === 'msg') unseen++ }
+    if (pendingLive.length > 300) pendingLive = pendingLive.slice(-300) // past this, coming back loads the newest page anyway
+    return paintSoon(renderChrome, renderStrip, renderSide, paintRoomPanel, updateJumpBack)
+  }
+  if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort(byTs); if (rec.kind === 'msg') arrivals.add(rec.id) }
+  // at the bottom, a long-running room keeps a window, not a growing pile
+  const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140) trimTop(c)
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
-  c.budget = budget; paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
+  paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
+})
+// a removal reaches the message wherever it sits in the window, not only in the newest page
+es.addEventListener('redact', (e) => {
+  const { topic, id, by, ts } = JSON.parse(e.data)
+  const c = cur(); if (!c || topic !== c.topic) return
+  const r = c.log.find((x) => x.id === id)
+  if (r && !r.redacted) { Object.assign(r, { text: '', att: undefined, mentions: [], redacted: { by, ts } }); paintSoon(renderFeed) }
 })
 // Nothing is granted until this is answered. The key fragment is here because it is
 // the one thing that can be checked against the other person's screen.
@@ -2004,7 +2165,7 @@ function showDrop (on) {
 }
 // ---------- replying to a message: quote it, jump to it, and come back
 let replyTo = null
-const navStack = [] // scroll positions to return to, newest last
+const navStack = [] // places to return to after a jump, newest last: { id, top } of the message that was at the top
 function summary (id) {
   const r = (cur()?.log ?? []).find((x) => x.id === id)
   if (!r) return null
@@ -2014,7 +2175,8 @@ function summary (id) {
 function quoteHTML (r, prev) {
   const id = (r.re ?? [])[0]
   if (!id || prev?.id === id) return '' // answering the message right above needs no quote
-  const q = summary(id); if (!q) return ''
+  // the quoted message may be outside the window: the daemon sends its preview along with the reply (r.q)
+  const q = summary(id) ?? (r.q?.id === id ? r.q : null); if (!q) return ''
   return `<a class="quote" data-jump="${esc(q.id)}" title="Go to that message"><b>${esc(q.name)}</b><span>${esc(q.text)}</span></a>`
 }
 function setReplyTo (id) {
@@ -2026,27 +2188,46 @@ function setReplyTo (id) {
   ta.focus()
 }
 function clearReply () { replyTo = null; const bar = $('replyBar'); bar.hidden = true; bar.innerHTML = '' }
-function jumpTo (id) {
-  const feed = $('feed'); const el = feed.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)
-  if (!el) { toast('That message isn\'t loaded here'); return }
-  navStack.push(feed.scrollTop)
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+// A message's line, loading the window around it first when it isn't held. null if it can't be shown.
+const msgEl = (id) => $('feed').querySelector(`:scope > .msg[data-id="${CSS.escape(id)}"]`)
+async function reach (id) { return msgEl(id) ?? ((await showPage(id)) ? msgEl(id) : null) }
+// Places to return to are messages, not scroll offsets: the window may have loaded or dropped lines since.
+async function jumpTo (id) {
+  const feed = $('feed')
+  const back = anchorOf(feed, '.msg')
+  const held = !!msgEl(id) // already in the window: glide to it; loaded just now: land on it
+  const el = await reach(id)
+  if (!el) { toast('That message isn\'t in this room any more'); return }
+  if (back) navStack.push({ id: back.id, top: back.top })
+  const f = feed.getBoundingClientRect(); const r = el.getBoundingClientRect()
+  const centre = feed.scrollTop + r.top - f.top - (f.height - r.height) / 2
+  if (held) glide(centre); else { feed.scrollTop = centre; checkEdges() }
   el.classList.add('is-flash'); setTimeout(() => el.classList.remove('is-flash'), 1600)
   updateJumpBack()
 }
-function jumpBack () {
+async function jumpBack () {
   const feed = $('feed')
-  if (navStack.length) feed.scrollTo({ top: navStack.pop(), behavior: 'smooth' })
-  else feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' })
+  const spot = navStack.pop()
+  if (spot) {
+    const held = !!msgEl(spot.id)
+    const el = await reach(spot.id)
+    if (el) { const top = feed.scrollTop + el.getBoundingClientRect().top - spot.top; if (held) glide(top); else { feed.scrollTop = top; checkEdges() } }
+  } else if (cur()?.hasNewer) {
+    // the newest page replaces the window, and the reader lands at its end
+    if (await showPage(null)) feed.scrollTop = feed.scrollHeight
+  } else glide(feed.scrollHeight)
   updateJumpBack()
 }
 function updateJumpBack () {
   const feed = $('feed'); const btn = $('jumpBack')
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
-  btn.hidden = !navStack.length && atBottom
-  btn.title = navStack.length ? 'Back to where you were' : 'Jump to the latest'
+  btn.hidden = !navStack.length && atBottom && !cur()?.hasNewer
+  btn.title = navStack.length ? 'Back to where you were' : unseen ? `${unseen} new message${unseen === 1 ? '' : 's'}: jump to the latest` : 'Jump to the latest'
+  const n = btn.querySelector('.n'); if (n) { n.hidden = !unseen || !!navStack.length; n.textContent = unseen > 99 ? '99+' : String(unseen) }
 }
-$('feed').addEventListener('scroll', () => { const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140 && !navStack.length) $('jumpBack').hidden = true; else if (feed.scrollHeight - feed.scrollTop - feed.clientHeight >= 140) $('jumpBack').hidden = false })
+// once per frame while scrolling: the jump button, and whether either end of the window needs more
+let scrollRaf = 0
+$('feed').addEventListener('scroll', () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; updateJumpBack(); checkEdges() }) }, { passive: true })
 $('jumpBack').addEventListener('click', jumpBack)
 function renderPending () {
   const el = $('pending')

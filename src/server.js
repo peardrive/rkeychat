@@ -13,7 +13,8 @@ import { isRemote, authorized, newPairToken, redeem, sessions, revokeSession, ta
 import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
-import { MAX_BLOB, FEED_SKIP } from './room.js'
+import { MAX_BLOB } from './room.js'
+import { FEED_PAGE } from './feed-window.js'
 import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
@@ -58,6 +59,7 @@ const serializeBudget = (b) => ({
 
 export function roomSnapshot (room) {
   const participants = room.participantsList()
+  const newest = room.page({ limit: FEED_PAGE })
   return {
     name: room.cfg.name,
     topic: room.topic,
@@ -73,7 +75,9 @@ export function roomSnapshot (room) {
     spend: room.spend(),
     overBudget: Object.fromEntries(participants.filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
     connections: room.connections(),
-    log: room.recent(500, FEED_SKIP)
+    // the newest page of the feed; the page asks GET /api/log for the rest as the reader scrolls
+    log: newest.log,
+    hasOlder: newest.hasOlder
   }
 }
 
@@ -112,8 +116,11 @@ export function serve ({ app }) {
     const pushRoom = () => pushSoon(`room:${t}`, 'room', () => roomSnapshot(room))
     room.on('record', (rec) => {
       if (rec.kind === 'react') return push('reactions', () => ({ topic: t, reactions: room.reactions() }))
+      // a removal: the page empties that message wherever it is in the window it holds, which the newest page
+      // in a room snapshot would not reach
+      if (rec.kind === 'redact' && rec.target) push('redact', { topic: t, id: rec.target, by: rec.name, ts: rec.ts })
       if (rec.kind === 'redact' || rec.kind === 'invite') return pushRoom()
-      push('record', () => ({ topic: t, rec, budget: serializeBudget(room.budget()) }))
+      push('record', () => ({ topic: t, rec: room.withQuote(rec), budget: serializeBudget(room.budget()) }))
       pushRooms()
     })
     room.on('changed', pushRoom)
