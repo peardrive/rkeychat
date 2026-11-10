@@ -196,7 +196,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 /* ---------- left sidebar: rooms, and the open room's people under it */
 .side { width: var(--side-w, 272px); flex: none; position: relative; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden;
   background: linear-gradient(180deg, rgba(34, 35, 43, 0.96) 0%, rgba(20, 21, 26, 0.98) 38%, rgba(16, 17, 21, 0.98) 100%);
-  border: 1px solid var(--line); box-shadow: var(--shadow-float); transition: width 0.25s var(--ease); }
+  border: 1px solid var(--line); box-shadow: var(--shadow-float); }
+/* No width transition: animating width re-lays out every message in the chat beside it on every frame.
+   The width changes in one step and the contents fade in instead (applySide). */
 .side.is-collapsed { width: 72px; }
 .side-top { flex: none; padding: 12px; border-bottom: 1px solid var(--line); }
 .side-actions { display: flex; gap: 8px; }
@@ -2151,10 +2153,19 @@ $('newRoomBtn').onclick = () => { log.info('ui', 'New room'); openPage('rooms');
 $('addPeopleBtn').onclick = () => { log.info('ui', 'Add someone'); openPage('invite'); loadPeople() }
 const side = $('side')
 let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const applySide = () => {
   const w = Number(store.get('rk.sideW', 272)); side.style.setProperty('--side-w', `${w}px`)
-  side.classList.toggle('is-collapsed', store.get('rk.sideC', '0') === '1')
+  const wasCollapsed = side.classList.contains('is-collapsed')
+  const collapsed = side.classList.toggle('is-collapsed', store.get('rk.sideC', '0') === '1')
   if (window.innerWidth <= 720) side.classList.toggle('is-mobile-hidden', !roomsScreen)
+  // opened or closed: the contents fade in at their new width. Opacity and transform only, so this costs the
+  // compositor, not a layout of the chat per frame.
+  if (collapsed !== wasCollapsed && !calmMotion.matches && side.animate) {
+    for (const el of side.querySelectorAll(':scope > .side-top, :scope > .side-body')) {
+      el.animate([{ opacity: 0, transform: 'translateX(-6px)' }, { opacity: 1, transform: 'none' }], { duration: 150, easing: 'cubic-bezier(0.22, 0.8, 0.24, 1)' })
+    }
+  }
 }
 applySide()
 $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
@@ -2256,16 +2267,32 @@ function renumber (list) {
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault(); grip.classList.add('is-active'); grip.setPointerCapture(e.pointerId)
     const startX = e.clientX; const startW = panel.getBoundingClientRect().width
-    const move = (ev) => { const w = Math.max(280, Math.min(720, startW - (ev.clientX - startX))); panel.style.setProperty('--panel-w', `${w}px`); store.set('rk.panelW', String(Math.round(w))) }
-    const up = () => { grip.classList.remove('is-active'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up) }
+    // newest width once per frame, saved once on release (as the left panel's grip does)
+    let w = startW; let raf = 0
+    const move = (ev) => {
+      w = Math.max(280, Math.min(720, startW - (ev.clientX - startX)))
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; panel.style.setProperty('--panel-w', `${w}px`) })
+    }
+    const up = () => {
+      grip.classList.remove('is-active'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up)
+      if (w !== startW) store.set('rk.panelW', String(Math.round(w)))
+    }
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up)
   })
   grip.addEventListener('dblclick', () => { store.set('rk.panelW', '340'); applyW() })
 }
 $('sideGrip').addEventListener('pointerdown', (e) => {
   const x0 = e.clientX; const w0 = side.getBoundingClientRect().width
-  const move = (ev) => { const w = Math.max(200, Math.min(460, w0 + ev.clientX - x0)); side.style.setProperty('--side-w', `${w}px`); store.set('rk.sideW', w) }
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  // a mouse reports moves faster than the screen draws: apply the newest width once per frame, save it once
+  let w = w0; let raf = 0
+  const move = (ev) => {
+    w = Math.max(200, Math.min(460, w0 + ev.clientX - x0))
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; side.style.setProperty('--side-w', `${w}px`) })
+  }
+  const up = () => {
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+    if (w !== w0) store.set('rk.sideW', w)
+  }
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
 })
 $('sideToggle').onclick = () => {
