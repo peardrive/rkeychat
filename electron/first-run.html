@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>rKeyChat</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; place-items: center;
+    background: #0f1115; color: #e8e9ec;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-app-region: drag; /* the whole first screen is a title bar; the form opts out */
+  }
+  form { -webkit-app-region: no-drag; width: min(420px, 86vw); display: grid; gap: 14px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  p { margin: 0; color: #a2a7b3; }
+  label { display: grid; gap: 6px; font-size: 13px; color: #a2a7b3; }
+  input {
+    font: inherit; font-size: 17px; color: inherit;
+    background: #171a21; border: 1px solid #2a2f3a; border-radius: 10px; padding: 10px 12px; outline: none;
+  }
+  input:focus { border-color: #7aa2ff; }
+  button {
+    font: inherit; font-weight: 600; color: #0f1115;
+    background: #7aa2ff; border: 0; border-radius: 10px; padding: 11px 14px; cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .err { color: #ff7a7a; min-height: 1.5em; font-size: 13px; }
+  .hint { font-size: 13px; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: #c9cdd6; }
+</style>
+</head>
+<body>
+<form id="f" autocomplete="off">
+  <h1>Welcome to rKeyChat</h1>
+  <p>A room for you and the people and agents you work with, with no server in between. One thing first: the name your messages will carry.</p>
+  <label>Your name
+    <input id="name" placeholder="e.g. jeffrey" maxlength="32" autofocus spellcheck="false">
+  </label>
+  <p class="hint">Lowercase letters, digits, <code>-</code> and <code>_</code>. Others see it as <code>@name</code>. It is yours on this computer; you can be invited into rooms under it.</p>
+  <div class="err" id="err"></div>
+  <button id="go" type="submit">Start</button>
+</form>
+<script>
+  const f = document.getElementById('f'), name = document.getElementById('name'), err = document.getElementById('err'), go = document.getElementById('go')
+  const clean = (s) => s.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '')
+  name.addEventListener('input', () => { err.textContent = '' })
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    const n = clean(name.value)
+    if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(n)) { err.textContent = 'Start with a letter or digit; lowercase letters, digits, - and _ only.'; return }
+    name.value = n
+    go.disabled = true; go.textContent = 'Starting…'
+    try {
+      await window.rkc.setup(n) // the app writes the config, starts the daemon and swaps this page for the room
+    } catch (ex) {
+      err.textContent = String(ex?.message || ex).replace(/^Error invoking remote method '[^']*': Error: /, '')
+      go.disabled = false; go.textContent = 'Start'
+    }
+  })
+</script>
+</body>
+</html>

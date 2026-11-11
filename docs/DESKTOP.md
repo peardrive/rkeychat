@@ -15,6 +15,14 @@ npm run dist:mac     # package: release/rKeyChat-<version>-mac-arm64.{dmg,zip} â
 npm run dist:linux   # on the Linux box: AppImage + deb
 ```
 
+## First run
+
+A machine with no `~/.rkeychat/config.json` (someone who downloaded the dmg) gets
+`electron/first-run.html` in the window: one field, their name. `rkc.setup(name)` writes the same
+config `rkeychat init --human NAME` would, boots the daemon in-process and loads the room into the
+window. No terminal anywhere. Until 0.2.0 the app showed an error box telling them to run
+`rkeychat init`, which a dmg has no way to do.
+
 ## Where the daemon comes from
 
 Three cases, tried in that order at launch (`ensureDaemon` in `electron/main.js`):

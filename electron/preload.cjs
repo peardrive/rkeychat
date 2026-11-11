@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('rkc', {
   desktop: true,
   // 'granted' | 'denied' | 'restricted' | 'not-determined' on macOS; 'unknown' elsewhere
   micStatus: () => ipcRenderer.invoke('mic-status').catch(() => 'unknown'),
+  // first run only (electron/first-run.html): the person's name → config written, daemon started, room shown
+  setup: (name) => ipcRenderer.invoke('first-run', name),
   platform: process.platform,
   versions: { electron: process.versions.electron, chrome: process.versions.chrome }
 })

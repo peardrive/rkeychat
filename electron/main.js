@@ -24,7 +24,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell, systemPreferences 
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig, migrate, dataDir } from '../src/config.js'
+import { loadConfig, migrate, newConfig, addParticipant, saveConfig } from '../src/config.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(HERE, '..')
@@ -48,7 +48,10 @@ async function waitForDaemon (ms) {
   return false
 }
 
-function createWindow () {
+// `setup`: no config on this device yet. The window opens on electron/first-run.html, which
+// asks for the person's name; `rkc.setup(name)` (below) writes the config, boots the daemon
+// and then loads the room into the same window. Nobody installing the app has a terminal.
+function createWindow ({ setup = false } = {}) {
   win = new BrowserWindow({
     width: 1240,
     height: 840,
@@ -63,14 +66,15 @@ function createWindow () {
       preload: path.join(HERE, 'preload.cjs')
     }
   })
-  win.loadURL(origin())
+  if (setup) win.loadFile(path.join(HERE, 'first-run.html'))
+  else win.loadURL(origin())
   // sharelinks and web URLs belong in the system browser, not in new rKeyChat windows
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url)
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(origin())) { e.preventDefault(); if (/^https?:/i.test(url)) shell.openExternal(url) }
+    if (!url.startsWith(origin()) && !url.startsWith('file:')) { e.preventDefault(); if (/^https?:/i.test(url)) shell.openExternal(url) }
   })
   win.on('closed', () => { win = null })
 }
@@ -122,13 +126,22 @@ async function bootChild (cfg) {
   console.log(`rkeychat ${cfg.deviceName} (desktop, child node) → ${origin()}`)
 }
 
+// First run: the name typed into first-run.html becomes this device's config, the same
+// thing `rkeychat init --human NAME` writes. Port from RKEYCHAT_PORT when set (a second
+// copy on one machine, tests), else the default.
+function firstRun (name) {
+  if (loadConfig()) throw new Error('this device is already set up')
+  const cfg = newConfig({ port: Number(process.env.RKEYCHAT_PORT) || undefined })
+  addParticipant(cfg, name, { role: 'human' }) // validates the name
+  saveConfig(cfg)
+  console.log(`rkeychat (desktop) set up device "${cfg.deviceName}" with @${name}`)
+}
+
+// true: a daemon is there (attached or started); 'setup': no config yet, show first-run.html;
+// false: could not start, the person has been told and the app is quitting.
 async function ensureDaemon () {
   const loaded = loadConfig()
-  if (!loaded) {
-    dialog.showErrorBox('rKeyChat is not set up on this device', `No config in ${dataDir()}.\n\nIn a terminal, run:\n  rkeychat init --human <your name>\n  rkeychat add claude\nthen open rKeyChat again.`)
-    app.quit()
-    return false
-  }
+  if (!loaded) return 'setup'
   const cfg = migrate(loaded)
   port = cfg.port || 4455
   if (await daemonUp()) { console.log(`rkeychat (desktop) attached to the running daemon → ${origin()}`); return true }
@@ -173,15 +186,27 @@ if (!gotLock) {
     if (win) { if (win.isMinimized()) win.restore(); win.focus() } else createWindow()
   })
 
+  // first-run.html → rkc.setup(name): write the config, start the daemon, show the room
+  ipcMain.handle('first-run', async (e, name) => {
+    firstRun(String(name ?? ''))
+    const up = await ensureDaemon()
+    if (up !== true) throw new Error('the daemon could not start; see the terminal or the log')
+    if (win) win.loadURL(origin())
+  })
+
   app.whenReady().then(async () => {
     allowMicrophone()
-    if (await ensureDaemon()) createWindow()
+    const up = await ensureDaemon()
+    if (up === 'setup') createWindow({ setup: true })
+    else if (up) createWindow()
   })
 
   app.on('activate', async () => {
     if (win) return
-    if (await daemonUp()) createWindow()
-    else if (await ensureDaemon()) createWindow()
+    if (await daemonUp()) return createWindow()
+    const up = await ensureDaemon()
+    if (up === 'setup') createWindow({ setup: true })
+    else if (up) createWindow()
   })
 
   app.on('window-all-closed', () => {
