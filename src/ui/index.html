@@ -36,15 +36,21 @@ input, textarea { font: inherit; color: var(--text); user-select: text; }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
 .ico { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
 
-/* ---------- title bar: wordmark · room switcher */
-.titlebar { height: 52px; flex: none; display: flex; align-items: center; justify-content: center; gap: 10px; -webkit-app-region: drag; }
-.wordmark { font-weight: 650; letter-spacing: 0.2px; }
-.titlebar-sep { width: 3px; height: 3px; border-radius: 50%; background: var(--text-3); }
-.room-switch { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 12px; border-radius: 999px; color: var(--text-2); font-weight: 600; transition: background 0.15s, color 0.15s; }
-.room-switch:hover { color: var(--text); background: rgba(255,255,255,0.06); }
-.titlebar { position: relative; }
-.title-gear { position: absolute; right: 24px; top: 11px; -webkit-app-region: no-drag; }
-.caret { width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.6px 1.6px 0; transform: translateY(-2px) rotate(45deg); }
+/* ---------- top bar: you (who, which device) and your pages: Contacts · Profile · Settings, on the right.
+   Slim, and draggable where it's empty (it moves the window). */
+.titlebar { height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 22px 0 28px; -webkit-app-region: drag; }
+.mac-app .titlebar { padding-left: 88px; } /* the window's traffic lights sit top-left */
+.titlebar button, .titlebar .me-chip { -webkit-app-region: no-drag; }
+.titlebar .grow { flex: 1; }
+.titlebar-sep { width: 1px; height: 20px; margin: 0 8px; background: var(--line-strong); }
+.me-chip { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; }
+.me-chip .avatar { width: 24px; height: 24px; border-radius: 8px; font-size: 11px; }
+.me-name { font-weight: 600; color: var(--text); }
+.nav-btn { position: relative; width: 34px; height: 34px; border-radius: 10px; }
+.nav-btn .ico { width: 17px; height: 17px; }
+.nav-btn.is-open { color: var(--accent); background: rgba(168, 206, 56, 0.13); box-shadow: 0 0 0 1px rgba(168, 206, 56, 0.25) inset; }
+.nav-btn .dock-badge { top: 5px; right: 5px; }
+.icon-btn.is-stop { color: #ff8a80; background: rgba(255, 69, 58, 0.14); box-shadow: 0 0 0 1px rgba(255, 69, 58, 0.3) inset; }
 
 /* ---------- the room: conversation + panel */
 .room { flex: 1; min-height: 0; display: flex; gap: 14px; padding: 0 24px; }
@@ -135,6 +141,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .rec-stop i { width: 10px; height: 10px; border-radius: 2px; background: #fff; }
 .rec-wave { flex: 1; min-width: 0; height: 30px; }
 .rec-time { font-variant-numeric: tabular-nums; font-size: 12.5px; color: #ffb3ac; min-width: 36px; text-align: right; }
+/* the debug-note mic in the room header: one row like the buttons beside it; while a note records it widens
+   to show the time (the empty time took a second row and pushed the icon up) */
+#debugNote { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 30px; width: auto; }
+#debugNote .rec-time { min-width: 0; font-size: 11.5px; }
+#debugNote .rec-time:empty { display: none; }
+#debugNote:has(.rec-time:not(:empty)) { padding: 0 8px; color: #ff8a80; background: rgba(255, 69, 58, 0.14); }
 /* replies: a quote of the message being answered, in the bubble and above the composer */
 .quote { display: block; margin: -2px 0 6px; padding: 5px 9px; border-left: 3px solid var(--accent); border-radius: 6px; background: rgba(255,255,255,0.05); color: var(--text-2); font-size: 12.5px; cursor: pointer; overflow: hidden; }
 .quote b { color: var(--text); font-weight: 600; margin-right: 6px; } .quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -256,6 +268,13 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
    The width changes in one step and the contents fade in instead (applySide). */
 .side.is-collapsed { width: 72px; }
 .side-top { flex: none; padding: 12px; border-bottom: 1px solid var(--line); }
+/* desktop: the rooms panel's own header (title · new room · collapse); its big buttons are phone-only */
+.side-head { flex: none; display: flex; align-items: center; gap: 2px; padding: 10px 8px 0 16px; }
+.side-head h2 { font-size: 11px; font-weight: 700; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); }
+.side-head .grow { flex: 1; }
+@media (min-width: 721px) { .side .side-actions { display: none; } .side .side-top { padding-top: 8px; } .side .side-search { margin-bottom: 0; } }
+.side.is-collapsed .side-head { justify-content: center; padding: 12px 0 4px; }
+.side.is-collapsed .side-head h2, .side.is-collapsed .side-head .grow, .side.is-collapsed #newRoomIcon { display: none; }
 .side-actions { display: flex; gap: 8px; }
 .side-actions .btn { flex: 1; justify-content: center; white-space: nowrap; }
 .side-add { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 10px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(0,0,0,0.35); color: var(--text-3); }
@@ -292,6 +311,30 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 .side-grip:hover { background: linear-gradient(90deg, transparent, var(--line-strong)); }
 .side.is-collapsed .side-top, .side.is-collapsed .room-main, .side.is-collapsed .room-people, .side.is-collapsed .side-grip { display: none; }
 .side.is-collapsed .room-row { justify-content: center; padding: 8px 0; }
+/* desktop room rows: the room's tile (its colour from its name), name · when, the last line under it */
+.room-tile { flex: none; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  color: hsl(var(--h) 75% 85%); background: linear-gradient(180deg, hsl(var(--h) 36% 30%), hsl(var(--h) 38% 21%));
+  box-shadow: 0 0 0 1px hsl(var(--h) 45% 42% / 0.55) inset, 0 2px 6px rgba(0, 0, 0, 0.3); }
+.room-row.is-desk { gap: 11px; padding: 8px 10px 8px 8px; }
+.room-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.room-line .n { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-time { flex: none; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.room-row.is-desk .unread { top: 5px; left: 37px; right: auto; } /* on the tile's corner: seen open or collapsed */
+.room-row.is-unread .room-line .n { font-weight: 700; color: var(--text); }
+.room-row.is-unread .room-time { color: var(--accent); font-weight: 600; }
+.side.is-collapsed .room-row.is-desk { padding: 6px 0; }
+/* the open room's people: a small toggle on the right of its box, on the last-message line under the time */
+.room-wrap { position: relative; }
+.people-toggle { position: absolute; right: 8px; bottom: 7px; display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 7px;
+  font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3); background: rgba(0, 0, 0, 0.22); box-shadow: 0 0 0 1px var(--line) inset; }
+.people-toggle:hover, .people-toggle[aria-expanded="true"] { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+.room-row.is-open .room-last { padding-right: 58px; } /* the last line stops short of the toggle */
+.person-row.more { width: 100%; color: var(--text-3); padding-left: 36px; }
+.person-row.more:hover { color: var(--text); }
+.people-toggle .ico { width: 13px; height: 13px; }
+.people-toggle .fold { display: grid; transition: transform 0.18s var(--ease); }
+.people-toggle[aria-expanded="true"] .fold { transform: rotate(180deg); }
+.side.is-collapsed .people-toggle { display: none; }
 
 /* ---------- room header above the chat */
 .room-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 14px 12px 16px; border-bottom: 1px solid var(--line); }
@@ -301,6 +344,9 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 .room-head .faces { display: flex; }
 .room-head .faces .avatar { width: 24px; height: 24px; border-radius: 8px; font-size: 10.5px; margin-left: -6px; box-shadow: 0 0 0 2px #1a1b21; }
 .room-head .faces .avatar:first-child { margin-left: 0; }
+/* each face sits over the next, so the first (usually you) is seen whole, not half under the second */
+.room-head .faces .avatar { position: relative; }
+.room-head .faces .avatar:nth-child(1) { z-index: 5; } .room-head .faces .avatar:nth-child(2) { z-index: 4; } .room-head .faces .avatar:nth-child(3) { z-index: 3; } .room-head .faces .avatar:nth-child(4) { z-index: 2; } .room-head .faces .avatar:nth-child(5) { z-index: 1; }
 
 /* ---------- panel (opened from the dock) */
 .panel { width: var(--panel-w); flex: none; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden;
@@ -310,6 +356,8 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 .panel-head > .ico { color: var(--accent); width: 16px; height: 16px; }
 .panel-head h2 { font-size: 13.5px; font-weight: 650; letter-spacing: -0.1px; }
 .panel-head .icon-btn { position: absolute; right: 8px; top: 7px; }
+/* desktop: the panel's title reads from the left like every other header, its close on the right */
+@media (min-width: 721px) { .panel-head { justify-content: flex-start; padding-left: 18px; } }
 .panel-body { flex: 1; overflow-y: auto; padding: 16px 16px 20px; display: flex; flex-direction: column; gap: 14px; }
 .section { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02)); border: 1px solid var(--line); box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset; }
 .section-title { font-size: 11px; font-weight: 600; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-3); }
@@ -502,22 +550,10 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 .kv dt { color: var(--text-3); } .kv dd { margin: 0; min-width: 0; color: var(--text); word-break: break-all; }
 .kv .mono { font: 10.5px/1.5 ui-monospace, Menlo, monospace; color: var(--text-2); user-select: all; cursor: text; }
 
-/* ---------- the floor: status · dock (pages) · device */
-.floor { flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; padding: 12px 24px 18px; }
-.floor-left { justify-self: start; min-width: 0; }
-.floor-right { justify-self: end; font-size: 12px; color: var(--text-3); }
-.dock { display: flex; align-items: center; gap: 4px; padding: 7px 9px; border-radius: 22px;
-  background: linear-gradient(180deg, rgba(44, 46, 56, 0.92), rgba(24, 25, 31, 0.94)); backdrop-filter: blur(24px) saturate(140%); border: 1px solid var(--line); box-shadow: var(--shadow-float); }
-.dock-sep { width: 1px; height: 26px; margin: 0 5px; background: linear-gradient(180deg, transparent, var(--line-strong), transparent); }
-.dock-btn { position: relative; width: 50px; height: 44px; border-radius: 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2);
-  transition: transform 0.18s var(--ease), background 0.18s, color 0.18s; }
-.dock-btn .ico { width: 19px; height: 19px; }
-.dock-btn span { font-size: 9.5px; font-weight: 600; letter-spacing: 0.2px; }
-.dock-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); transform: translateY(-2px); }
-.dock-btn:active { transform: translateY(0) scale(0.95); }
-.dock-btn.is-open { color: var(--accent); background: linear-gradient(180deg, rgba(168, 206, 56, 0.16), rgba(168, 206, 56, 0.06)); box-shadow: 0 0 0 1px rgba(168, 206, 56, 0.22) inset; }
-.dock-btn.is-stop { color: #ff8a80; background: linear-gradient(180deg, rgba(255,69,58,0.22), rgba(255,69,58,0.1)); box-shadow: 0 0 0 1px rgba(255,69,58,0.35) inset; }
+/* an agent is thinking: a small amber dot on Profile in the top bar */
 .dock-badge { position: absolute; top: 5px; right: 9px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 8px rgba(242,184,75,0.7); animation: blink 1.6s ease-in-out infinite; }
+/* the room needs the height the bottom bar had: a little air under the panels instead */
+.room { padding-bottom: 20px; }
 
 /* ---------- hero (no rooms / not admitted) */
 .hero { margin: auto; width: min(420px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 32px 18px; }
@@ -548,6 +584,8 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 @media (max-width: 900px) { :root { --panel-w: 280px; } .msg { max-width: 88%; } }
 /* ---------- phone: the chat owns the screen; rooms are their own screen; panels are sheets */
 .m-only { display: none !important; }
+/* not on desktop, where the same control already has its place; on phone it keeps its own layout */
+@media (min-width: 721px) { .no-desk { display: none !important; } }
 @media (max-width: 720px) {
   .m-only { display: grid !important; }
   .d-only { display: none !important; }
@@ -611,6 +649,10 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
   <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
+  <symbol id="i-collapse" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15M15.5 10l-2 2 2 2"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15M13.5 10l2 2-2 2"/></symbol>
+  <symbol id="i-leave" viewBox="0 0 24 24"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
   <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h2.5v2.5H14zM18 14h2.5M14 18v2.5M18 18h2.5v2.5"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
@@ -618,14 +660,22 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
   <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="10.5" rx="3"/><path d="M12 4.5V8M9.5 12.5v1.5M14.5 12.5v1.5"/></symbol>
 </svg>
 
+<!-- the top bar is yours: who and where you are, and the pages about you. Each panel carries its own controls. -->
 <header class="titlebar">
-  <span class="wordmark">rkeychat</span><span class="titlebar-sep"></span>
-  <button class="room-switch" id="roomSwitch" title="Rooms"><span id="roomTitle">connecting…</span><span class="caret"></span></button>
-  <button class="icon-btn title-gear" id="gearBtn" title="Settings"><svg class="ico"><use href="#i-gear"/></svg></button>
+  <span class="grow"></span>
+  <div class="me-chip" title="You, on this device"><div class="avatar is-human" id="meAvatar">·</div><span class="me-name" id="meName"></span><span class="status" id="connStatus">connecting</span></div>
+  <span class="titlebar-sep"></span>
+  <button class="icon-btn nav-btn" data-page="contacts" title="Contacts: people and agents you know"><svg class="ico"><use href="#i-people"/></svg></button>
+  <button class="icon-btn nav-btn" data-page="profile" title="Profile: your keys, devices and agents"><svg class="ico"><use href="#i-human"/></svg><i class="dock-badge" id="agentsBadge" hidden></i></button>
+  <button class="icon-btn nav-btn" data-page="settings" id="gearBtn" title="Settings"><svg class="ico"><use href="#i-gear"/></svg></button>
 </header>
 
 <div class="room">
   <aside class="side" id="side">
+    <!-- desktop: the rooms panel's own controls, on the panel -->
+    <div class="side-head d-only"><h2>Rooms</h2><span class="grow"></span>
+      <button class="icon-btn" id="newRoomIcon" title="New room: start one and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg></button>
+      <button class="icon-btn" id="sideToggle" title="Collapse the rooms panel"><svg class="ico"><use href="#i-collapse"/></svg></button></div>
     <div class="side-top"><label class="side-add side-search" title="Search the messages in all your rooms"><svg class="ico"><use href="#i-search"/></svg><input id="globalSearch" type="search" placeholder="Search all rooms" autocomplete="off" spellcheck="false" aria-label="Search all rooms"></label><div class="side-actions"><button class="btn btn-primary btn-sm" id="newRoomBtn" title="Start a room and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg>New room</button><button class="btn btn-soft btn-sm" id="addPeopleBtn" title="Invite a person, an agent or one of your own devices into this room"><svg class="ico"><use href="#i-people"/></svg>Add someone</button></div></div>
     <div class="side-body" id="sideBody"></div>
     <div class="side-grip" id="sideGrip" title="Drag to resize · double-click to collapse"></div>
@@ -672,16 +722,6 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
   </aside>
 </div>
 
-<footer class="floor">
-  <div class="floor-left"><span class="status" id="connStatus">connecting</span></div>
-  <nav class="dock" aria-label="Pages">
-    <button class="dock-btn" id="sideToggle" title="Show or hide rooms"><svg class="ico"><use href="#i-rooms"/></svg><span>Rooms</span></button>
-    <button class="dock-btn" data-page="contacts" title="People and agents you know"><svg class="ico"><use href="#i-people"/></svg><span>Contacts</span></button>
-    <button class="dock-btn" data-page="profile" title="You: your keys, devices and agents"><svg class="ico"><use href="#i-human"/></svg><span>Profile</span><i class="dock-badge" id="agentsBadge" hidden></i></button>
-    <button class="dock-btn" id="pauseAll" hidden></button>
-  </nav>
-  <div class="floor-right" id="floorRight"></div>
-</footer>
 
 <div class="toast" id="toast"></div>
 <div class="ask" id="loginAsk" hidden></div>
@@ -689,6 +729,8 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 
 <script>
 const $ = (id) => document.getElementById(id)
+// the Mac app draws its window buttons over the top-left corner; the top bar leaves them room
+if (window.rkc?.platform === 'darwin') document.documentElement.classList.add('mac-app')
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const time = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 // One logger for the UI: a ring of lines anyone can subscribe to. A debug note is the
@@ -1485,12 +1527,33 @@ function stackHTML (people) {
   const ps = (people ?? []).slice(0, 3)
   return `<div class="stack${ps.length <= 1 ? ' one' : ps.length === 3 ? ' three' : ''}">${ps.map(faceHTML).join('') || '<div class="avatar">·</div>'}</div>`
 }
+// ---------- desktop room rows: a tile of the room's own, its name and when it last spoke, the last line under it
+// A room's colour comes from its name, so it is always the same colour wherever it shows.
+const tileHue = (s) => { let h = 7; for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) % 360; return h }
+const tileHTML = (name) => `<span class="room-tile" style="--h:${tileHue(name)}">${esc((String(name).trim()[0] ?? '?').toUpperCase())}</span>`
+// when a room last spoke, as short as it can be said: 1:19 PM · Yesterday · Mon · Nov 3
+function whenShort (ts) {
+  const d = new Date(ts); const now = new Date()
+  if (d.toDateString() === now.toDateString()) return time(ts)
+  const y = new Date(now); y.setDate(now.getDate() - 1)
+  if (d.toDateString() === y.toDateString()) return 'Yesterday'
+  if (now - d < 6 * 86_400_000) return d.toLocaleDateString([], { weekday: 'short' })
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+// the open room's people, folded under it until asked for (remembered on this device)
+let sidePeopleOpen = store.get('rk.sidePeople', '0') === '1'
+const SIDE_PEOPLE = 5 // the rest are "+N others", which opens Room details
+const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+
 function renderSide () {
   const body = $('sideBody'); if (!body || !S) return
   // searching all rooms: the matches take the list's place until the field is cleared
   if (globalHits) return setHTML(body, globalHits.length ? globalHits.map(hitHTML).join('') : '<p class="note" style="padding:8px">No messages match.</p>')
   const c = cur()
-  setHTML(body, (S.rooms ?? []).map((r) => {
+  const desk = !isPhone()
+  // desktop: rooms A to Z, so they never move around; the phone keeps its own order and rows
+  setHTML(body, (desk ? [...(S.rooms ?? [])].sort(byName) : (S.rooms ?? [])).map((r) => {
+    if (desk) return deskRoomRow(r, c)
     const open = r.topic === c?.topic
     const others = (r.people ?? []).filter((p) => p.name !== me())
     const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
@@ -1501,8 +1564,38 @@ function renderSide () {
     }).join('') : ''
     return `<button class="room-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${unread ? '<span class="unread" title="New since you looked"></span>' : ''}${stackHTML(others.length ? others : r.people)}
         <div class="room-main"><span class="room-name"><span class="n">${esc(r.name)}</span><span class="count">${r.members}</span></span><span class="room-last">${esc(last)}</span></div></button>
-      ${open ? `<div class="room-people">${peopleRows}${c?.owner ? `<button class="person-row" data-open-invite style="color:var(--text-3)"><div class="avatar" style="background:none;box-shadow:0 0 0 1px var(--line-strong) inset">${icon('plus')}</div><span class="nm">Invite</span></button>` : ''}</div>` : ''}`
+      ${open ? `<div class="room-people">${peopleRows}${c?.owner ? `<button class="person-row no-desk" data-open-invite style="color:var(--text-3)"><div class="avatar" style="background:none;box-shadow:0 0 0 1px var(--line-strong) inset">${icon('plus')}</div><span class="nm">Invite</span></button>` : ''}</div>` : ''}`
   }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>')
+}
+function deskRoomRow (r, c) {
+  const open = r.topic === c?.topic
+  const unread = !open && isUnread(r)
+  const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
+  const n = r.members ?? 0
+  // the open room: a people toggle on the right of its box, and when unfolded, the first few people under it
+  let toggle = ''; let list = ''
+  if (open && c) {
+    toggle = `<button class="people-toggle" data-people-toggle aria-expanded="${sidePeopleOpen}" title="${sidePeopleOpen ? 'Hide' : 'Show'} who is in ${esc(r.name)}">${icon('people')}<span>${n}</span><span class="fold">${icon('down')}</span></button>`
+    if (sidePeopleOpen) {
+      const everyone = c.participants.filter((p) => p.status === 'active')
+      const shown = everyone.slice(0, SIDE_PEOPLE)
+      const more = everyone.length - shown.length
+      list = `<div class="room-people">${shown.map((p) => {
+        const [tone, label] = personStatus(p, c.budget)
+        return `<div class="person-row${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}>${faceHTML(p)}<span class="nm">${esc(p.name === me() ? `${p.name} (you)` : p.name)}</span><span class="status ${tone}">${esc(label)}</span></div>`
+      }).join('')}${more ? `<button class="person-row more" data-go="room" title="Everyone in ${esc(r.name)}, in Room details">+${more} other${more === 1 ? '' : 's'}</button>` : ''}</div>`
+    }
+  }
+  return `<div class="room-wrap"><button class="room-row is-desk${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)} · ${n} ${n === 1 ? 'person' : 'people'}${unread ? ' · new since you looked' : ''}">
+      ${tileHTML(r.name)}${unread ? '<span class="unread"></span>' : ''}
+      <div class="room-main"><span class="room-line"><span class="n">${esc(r.name)}</span><span class="room-time">${r.last ? esc(whenShort(r.last.ts)) : ''}</span></span><span class="room-last">${esc(last)}</span></div></button>${toggle}</div>${list}`
+}
+// Pause/resume every agent in this room, always one click away in the room's header (desktop). Shown only where
+// there are agents to pause; red while they are paused, so the state is visible at a glance.
+function pauseBtnHTML (c) {
+  if (!c.admitted || !c.participants.some((p) => p.role === 'agent' && p.status === 'active')) return ''
+  const paused = !!c.budget?.paused
+  return `<button class="icon-btn d-only${paused ? ' is-stop' : ''}" data-ctl="${paused ? 'resume' : 'pause'}" title="${paused ? 'Agents are paused: let them speak again' : 'Pause every agent in this room'}">${icon(paused ? 'play' : 'pause')}</button>`
 }
 function renderHead () {
   const h = $('roomHead'); const c = cur()
@@ -1514,10 +1607,11 @@ function renderHead () {
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
     <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
-    <button class="icon-btn" data-room-search title="Search this room">${icon('search')}</button>
     <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
+    <button class="icon-btn" data-room-search title="Search this room">${icon('search')}</button>
+    ${pauseBtnHTML(c)}
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
-    <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`)
+    <button class="icon-btn" data-menu title="More: room details, rename, leave">${icon('dots')}</button>`)
   syncDebugBtn()
 }
 async function renameRoom () {
@@ -1530,7 +1624,13 @@ function openMenu (anchor) {
   document.getElementById('menu')?.remove()
   const c = cur(); const paused = !!c?.budget?.paused
   const el = document.createElement('div'); el.className = 'menu'; el.id = 'menu'
-  el.innerHTML = [
+  // desktop: this menu is the room's own (everything about you is in the top bar)
+  el.innerHTML = !isPhone() ? [
+    `<button data-go="room">${icon('info')}Room details</button>`,
+    c?.owner ? `<button data-go="rename">${icon('pen')}Rename room</button>` : '',
+    c?.owner ? `<button data-go="invite">${icon('plus')}Invite someone</button>` : '',
+    !c?.owner ? `<button data-go="leave">${icon('leave')}Leave room</button>` : ''
+  ].join('') : [
     c?.owner ? `<button data-go="invite">${icon('plus')}Invite</button>` : '',
     `<button data-go="room">${icon('rooms')}Room details</button>`,
     `<button data-go="contacts">${icon('people')}Contacts</button>`,
@@ -1656,7 +1756,7 @@ function renderPanel () {
   const panel = $('panel')
   // never repaint the room page under someone's unsaved edit or mid-drag
   if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText' || document.activeElement?.closest?.('.rule-panel'))) return
-  document.querySelectorAll('.dock-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
+  document.querySelectorAll('.nav-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
   if (!page || !PAGES[page]) { panel.hidden = true; return }
   panel.hidden = false
   $('panelTitle').textContent = page === 'activity' && activityAgent ? `${activityAgent} · activity` : PAGES[page].title
@@ -1866,7 +1966,7 @@ function renderProfilePage () {
   const gone = mine.filter((m) => m.status !== 'active')
   const tree = live.map(treeRow).join('')
   return `<div class="room-profile"><div class="big" style="border-radius:50%">${esc(meName.slice(0, 1).toUpperCase())}</div><h2>${esc(meName)}</h2><div class="meta">on ${esc(d.name ?? 'this device')}</div>
-      <div class="inline"><button class="btn btn-primary btn-sm" id="loginOffer">${icon('qr')}Log in a new device</button><button class="btn btn-soft btn-sm" data-go="settings">${icon('gear')}Settings</button></div></div>
+      <div class="inline"><button class="btn btn-primary btn-sm" id="loginOffer">${icon('qr')}Log in a new device</button><button class="btn btn-soft btn-sm no-desk" data-go="settings">${icon('gear')}Settings</button></div></div>
     ${loginOffer ? `<section class="section" style="text-align:center"><div style="display:inline-grid;place-items:center;padding:8px;background:#fff;border-radius:14px;width:min(100%, 320px)">${loginOffer.qr}</div><p class="note" style="margin-top:8px">Scan this on the new device. Good once, for 10 minutes.</p><details><summary class="note">or copy the code</summary><div class="code" style="user-select:all;margin-top:6px">${esc(loginOffer.code)}</div></details></section>` : ''}
     <section class="section"><h3 class="section-title">Your account</h3>
       <dl class="kv"><dt>Root</dt><dd class="mono">${esc(rootRef ?? 'none yet')}</dd><dt>This device</dt><dd class="mono">${esc(d.ref ?? '')}</dd></dl>
@@ -1960,17 +2060,13 @@ async function openScanner (onResult) {
 // ---------- global bits
 function renderChrome () {
   const c = cur()
-  $('roomTitle').textContent = c ? c.name : (S?.rooms.length ? 'rooms' : 'no rooms yet')
+  // the top bar: you, and which device this is (green while the daemon answers)
   const cs = $('connStatus')
   cs.className = 'status tone-good'; cs.textContent = S.device.name
-  const b = c?.budget
-  const pa = $('pauseAll'); const paused = !!b?.paused
-  pa.classList.toggle('is-stop', paused)
-  setHTML(pa, paused ? `${icon('play')}<span>Resume</span>` : `${icon('pause')}<span>Pause</span>`)
-  pa.title = paused ? 'Let the agents speak again' : 'Pause every agent in this room'
-  pa.disabled = !c?.admitted
+  const mine = me()
+  $('meName').textContent = mine ?? ''
+  $('meAvatar').textContent = (mine ?? S.device.name ?? '·').slice(0, 1)
   $('agentsBadge').hidden = !c?.participants.some((p) => p.role === 'agent' && p.online && p.state === 'thinking')
-  $('floorRight').textContent = c ? `${c.participants.filter((p) => p.status === 'active' && p.online).length} online` : ''
   const others = c?.participants.filter((p) => p.status === 'active' && p.name !== me()).map((p) => '@' + p.name) ?? []
   if (!dictation) $('text').placeholder = c ? `Message ${c.name}${others.length && !isPhone() ? ` · ${others.slice(0, 3).join(' ')}` : ''}` : 'Create a room to start'
   $('text').disabled = !c?.admitted
@@ -2618,14 +2714,14 @@ function playMemo (key, mime) {
   player.audio.play().catch(() => toast('That memo isn\'t on this device yet. Try again in a moment.', 'bad'))
 }
 
-document.querySelectorAll('.dock-btn[data-page]').forEach((b) => (b.onclick = () => openPage(page === b.dataset.page ? '' : b.dataset.page)))
+document.querySelectorAll('.nav-btn[data-page]').forEach((b) => (b.onclick = () => openPage(page === b.dataset.page ? '' : b.dataset.page)))
 $('panelClose').onclick = () => openPage('')
 // no microphone outside a secure context (phone over plain http): the keyboard's own dictation still works
 if (!navigator.mediaDevices?.getUserMedia) { $('micBtn').hidden = true; $('memoBtn').hidden = true }
 // Two plain buttons where a bare text field used to be: the field read as a search box
 // and nobody found room creation (Guy's debug note, Oct 28). "New room" opens the form
 // with the name focused; "Add someone" opens the invite page for the current room.
-$('newRoomBtn').onclick = () => { log.info('ui', 'New room'); openPage('rooms'); loadPeople(); setTimeout(() => $('panelCreate')?.querySelector('input[name=name]')?.focus(), 50) }
+$('newRoomBtn').onclick = $('newRoomIcon').onclick = () => { log.info('ui', 'New room'); openPage('rooms'); loadPeople(); setTimeout(() => $('panelCreate')?.querySelector('input[name=name]')?.focus(), 50) }
 $('addPeopleBtn').onclick = () => { log.info('ui', 'Add someone'); openPage('invite'); loadPeople() }
 const side = $('side')
 let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
@@ -2633,6 +2729,9 @@ const applySide = () => {
   const w = Number(store.get('rk.sideW', 272)); side.style.setProperty('--side-w', `${w}px`)
   const wasCollapsed = side.classList.contains('is-collapsed')
   const collapsed = side.classList.toggle('is-collapsed', store.get('rk.sideC', '0') === '1')
+  const tg = $('sideToggle') // the panel's own collapse button says which way it goes
+  tg.title = collapsed ? 'Expand the rooms panel' : 'Collapse the rooms panel'
+  tg.querySelector('use')?.setAttribute('href', collapsed ? '#i-expand' : '#i-collapse')
   if (window.innerWidth <= 720) side.classList.toggle('is-mobile-hidden', !roomsScreen)
   // opened or closed: the contents fade in at their new width. Opacity and transform only, so this costs the
   // compositor, not a layout of the chat per frame.
@@ -2775,9 +2874,7 @@ $('sideToggle').onclick = () => {
   else store.set('rk.sideC', store.get('rk.sideC', '0') === '1' ? '0' : '1')
   applySide()
 }
-$('roomSwitch').onclick = () => $('sideToggle').click()
 $('gearBtn').onclick = () => { openPage(page === 'settings' ? '' : 'settings'); loadSettings() }
-$('pauseAll').onclick = () => cur()?.admitted && control({ action: cur().budget.paused ? 'resume' : 'pause' })
 
 document.addEventListener('click', async (e) => {
   if (!e.target.closest('#picker') && !e.target.closest('[data-react-open]')) closePicker()
@@ -2831,6 +2928,7 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-get-file]')) { getFile(e.target.closest('[data-get-file]').dataset.getFile); return }
   if (e.target.closest('[data-open-file]')) { openFile(e.target.closest('[data-open-file]').dataset.openFile); return }
   if (e.target.closest('[data-show-rooms]')) { roomsScreen = true; applySide(); return }
+  if (e.target.closest('[data-people-toggle]')) { sidePeopleOpen = !sidePeopleOpen; store.set('rk.sidePeople', sidePeopleOpen ? '1' : '0'); renderSide(); return }
   if (e.target.closest('[data-room-search]')) { if ($('findBar').hidden) openFind(); else closeFind(); return }
   const hit = e.target.closest('[data-hit-id]'); if (hit) { openHit(hit.dataset.hitTopic, hit.dataset.hitId); return }
   const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
@@ -2840,6 +2938,7 @@ document.addEventListener('click', async (e) => {
     const g = go.dataset.go
     if (g === 'pause') return control({ action: cur()?.budget?.paused ? 'resume' : 'pause' })
     if (g === 'rename') return renameRoom()
+    if (g === 'leave') { if (!confirm('Leave this room? Your keys are revoked here; the history stays with the others.')) return; return api('POST', '/api/revoke', { room: roomArg(), name: me() }).then(() => toast('You left the room')).catch((err) => toast(err.message)) }
     if (g === 'settings') loadSettings()
     if (g === 'invite') loadPeople()
     openPage(g); return

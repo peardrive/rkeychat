@@ -57,6 +57,9 @@ function createWindow () {
     title: 'rKeyChat',
     backgroundColor: '#0f1115', // close to the UI's own background: no white flash
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    // Windows/Linux: no File · Edit · View · Window bar over the app. Alt still shows it, and its shortcuts
+    // (Ctrl+R to reload, zoom, dev tools) keep working. (macOS keeps its menu in the screen's top bar.)
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
