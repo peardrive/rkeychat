@@ -11,6 +11,12 @@ import { extname } from 'node:path'
 import { Chain, enroll, revoke, unban, consent } from 'rkey'
 import { SCOPES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
+import { windowOf } from './feed-window.js'
+import { RoomSearch } from './search.js'
+
+// record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
+// messages they point at; invites are addressed to one device)
+export const FEED_SKIP = ['react', 'redact', 'invite']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -94,7 +100,15 @@ export class Room extends EventEmitter {
     this.#hello()
   }
 
-  stop () { clearInterval(this.timer); clearInterval(this.syncTimer) }
+  stop () { clearInterval(this.timer); clearInterval(this.syncTimer); this._search?.close() }
+
+  // this room's message search (search.js); its index opens on the first search, not at startup
+  get search () { return (this._search ??= new RoomSearch(this)) }
+
+  // Search results as the page shows them: newest first, with who wrote each.
+  find (q, opts) {
+    return this.search.find(q, opts).map((r) => ({ ...r, name: this.view(this.store.get(r.id)).name }))
+  }
 
   async space () {
     const list = await this.core.space.list()
@@ -250,12 +264,74 @@ export class Room extends EventEmitter {
 
   log () {
     const { ids } = this.blocked()
-    return this.store.ordered.map((r) => {
-      const v = this.view(r)
-      const red = ids.get(r.id)
-      if (!red || r.kind !== 'msg') return v
-      return { ...v, text: '', att: undefined, mentions: [], redacted: { by: this.view(red).name, ts: red.ts } }
-    })
+    return this.store.ordered.map((r) => this.#viewLogged(r, ids))
+  }
+
+  // One window of what the feed shows (see feed-window.js): { log, hasOlder, hasNewer }, or null when the
+  // named message is not in this room. Decorates only the records it returns.
+  page ({ before, after, around, limit } = {}, skip = FEED_SKIP) {
+    const list = this.store.ordered.filter((r) => !skip.includes(r.kind))
+    const w = windowOf(list, { before, after, around, limit })
+    if (!w) return null
+    const { ids } = this.blocked()
+    return { log: list.slice(w.start, w.end).map((r) => this.decorate(this.#viewLogged(r, ids), ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
+  }
+
+  // What a feed line needs from outside the window the page holds: the preview of the message a reply answers
+  // (withQuote), and for a rename or a settings change, what it changed from (withBefore).
+  decorate (v, ids = this.blocked().ids) { return this.withBefore(this.withQuote(v, ids)) }
+
+  // A rename carries the room's name before it (`was`), and a settings change the settings before it
+  // (`before`: { text, order, agents }), so the line can say what moved even when the earlier one is far
+  // outside the window. Absent when there was no earlier one ("named this room", "set who answers first").
+  withBefore (v) {
+    if (v?.kind !== 'control' || (v.action !== 'rename' && v.action !== 'charter')) return v
+    const all = this.store.ordered
+    let i = all.findIndex((r) => r.id === v.id)
+    while (--i >= 0) {
+      const r = all[i]
+      if (r.kind !== 'control' || r.action !== v.action) continue
+      if (v.action === 'rename' && r.name) return { ...v, was: r.name }
+      if (v.action === 'charter') return { ...v, before: { text: r.text ?? '', order: r.order ?? [], agents: r.agents ?? {} } }
+    }
+    return v
+  }
+
+  // When `name` last posted before the message `id` (the thinking overlay's look-back), or null.
+  previousBy (id, name) {
+    const all = this.store.ordered
+    let i = all.findIndex((r) => r.id === id)
+    while (--i >= 0) if (all[i].kind === 'msg' && this.view(all[i]).name === name) return all[i].ts
+    return null
+  }
+
+  // A reply carries a short summary of the message it answers (`q`), so the page can show the quote even when
+  // that message is outside the window it holds. `v` is a decorated record; returns it, with `q` when it has one.
+  withQuote (v, ids = this.blocked().ids) {
+    const id = v?.re?.[0]
+    const r = id && this.store.get(id)
+    if (!r) return v
+    const q = this.view(r)
+    const file = q.att?.find((a) => a.kind === 'file')
+    const text = ids.has(r.id) ? '(removed)' : q.text || (file ? `📎 ${file.name}` : q.att?.length ? 'Voice memo' : '')
+    return { ...v, q: { id: r.id, name: q.name, text: text.slice(0, 160) } }
+  }
+
+  // The newest message that was not removed, as log() would show it, or null.
+  lastMessage () {
+    const { ids } = this.blocked()
+    const all = this.store.ordered
+    for (let i = all.length - 1; i >= 0; i--) {
+      if (all[i].kind === 'msg' && !ids.has(all[i].id)) return this.view(all[i])
+    }
+    return null
+  }
+
+  #viewLogged (r, ids) {
+    const v = this.view(r)
+    const red = ids.get(r.id)
+    if (!red || r.kind !== 'msg') return v
+    return { ...v, text: '', att: undefined, mentions: [], redacted: { by: this.view(red).name, ts: red.ts } }
   }
 
   budget () { return budget(this.log()) }
@@ -846,8 +922,9 @@ export class Room extends EventEmitter {
   // Current reactions per message: { msgId: { emoji: [names] } } (last toggle wins).
   reactions () {
     const state = new Map()
-    for (const r of this.log()) {
-      if (r.kind !== 'react') continue
+    for (const raw of this.store.ordered) {
+      if (raw.kind !== 'react') continue
+      const r = this.view(raw)
       const key = `${r.target}\u0000${r.emoji}\u0000${r.name}`
       if (r.on) state.set(key, r); else state.delete(key)
     }

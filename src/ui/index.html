@@ -74,6 +74,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .msg.is-cont .bubble { border-radius: 6px 16px 16px 6px; }
 .msg.is-mine .bubble { color: var(--text); border-radius: 16px 16px 6px 16px; background: linear-gradient(180deg, rgba(168,206,56,0.2), rgba(168,206,56,0.11)); border-color: rgba(168,206,56,0.28); }
 .msg.is-mine.is-cont .bubble { border-radius: 16px 6px 6px 16px; }
+/* aimed at you (a reply to your message, or an @mention of you): the app's "you" yellow, quietly, always on */
+.msg.is-for-me .bubble { border-color: rgba(255, 214, 10, 0.38); background: linear-gradient(180deg, rgba(255, 214, 10, 0.085), rgba(255, 214, 10, 0.035));
+  box-shadow: 3px 0 0 rgba(255, 214, 10, 0.7) inset, 0 1px 0 rgba(255, 255, 255, 0.04) inset; }
 .msg.is-selected .bubble { border-color: var(--select); }
 .mine-time { font-size: 10.5px; color: var(--text-3); font-variant-numeric: tabular-nums; padding-right: 4px; opacity: 0; transition: opacity 0.15s; }
 .msg:hover .mine-time { opacity: 1; }
@@ -137,9 +140,61 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 .quote b { color: var(--text); font-weight: 600; margin-right: 6px; } .quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .quote:hover { background: rgba(255,255,255,0.08); }
 .replybar { display: flex; align-items: center; gap: 8px; margin: 0 14px 6px; } .replybar .quote { flex: 1; margin: 0; }
-.msg.is-flash .bubble { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.2s; }
+/* the message you landed on (a quote, a search match): a hollow ring of light travels round it, fading in and
+   out. Only the ring's angle and opacity animate, on one element, for under three seconds. */
+@property --ring { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.msg.is-flash .bubble::after { content: ''; position: absolute; inset: -3px; z-index: 1; padding: 2px; border-radius: inherit; pointer-events: none;
+  background: conic-gradient(from var(--ring), transparent 0deg, rgba(168, 206, 56, 0.15) 40deg, var(--accent) 110deg, #eaffa0 150deg, var(--accent-2) 190deg, transparent 260deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  filter: drop-shadow(0 0 5px rgba(168, 206, 56, 0.55));
+  animation: ring-turn 1.3s linear infinite, ring-life 2.8s ease forwards; }
+@keyframes ring-turn { to { --ring: 360deg; } }
+@keyframes ring-life { 0% { opacity: 0; } 12% { opacity: 1; } 72% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .msg.is-flash .bubble::after { background: var(--accent); filter: none; } }
+/* the words you searched for, inside that message: they fade in, beat like a heart three times (a strong beat,
+   then a softer echo), and fade out. Colour and glow only, so the text never moves or rewraps. */
+mark.hit-glow { color: inherit; border-radius: 4px; padding: 0 1px; background: rgba(255, 214, 10, 0.4); animation: word-beat 3.2s ease-in-out forwards; }
+@keyframes word-beat {
+  0% { background-color: rgba(255, 214, 10, 0); box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+  8% { background-color: rgba(255, 214, 10, 0.32); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  /* beat one: lub, dub */
+  14% { background-color: rgba(255, 214, 10, 0.62); box-shadow: 0 0 16px 3px rgba(255, 214, 10, 0.55); }
+  19% { background-color: rgba(255, 214, 10, 0.34); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  24% { background-color: rgba(255, 214, 10, 0.5); box-shadow: 0 0 11px 2px rgba(255, 214, 10, 0.4); }
+  32% { background-color: rgba(255, 214, 10, 0.32); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  /* beat two */
+  42% { background-color: rgba(255, 214, 10, 0.62); box-shadow: 0 0 16px 3px rgba(255, 214, 10, 0.55); }
+  47% { background-color: rgba(255, 214, 10, 0.34); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  52% { background-color: rgba(255, 214, 10, 0.5); box-shadow: 0 0 11px 2px rgba(255, 214, 10, 0.4); }
+  60% { background-color: rgba(255, 214, 10, 0.32); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  /* beat three */
+  70% { background-color: rgba(255, 214, 10, 0.62); box-shadow: 0 0 16px 3px rgba(255, 214, 10, 0.55); }
+  75% { background-color: rgba(255, 214, 10, 0.34); box-shadow: 0 0 6px 0 rgba(255, 214, 10, 0.2); }
+  80% { background-color: rgba(255, 214, 10, 0.5); box-shadow: 0 0 11px 2px rgba(255, 214, 10, 0.4); }
+  88% { background-color: rgba(255, 214, 10, 0.3); box-shadow: 0 0 5px 0 rgba(255, 214, 10, 0.18); }
+  100% { background-color: rgba(255, 214, 10, 0); box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+}
 .jump-back { position: absolute; left: 50%; transform: translateX(-50%); bottom: 88px; z-index: 12; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--text); background: rgba(34,35,43,0.97); box-shadow: 0 0 0 1px var(--line-strong) inset, var(--shadow-pop); }
 .jump-back[hidden] { display: none; }
+/* how many messages arrived while you were up in history */
+.jump-back .n { position: absolute; top: -6px; right: -8px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent-ink); background: var(--accent); }
+/* search: the global field tops the rooms sidebar; the room's search is a bar over the chat */
+.side-search { margin-bottom: 8px; }
+.search-hit { width: 100%; display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; text-align: left; }
+.search-hit:hover { background: rgba(255, 255, 255, 0.05); }
+.hit-head { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 11.5px; color: var(--text-3); }
+.hit-head b { font-size: 12.5px; font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit-head span { white-space: nowrap; }
+.hit-text { font-size: 12.5px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 3px; padding: 0 1px; }
+.find-bar { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--line); background: rgba(0, 0, 0, 0.22); animation: tip-in 0.12s var(--ease); }
+.find-field { flex: 1; min-width: 0; }
+.find-count { min-width: 70px; text-align: right; padding-right: 4px; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.find-bar .icon-btn:disabled { opacity: 0.35; }
+/* the feed keeps its own place (renderFeed's anchor, and keepPlaceForMedia for pictures that load late). The
+   browser's own anchoring would correct the same changes a second time and walk the view away. */
+.feed { overflow-anchor: none; }
 .pending { display: flex; align-items: center; gap: 8px; margin: 0 14px 8px; }
 /* the memo block inside a message */
 /* files shared by hash: inline media under the auto-fetch threshold, a card otherwise */
@@ -196,7 +251,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 /* ---------- left sidebar: rooms, and the open room's people under it */
 .side { width: var(--side-w, 272px); flex: none; position: relative; display: flex; flex-direction: column; border-radius: 20px; overflow: hidden;
   background: linear-gradient(180deg, rgba(34, 35, 43, 0.96) 0%, rgba(20, 21, 26, 0.98) 38%, rgba(16, 17, 21, 0.98) 100%);
-  border: 1px solid var(--line); box-shadow: var(--shadow-float); transition: width 0.25s var(--ease); }
+  border: 1px solid var(--line); box-shadow: var(--shadow-float); }
+/* No width transition: animating width re-lays out every message in the chat beside it on every frame.
+   The width changes in one step and the contents fade in instead (applySide). */
 .side.is-collapsed { width: 72px; }
 .side-top { flex: none; padding: 12px; border-bottom: 1px solid var(--line); }
 .side-actions { display: flex; gap: 8px; }
@@ -553,6 +610,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
   <symbol id="i-dots" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
   <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h2.5v2.5H14zM18 14h2.5M14 18v2.5M18 18h2.5v2.5"/></symbol>
   <symbol id="i-clip" viewBox="0 0 24 24"><path d="M16.5 7.5l-7.2 7.2a2.2 2.2 0 0 0 3.1 3.1l7.6-7.6a4.2 4.2 0 0 0-6-6L6.3 12a6.2 6.2 0 0 0 8.8 8.8l5.4-5.4"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
@@ -567,15 +626,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 
 <div class="room">
   <aside class="side" id="side">
-    <div class="side-top"><div class="side-actions"><button class="btn btn-primary btn-sm" id="newRoomBtn" title="Start a room and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg>New room</button><button class="btn btn-soft btn-sm" id="addPeopleBtn" title="Invite a person, an agent or one of your own devices into this room"><svg class="ico"><use href="#i-people"/></svg>Add someone</button></div></div>
+    <div class="side-top"><label class="side-add side-search" title="Search the messages in all your rooms"><svg class="ico"><use href="#i-search"/></svg><input id="globalSearch" type="search" placeholder="Search all rooms" autocomplete="off" spellcheck="false" aria-label="Search all rooms"></label><div class="side-actions"><button class="btn btn-primary btn-sm" id="newRoomBtn" title="Start a room and pick who is in it"><svg class="ico"><use href="#i-plus"/></svg>New room</button><button class="btn btn-soft btn-sm" id="addPeopleBtn" title="Invite a person, an agent or one of your own devices into this room"><svg class="ico"><use href="#i-people"/></svg>Add someone</button></div></div>
     <div class="side-body" id="sideBody"></div>
     <div class="side-grip" id="sideGrip" title="Drag to resize · double-click to collapse"></div>
   </aside>
   <main class="column">
     <header class="room-head" id="roomHead"></header>
+    <div class="find-bar" id="findBar" hidden>
+      <label class="side-add find-field"><svg class="ico"><use href="#i-search"/></svg><input id="findInput" type="search" placeholder="Search this room" autocomplete="off" spellcheck="false" aria-label="Search this room"></label>
+      <span class="find-count" id="findCount" aria-live="polite"></span>
+      <button type="button" class="icon-btn" id="findUp" title="The match above: older (Enter)"><svg class="ico"><use href="#i-up"/></svg></button>
+      <button type="button" class="icon-btn" id="findDown" title="The match below: newer (Shift+Enter)"><svg class="ico"><use href="#i-down"/></svg></button>
+      <button type="button" class="icon-btn" id="findClose" title="Close search (Esc)"><svg class="ico"><use href="#i-x"/></svg></button>
+    </div>
     <div class="feed" id="feed"></div>
     <div class="agent-strip" id="agentStrip" hidden></div>
-    <button type="button" class="jump-back" id="jumpBack" hidden><svg class="ico"><use href="#i-down"/></svg></button>
+    <button type="button" class="jump-back" id="jumpBack" hidden><svg class="ico"><use href="#i-down"/></svg><span class="n" hidden></span></button>
     <div class="replybar" id="replyBar" hidden></div>
     <div class="pending" id="pending" hidden></div>
     <form class="composer" id="composer">
@@ -657,7 +723,8 @@ const seenAt = (topic) => Number(store.get(`rk.seen.${topic}`, 0))
 const markSeen = (topic, ts) => { if (topic && ts && ts > seenAt(topic)) store.set(`rk.seen.${topic}`, String(ts)) }
 const isUnread = (r) => !!(r.last && r.last.ts > seenAt(r.topic) && r.last.name !== me())
 // coming back to the tab counts as reading the open room
-document.addEventListener('visibilitychange', () => { if (!document.hidden && cur()) { const l = cur().log.filter((r) => r.kind === 'msg').at(-1); markSeen(cur().topic, l?.ts); renderSide() } })
+// (the newest message, not the newest held: the window may be up in history)
+document.addEventListener('visibilitychange', () => { if (!document.hidden && cur()) { const c = cur(); const ts = S.rooms?.find((r) => r.topic === c.topic)?.last?.ts ?? c.log.filter((r) => r.kind === 'msg').at(-1)?.ts; markSeen(c.topic, ts); renderSide() } })
 
 let S = null // { device, rooms, current }
 let page = store.get('rk.page', '')
@@ -858,13 +925,202 @@ const control = (payload) => { log.info('room', `control: ${payload.action}${pay
 async function load (topic) {
   const leaving = cur()?.topic
   if (leaving) setDraft(leaving, ta.value) // the room you are leaving keeps what you had typed
-  S = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  const state = await api('GET', '/api/state' + (topic ? `?room=${encodeURIComponent(topic)}` : ''))
+  // the same room again (a catch-up after a quiet minute, coming back to the tab): keep the reader's place
+  const staying = leaving && state.current?.topic === leaving
+  if (staying) { const snap = state.current; S = { ...state, current: cur() }; adoptRoom(snap) } else { S = state; resetWindow(); if (!$('findBar').hidden) closeFind() } // a room search belongs to its room
   if (S.current?.topic !== leaving) log.info('room', `opened ${S.current?.name ?? 'no room'}`)
   if (S.current && S.current.topic !== leaving) { ta.value = draftOf(S.current.topic); grow() } // and the one you arrive in gives its own back
   if (S.current) { store.set('rk.room', S.current.topic); const l = S.current.log.filter((r) => r.kind === 'msg').at(-1); markSeen(S.current.topic, l?.ts) }
   if (S.current) api('GET', `/api/files?room=${encodeURIComponent(S.current.topic)}`).then((list) => { let changed = false; for (const f of list ?? []) if (f.local && !haveFile.has(f.hash)) { haveFile.add(f.hash); changed = true }; if (changed) renderFeed() }).catch(() => {})
   renderAll()
-  requestAnimationFrame(() => { const f = $('feed'); f.scrollTop = f.scrollHeight })
+  if (!staying) requestAnimationFrame(() => { const f = $('feed'); f.scrollTop = f.scrollHeight; updateJumpBack() })
+}
+
+// ---------- the feed window
+// The chat never holds a whole room. It holds a window of at most KEEP lines around where the reader is, asks
+// the daemon (GET /api/log) for PAGE more once they come within EDGE messages of either end, and drops the
+// far end. The room's hasOlder / hasNewer say whether there is more on each side. While hasNewer is set the
+// reader is up in history: live messages wait in `pendingLive` and are counted on the jump button, and the
+// reader is never pulled down to them.
+const PAGE = 50; const EDGE = 15; const KEEP = 150
+let pendingLive = [] // live records that arrived while the reader was up in history (this room only)
+let unseen = 0 // how many of those are messages
+const fetching = { older: false, newer: false }
+const logURL = (c, q = '') => `/api/log?room=${encodeURIComponent(c.topic)}&limit=${PAGE}${q}`
+const byTs = (a, b) => a.ts - b.ts
+function resetWindow () { pendingLive = []; unseen = 0; navStack.length = 0; if (S?.current) S.current.hasNewer = false }
+// merge records into the window by id (a newer copy of a record wins: it may have been removed since)
+function mergeInto (c, recs) {
+  const byId = new Map(c.log.map((x) => [x.id, x]))
+  for (const x of recs) byId.set(x.id, x)
+  c.log = [...byId.values()].sort(byTs)
+}
+// back at the live end. The page just fetched already holds what arrived while the reader was away; only a
+// record that came in during that fetch can be newer than its end, and only those join (an older one would
+// sit apart from the rest, with a hole between).
+function goLive (c) {
+  c.hasNewer = false
+  const end = c.log.at(-1)?.ts ?? -Infinity
+  const late = pendingLive.filter((x) => x.ts > end)
+  if (late.length) mergeInto(c, late)
+  pendingLive = []; unseen = 0
+}
+// keep at most KEEP lines: drop from the end the reader is moving away from
+function trimTop (c) { if (c.log.length > KEEP) { c.log.splice(0, c.log.length - KEEP); c.hasOlder = true } }
+function trimBottom (c) { if (c.log.length > KEEP) { c.log.length = KEEP; c.hasNewer = true } }
+
+// A room snapshot (a 'room' event, or a catch-up load) carries the newest page. Take everything else from it,
+// and fold its page into the window without moving the reader.
+function adoptRoom (r) {
+  const c = cur()
+  if (!c || c.topic !== r.topic) { S.current = r; return }
+  if (c.hasNewer) {
+    // up in history: the newest page says nothing about this window, beyond newer copies of records in it
+    const fresh = new Map(r.log.map((x) => [x.id, x]))
+    r.log = c.log.map((x) => fresh.get(x.id) ?? x); r.hasOlder = c.hasOlder; r.hasNewer = true
+  } else {
+    const held = new Set(c.log.map((x) => x.id))
+    const gap = c.log.length && r.log.length && !r.log.some((x) => held.has(x.id)) && r.log[0].ts > c.log.at(-1).ts
+    if (!gap) { // otherwise (back after a long quiet) the snapshot's page simply is the window
+      // a message that reaches this page first in a snapshot (history sync from another device stores it without
+      // a live 'record' event) still arrived just now: it gets its entrance too, if it's newer than what's shown
+      const end = c.log.at(-1)?.ts ?? 0
+      for (const x of r.log) if (x.kind === 'msg' && !held.has(x.id) && x.ts >= end) arrivals.add(x.id)
+      const top = c.log[0]?.id
+      const snapOlder = r.hasOlder
+      const merged = { log: c.log }; mergeInto(merged, r.log)
+      r.log = merged.log; r.hasOlder = r.log[0]?.id === top ? c.hasOlder : snapOlder
+    }
+    r.hasNewer = false
+  }
+  S.current = r
+}
+
+async function loadOlder () {
+  const c = cur(); if (!c?.hasOlder || fetching.older || !c.log.length) return
+  const topic = c.topic; const first = c.log[0].id
+  fetching.older = true
+  try {
+    const p = await api('GET', logURL(c, `&before=${encodeURIComponent(first)}`))
+    const now = cur(); if (now?.topic !== topic || now.log[0]?.id !== first) return // the window moved on meanwhile
+    mergeInto(now, p.log); now.hasOlder = p.hasOlder; trimBottom(now)
+    renderFeed(); updateJumpBack()
+  } catch {} finally { fetching.older = false }
+  requestAnimationFrame(checkEdges) // a fast flick may already be at the new edge
+}
+async function loadNewer () {
+  const c = cur(); if (!c?.hasNewer || fetching.newer || !c.log.length) return
+  const topic = c.topic; const last = c.log.at(-1).id
+  fetching.newer = true
+  try {
+    const p = await api('GET', logURL(c, `&after=${encodeURIComponent(last)}`))
+    const now = cur(); if (now?.topic !== topic || now.log.at(-1)?.id !== last) return
+    mergeInto(now, p.log)
+    if (!p.hasNewer) goLive(now)
+    trimTop(now)
+    renderFeed(); updateJumpBack()
+  } catch {} finally { fetching.newer = false }
+  requestAnimationFrame(checkEdges)
+}
+// A smooth scroll we started (a jump to a message, or back). Any change to scrollTop cancels a smooth scroll,
+// and loading at an edge sets it to hold the reader's place, so edges wait until the glide has landed.
+let gliding = 0
+function glide (top) {
+  const feed = $('feed')
+  clearTimeout(gliding)
+  const land = () => { clearTimeout(gliding); gliding = 0; feed.removeEventListener('scrollend', land); updateJumpBack(); checkEdges() }
+  gliding = setTimeout(land, 900) // where scrollend never comes (it was already there, or an older browser)
+  feed.addEventListener('scrollend', land, { once: true })
+  feed.scrollTo({ top, behavior: calmMotion.matches ? 'auto' : 'smooth' })
+}
+// On the way down to the latest (the jump button): while this is set, the feed treats the reader as already at
+// the bottom, so a message arriving mid-trip carries them on down instead of re-anchoring and stopping the glide.
+let headingDown = false
+// Landed at the latest: stay there for a moment while pictures and videos that load late grow the feed (they
+// have no size until they load). Every frame for SETTLE ms, back to the very bottom; the reader scrolling,
+// tapping or pressing a key lets go at once.
+const SETTLE = 1200
+let settling = 0; let stopSettling = () => {}
+function settleAtBottom () {
+  const feed = $('feed')
+  stopSettling()
+  const until = performance.now() + SETTLE
+  const letGo = () => {
+    cancelAnimationFrame(settling); settling = 0; headingDown = false; stopSettling = () => {}
+    for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown']) feed.removeEventListener(ev, letGo)
+    updateJumpBack(); checkEdges()
+  }
+  stopSettling = letGo // a jump, a search step or "back" ends the stay at once (jumpTo, jumpBack)
+  for (const ev of ['wheel', 'touchstart', 'pointerdown', 'keydown']) feed.addEventListener(ev, letGo, { passive: true })
+  const hold = () => {
+    if (cur()?.hasNewer) return letGo() // the window is no longer at the live end: nothing to stay at
+    if (feed.scrollHeight - feed.scrollTop - feed.clientHeight > 1) feed.scrollTop = feed.scrollHeight
+    if (performance.now() < until) settling = requestAnimationFrame(hold); else letGo()
+  }
+  settling = requestAnimationFrame(hold)
+}
+// Does the window reach the room's newest message? hasNewer says not; the room list's last message is a second
+// opinion, in case the window was ever left short of the live end without knowing it.
+function holdsNewest (c) {
+  if (c.hasNewer) return false
+  const newest = S.rooms?.find((r) => r.topic === c.topic)?.last?.ts
+  const held = c.log.filter((r) => r.kind === 'msg').at(-1)?.ts ?? 0
+  return !newest || held >= newest
+}
+async function toLatest () {
+  const feed = $('feed'); const c = cur(); if (!c) return
+  navStack.length = 0 // going to the latest ends any way back
+  if (!holdsNewest(c)) {
+    // the newest messages aren't loaded: load them in place of the window and land at the end
+    headingDown = true
+    if (await showPage(null)) feed.scrollTop = feed.scrollHeight
+    return settleAtBottom()
+  }
+  headingDown = true
+  const done = () => { feed.scrollTop = feed.scrollHeight; settleAtBottom() } // land exactly at the end, and stay
+  // a long way up: cover most of it at once and glide only the last screen
+  const rest = feed.scrollHeight - feed.clientHeight - feed.scrollTop
+  if (rest > feed.clientHeight * 2) feed.scrollTop = feed.scrollHeight - feed.clientHeight * 2
+  clearTimeout(gliding)
+  gliding = setTimeout(() => { gliding = 0; done() }, 900)
+  feed.addEventListener('scrollend', () => { if (headingDown) { clearTimeout(gliding); gliding = 0; done() } }, { once: true })
+  feed.scrollTo({ top: feed.scrollHeight, behavior: calmMotion.matches ? 'auto' : 'smooth' })
+}
+// Within EDGE messages of either end of what is held, and there is more that way: ask for it.
+function checkEdges () {
+  const c = cur(); const feed = $('feed'); if (!c?.log.length || gliding) return
+  const msgs = feed.querySelectorAll(':scope > .msg'); if (!msgs.length) return
+  const box = feed.getBoundingClientRect()
+  if (c.hasOlder && msgs[Math.min(EDGE, msgs.length) - 1].getBoundingClientRect().bottom > box.top) loadOlder()
+  if (c.hasNewer && msgs[Math.max(0, msgs.length - EDGE)].getBoundingClientRect().top < box.bottom) loadNewer()
+}
+// Replace the window with the page around a message (or the newest page, with no id), keeping the room.
+async function showPage (id) {
+  const c = cur(); if (!c) return false
+  let p; try { p = await api('GET', logURL(c, id ? `&around=${encodeURIComponent(id)}` : '')) } catch { return false }
+  const now = cur(); if (now?.topic !== c.topic) return false
+  now.log = p.log; now.hasOlder = p.hasOlder; now.hasNewer = !!p.hasNewer
+  if (!now.hasNewer) goLive(now)
+  renderFeed()
+  return true
+}
+
+// The line at the top of the view and where it sits, to put it back there after the lines around it change.
+// `sel` narrows it to messages, for places to return to by id.
+function anchorOf (feed, sel = '[data-k]') {
+  const top = feed.getBoundingClientRect().top
+  for (const el of feed.querySelectorAll(`:scope > ${sel}`)) {
+    const r = el.getBoundingClientRect()
+    if (r.bottom > top) return { key: el.dataset.k, id: el.dataset.id, top: r.top }
+  }
+  return null
+}
+function restoreAnchor (feed, a) {
+  const el = a && feed.querySelector(`:scope > [data-k="${CSS.escape(a.key)}"]`)
+  if (!el) return false
+  feed.scrollTop += el.getBoundingClientRect().top - a.top
+  return true
 }
 
 // ---------- feed
@@ -904,7 +1160,11 @@ function renderFeed () {
   const sig = c.topic + '|' + (c.members ?? []).map((m) => m.ref + m.status).join(',') + '|' + c.log.map((r) => r.id + (r.redacted ? 'x' : '')).join(',') + '|' + JSON.stringify(c.reactions ?? {}) + '|' + selectedMsg + '|' + JSON.stringify(c.budget?.agents?.paused ?? []) + '|' + me() + '|' + haveFile.size
   if (feed.dataset.sig === sig) return
   feed.dataset.sig = sig
-  const fromBottom = feed.scrollHeight - feed.scrollTop // keep this distance when re-rendering mid-read
+  // At the live end, stay at the bottom. Anywhere else, the line at the top of the view stays exactly where it
+  // is while lines load, unload or change around it (falling back to the distance from the bottom).
+  const stick = (atBottom || headingDown || following()) && !c.hasNewer
+  const anchor = stick ? null : anchorOf(feed)
+  const fromBottom = feed.scrollHeight - feed.scrollTop
   if (!c.log.length) {
     feed.innerHTML = `<div class="hero"><div class="hero-icon">${icon('rooms')}</div><h2>${esc(c.name)}</h2><p>Nothing said yet. Write to everyone, or @mention someone to hand them the floor.</p></div>`
     return
@@ -914,7 +1174,7 @@ function renderFeed () {
   // room's story. The key tree carries a timestamp per key; collapse it to one
   // arrival per person (their earliest key) and one departure (when their last
   // live key went), so a person with three devices is still one line.
-  const joins = []
+  let joins = []
   {
     const by = new Map()
     for (const m of c.members ?? []) {
@@ -930,22 +1190,30 @@ function renderFeed () {
       if (!e.live && e.lastOut) joins.push({ ts: e.lastOut, kind: 'member', text: `${e.name} left the room` })
     }
   }
-  let html = ''; let prev = null; let lastDay = ''
+  // the window holds only part of the room: a join or a departure outside it would pile up at its edge
+  const from = c.hasOlder ? c.log[0].ts : -Infinity; const to = c.hasNewer ? c.log.at(-1).ts : Infinity
+  joins = joins.filter((j) => j.ts >= from && j.ts <= to)
+  // one { key, html } per line of the feed; patchList() keeps every line whose html is unchanged
+  const items = []; let prev = null; let lastDay = ''
   let roomWas = null // the room's name as of this point in the log, so a rename can show what it was
   let lastCharter = null // ...and the rules as of this point, so a change can show only what moved
   for (const r of [...c.log, ...joins].sort((x, y) => x.ts - y.ts)) {
     const d = day(r.ts)
-    if (d !== lastDay) { html += `<div class="day-line">${esc(d)}</div>`; lastDay = d; prev = null }
-    if (r.kind === 'member') { html += `<div class="ctl-line">${esc(r.text)} · ${time(r.ts)}</div>`; prev = null; continue }
+    if (d !== lastDay) { items.push({ key: `d:${d}`, html: `<div class="day-line">${esc(d)}</div>` }); lastDay = d; prev = null }
+    if (r.kind === 'member') { items.push({ key: `m:${r.ts}:${r.text}`, html: `<div class="ctl-line">${esc(r.text)} · ${time(r.ts)}</div>` }); prev = null; continue }
     if (r.kind === 'control') {
-      html += `<div class="ctl-line">${esc(ctlText(r, roomWas, lastCharter))} · ${time(r.ts)}</div>`
+      // what it changed from: the daemon says (r.was, r.before), since the earlier one may be outside the window
+      items.push({ key: `c:${r.id}`, html: `<div class="ctl-line">${esc(ctlText(r, r.was ?? roomWas, r.before ?? lastCharter))} · ${time(r.ts)}</div>` })
       if (r.action === 'rename' && r.roomName) roomWas = r.roomName
       if (r.action === 'charter') lastCharter = r
       prev = null; continue
     }
-    if (r.redacted) { html += `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>`; prev = null; continue }
+    if (r.redacted) { items.push({ key: `x:${r.id}`, html: `<div class="ctl-line">A message from ${esc(r.name)} was removed by ${esc(r.redacted.by === me() ? 'you' : r.redacted.by)} · ${time(r.redacted.ts)}</div>` }); prev = null; continue }
     const isMine = r.name === mine
     const cont = prev && prev.name === r.name && r.ts - prev.ts < 5 * 60_000
+    // aimed at you: it answers something you wrote, or @mentions you (@all and @everyone included)
+    const reId = r.re?.[0]; const answers = reId ? (summary(reId) ?? (r.q?.id === reId ? r.q : null)) : null
+    const forMe = !isMine && !!mine && (answers?.name === mine || (r.mentions ?? []).includes(mine.toLowerCase()))
     const agent = !r.human
     const paused = agent && c.budget.agents?.paused.includes(r.name)
     // room/agent tools: up on the name line
@@ -957,19 +1225,117 @@ function renderFeed () {
       `<button class="act" data-info="${esc(r.id)}" title="Verified · details">${icon('info')}</button>`,
       c.owner ? `<button class="act is-stop" data-redact="${esc(r.id)}" title="Remove this message for everyone">${icon('x')}</button>` : ''
     ].join('')
-    html += `<div class="msg${isMine ? ' is-mine' : ''}${cont ? ' is-cont' : ''}${selectedMsg === r.id ? ' is-selected' : ''}" data-id="${esc(r.id)}">
+    items.push({ key: r.id, html: `<div class="msg${isMine ? ' is-mine' : ''}${cont ? ' is-cont' : ''}${forMe ? ' is-for-me' : ''}${selectedMsg === r.id ? ' is-selected' : ''}" data-id="${esc(r.id)}">
       <div class="avatar${r.human ? ' is-human' : ''}">${esc(r.name.slice(0, 1))}</div>
       <div class="msg-main">
         <div class="msg-head"><span class="msg-name${agent ? ' clickable' : ''}" ${agent ? `data-activity="${esc(r.name)}" title="See what ${esc(r.name)} was doing"` : ''}>${esc(r.name)}</span>${r.device ? `<span class="pill tone-dim" title="Posted from ${esc(r.device)}">${esc(r.device)}</span>` : ''}${agent ? `<span class="pill tone-dim">agent${paused ? ' · paused' : ''}</span>` : ''}<span class="msg-time">${time(r.ts)}</span><span class="head-tools">${tools}</span></div>
         <div class="bubble">${quoteHTML(r, prev)}${r.text ? renderText(r.text) : ''}${(r.att ?? []).map((a) => a.kind === 'file' ? fileHTML(a, r) : memoHTML(a, r)).join('')}</div>
         ${reactsHTML(r, isMine)}
         ${isMine ? `<span class="mine-time">${time(r.ts)}</span>` : ''}
-      </div></div>`
+      </div></div>` })
     prev = r
   }
-  feed.innerHTML = html
-  if (atBottom) feed.scrollTop = feed.scrollHeight
-  else feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
+  const created = patchList(feed, items)
+  const arriving = greets(created)
+  greetArrivals(created)
+  for (const n of created.values()) for (const m of n.querySelectorAll('.fmedia')) mediaSizes.observe(m)
+  // at the live end and a message just came in: the feed glides up to make room for it while it fades in,
+  // instead of jumping a message's height in one frame (on the way down to the latest, it just lands)
+  if (stick && arriving && !headingDown) riseToBottom(feed)
+  else if (stick && !following()) feed.scrollTop = feed.scrollHeight // (mid-rise, the rise itself keeps up)
+  else if (!restoreAnchor(feed, anchor)) feed.scrollTop = Math.max(0, feed.scrollHeight - fromBottom)
+}
+// Bring `parent`'s children in line with `items` ({ key, html }, each html one element) touching only what
+// changed: a line whose html is the same as last time keeps its node (and whatever was painted into it since,
+// like a file's progress ring), new or changed lines are parsed, and the rest are moved or dropped. A new
+// message in a 500-message room is one parse, not 500.
+const tpl = document.createElement('template')
+function patchList (parent, items) {
+  const old = new Map(); const created = new Map() // key -> node parsed in this pass
+  for (const n of parent.children) if (n.dataset.k) old.set(n.dataset.k, n)
+  let at = parent.firstChild
+  for (const { key, html } of items) {
+    let n = old.get(key)
+    if (!n || n._html !== html) {
+      tpl.innerHTML = html
+      n = tpl.content.firstElementChild
+      n.dataset.k = key; n._html = html
+      if (!old.has(key)) created.set(key, n)
+    }
+    old.delete(key) // a key repeated in one render gets a fresh node, never the one already placed
+    if (n === at) at = n.nextSibling
+    else parent.insertBefore(n, at)
+  }
+  while (at) { const next = at.nextSibling; at.remove(); at = next }
+  return created
+}
+// Pictures and videos have no size until they load. One that grows above what the reader is looking at would
+// push it down the screen, so the view moves by the same amount and what they were reading stays put.
+// (Below the view, growth changes nothing on screen; at the bottom, settleAtBottom and mediaLoaded keep up.)
+const mediaHeight = new WeakMap()
+const mediaSizes = new ResizeObserver((entries) => {
+  const feed = $('feed'); const top = feed.getBoundingClientRect().top
+  let shift = 0
+  for (const e of entries) {
+    const el = e.target; const h = el.getBoundingClientRect().height
+    const was = mediaHeight.get(el); mediaHeight.set(el, h)
+    if (was === undefined || h === was || !el.isConnected) continue
+    if (el.getBoundingClientRect().bottom <= top + 1) shift += h - was // wholly above the view
+  }
+  if (shift && !headingDown) feed.scrollTop += shift
+})
+// Messages that arrived live since the last feed paint. Only these get an entrance: opening a room, switching
+// rooms, or a message redrawn for a reaction shows up as it is, without motion.
+const arrivals = new Set()
+const calmMotion = matchMedia('(prefers-reduced-motion: reduce)')
+const ENTER_MS = 520
+// While the feed glides up to a message that just came in, it isn't quite at the bottom yet; until the glide
+// is over it still counts as following the live end, so a second message mid-glide carries on down. The
+// reader scrolling or touching the feed takes over at once.
+let followUntil = 0; let riseRaf = 0
+const following = () => performance.now() < followUntil
+const stopRise = () => { followUntil = 0; cancelAnimationFrame(riseRaf); riseRaf = 0 }
+for (const ev of ['wheel', 'touchstart', 'keydown']) document.addEventListener(ev, (e) => { if (e.target.closest?.('#feed') || ev === 'wheel') stopRise() }, { passive: true })
+// The feed rises to its new bottom over RISE_MS, eased, in step with the message fading in. The browser's own
+// smooth scroll covers one message's height in a frame or two, which reads as a jump. If another message
+// comes in mid-rise, the rise carries on from where it is to the new bottom.
+const RISE_MS = 420
+function riseToBottom (feed) {
+  cancelAnimationFrame(riseRaf)
+  followUntil = performance.now() + RISE_MS + 200
+  const from = feed.scrollTop; const t0 = performance.now()
+  const ease = (t) => 1 - Math.pow(1 - t, 3)
+  const step = () => {
+    const to = feed.scrollHeight - feed.clientHeight // read each frame: the bottom may move again mid-rise
+    const t = Math.min(1, (performance.now() - t0) / RISE_MS)
+    feed.scrollTop = from + (to - from) * ease(t)
+    if (t < 1) riseRaf = requestAnimationFrame(step); else { riseRaf = 0; feed.scrollTop = feed.scrollHeight }
+  }
+  riseRaf = requestAnimationFrame(step)
+}
+// Did this paint add a message that just arrived? (renderFeed then glides the feed up to it, not a jump)
+const greets = (created) => !calmMotion.matches && !document.hidden && [...arrivals].some((id) => created.has(id))
+function greetArrivals (created) {
+  if (!calmMotion.matches && !document.hidden) {
+    for (const id of arrivals) {
+      // opacity and transform only: nothing around it moves, and the feed's scroll position is untouched
+      // slow enough to see: half a second on a gentle curve (a sharp ease-out is over before the eye catches it)
+      created.get(id)?.animate?.([{ opacity: 0, transform: 'translateY(22px) scale(0.97)' }, { opacity: 1, transform: 'none' }], { duration: ENTER_MS, easing: 'cubic-bezier(0.25, 0.5, 0.35, 1)' })
+    }
+  }
+  arrivals.clear()
+}
+// innerHTML that skips the write (and the reflow) when nothing changed since the last write through here.
+function setHTML (el, html) {
+  if (!el || el._html === html) return false
+  el.innerHTML = html; el._html = html
+  return true
+}
+// Many events in one frame (a burst from the daemon) paint once, at the frame.
+const paintQueue = new Set(); let paintRaf = 0
+function paintSoon (...fns) {
+  for (const fn of fns) paintQueue.add(fn)
+  if (!paintRaf) paintRaf = requestAnimationFrame(() => { paintRaf = 0; const fns2 = [...paintQueue]; paintQueue.clear(); for (const fn of fns2) fn() })
 }
 // One row on the message's bottom edge, right side:
 //   [add emoji] [reaction chips] [reply]
@@ -1036,8 +1402,10 @@ async function toggleReaction (id, emoji) {
 // ---------- the thinking overlay: what an agent did before a message
 async function openThinking (id) {
   const c = cur(); const m = c?.log.find((r) => r.id === id); if (!m) return
-  const prev = [...c.log].filter((r) => r.kind === 'msg' && r.name === m.name && r.ts < m.ts).pop()
-  const since = prev ? prev.ts : m.ts - 30 * 60_000
+  // back to this agent's previous message: in the window if it's there, else the daemon knows
+  let prevTs = c.log.filter((r) => r.kind === 'msg' && r.name === m.name && r.ts < m.ts).at(-1)?.ts
+  if (prevTs === undefined) { try { prevTs = (await api('GET', `/api/log/previous?room=${encodeURIComponent(c.topic)}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(m.name)}`)).ts } catch {} }
+  const since = prevTs ?? m.ts - 30 * 60_000 // its first message ever: the half hour before it
   let acts = []
   try { acts = await api('GET', `/api/activity?room=${encodeURIComponent(roomArg())}&as=${encodeURIComponent(m.name)}&since=${since}&until=${m.ts + 2000}&limit=800`) } catch {}
   const rows = acts.map((a) => {
@@ -1122,7 +1490,7 @@ function renderStrip () {
     if (isPhone()) { if (thinking.length) parts.push(`<span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause</button>`) } else parts.push(`<span class="pill tone-dim">${open ? (b.unlimited ? 'no round limit' : `open until ${time(b.until)}`) : `round ${b.used} of ${b.limit}`}</span><span class="grow"></span><button class="btn btn-soft btn-sm" data-ctl="pause">Pause agents</button>`)
   }
   strip.hidden = !parts.length
-  strip.innerHTML = parts.join('')
+  setHTML(strip, parts.join(''))
 }
 
 // ---------- left sidebar: rooms (open one shows its people, like a folder)
@@ -1133,8 +1501,10 @@ function stackHTML (people) {
 }
 function renderSide () {
   const body = $('sideBody'); if (!body || !S) return
+  // searching all rooms: the matches take the list's place until the field is cleared
+  if (globalHits) return setHTML(body, globalHits.length ? globalHits.map(hitHTML).join('') : '<p class="note" style="padding:8px">No messages match.</p>')
   const c = cur()
-  body.innerHTML = (S.rooms ?? []).map((r) => {
+  setHTML(body, (S.rooms ?? []).map((r) => {
     const open = r.topic === c?.topic
     const others = (r.people ?? []).filter((p) => p.name !== me())
     const last = r.last ? `${r.last.name === me() ? 'You' : r.last.name}: ${r.last.text}` : (r.admitted ? 'No messages yet' : 'Waiting for approval')
@@ -1146,7 +1516,7 @@ function renderSide () {
     return `<button class="room-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)}">${unread ? '<span class="unread" title="New since you looked"></span>' : ''}${stackHTML(others.length ? others : r.people)}
         <div class="room-main"><span class="room-name"><span class="n">${esc(r.name)}</span><span class="count">${r.members}</span></span><span class="room-last">${esc(last)}</span></div></button>
       ${open ? `<div class="room-people">${peopleRows}${c?.owner ? `<button class="person-row" data-open-invite style="color:var(--text-3)"><div class="avatar" style="background:none;box-shadow:0 0 0 1px var(--line-strong) inset">${icon('plus')}</div><span class="nm">Invite</span></button>` : ''}</div>` : ''}`
-  }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>'
+  }).join('') || '<p class="note" style="padding:8px">No rooms yet. Type a name above to start one.</p>')
 }
 function renderHead () {
   const h = $('roomHead'); const c = cur()
@@ -1154,13 +1524,14 @@ function renderHead () {
   h.hidden = false
   const active = c.participants.filter((p) => p.status === 'active')
   const online = active.filter((p) => p.online).length
-  h.innerHTML = `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
+  setHTML(h, `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
     <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
+    <button class="icon-btn" data-room-search title="Search this room">${icon('search')}</button>
     <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
-    <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`
+    <button class="icon-btn m-only" data-menu title="More">${icon('dots')}</button>`)
   syncDebugBtn()
 }
 async function renameRoom () {
@@ -1279,11 +1650,12 @@ async function openActivity (name) {
   if (page === 'activity') { renderPanel(); scrollActivity() }
 }
 function scrollActivity () { const el = $('panelBody'); if (el) el.scrollTop = el.scrollHeight }
+const actRowHTML = (r, isNew) => `<div class="act-row${isNew ? ' is-new' : ''}"><span class="act-time">${new Date(r.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="act-text">${esc(r.text)}</span></div>`
 function renderActivityPage () {
   const c = cur(); const p = c?.participants.find((x) => x.name === activityAgent)
   if (!p) return '<p class="note">Pick an agent: click its name or status.</p>'
   const [tone, label] = personStatus(p, c.budget)
-  const rows = activityLog.map((r, i) => `<div class="act-row${i >= activityLog.length - 1 ? ' is-new' : ''}"><span class="act-time">${new Date(r.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="act-text">${esc(r.text)}</span></div>`).join('')
+  const rows = activityLog.map((r, i) => actRowHTML(r, i >= activityLog.length - 1)).join('')
   return `<section class="section"><div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div>
       <div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">what it's doing behind the scenes</span></div><span class="status ${tone}">${esc(label)}</span></div>
       <p class="note">Only people see this. It never goes into any agent's prompt, so it costs no tokens.</p></section>
@@ -1293,6 +1665,7 @@ function openPage (p) {
   page = p; store.set('rk.page', p || '')
   log.info('ui', p ? `panel: ${p}` : 'panel closed')
   if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room') loadPeople()
+  $('panelBody')._html = null // opening a page always paints it fresh: a half-done drag or an open drawer starts over
   renderPanel()
 }
 function renderPanel () {
@@ -1306,8 +1679,8 @@ function renderPanel () {
   $('panelIcon').innerHTML = `<use href="#i-${PAGES[page].icon}"/>`
   // phone: a tab strip on top of the sheet, so the main pages are one tap apart
   const tabs = [['room', 'Room'], ['contacts', 'Contacts'], ['profile', 'Profile'], ['settings', 'Settings']]
-  $('sheetTabs').innerHTML = tabs.some(([k]) => k === page) ? tabs.map(([k, t]) => `<button data-go="${k}" class="${k === page ? 'is-on' : ''}">${t}</button>`).join('') : ''
-  $('panelBody').innerHTML = PAGES[page].render()
+  setHTML($('sheetTabs'), tabs.some(([k]) => k === page) ? tabs.map(([k, t]) => `<button data-go="${k}" class="${k === page ? 'is-on' : ''}">${t}</button>`).join('') : '')
+  setHTML($('panelBody'), PAGES[page].render())
   bindRoomForms($('panelBody'))
 }
 function personStatus (p, b) {
@@ -1609,7 +1982,7 @@ function renderChrome () {
   const b = c?.budget
   const pa = $('pauseAll'); const paused = !!b?.paused
   pa.classList.toggle('is-stop', paused)
-  pa.innerHTML = paused ? `${icon('play')}<span>Resume</span>` : `${icon('pause')}<span>Pause</span>`
+  setHTML(pa, paused ? `${icon('play')}<span>Resume</span>` : `${icon('pause')}<span>Pause</span>`)
   pa.title = paused ? 'Let the agents speak again' : 'Pause every agent in this room'
   pa.disabled = !c?.admitted
   $('agentsBadge').hidden = !c?.participants.some((p) => p.role === 'agent' && p.online && p.state === 'thinking')
@@ -1641,17 +2014,37 @@ const es = new EventSource('/api/events')
 // the daemon pushes every change down this stream; the page never polls.
 // (If it ever goes quiet for a minute, one catch-up load, then back to the stream.)
 let lastEvent = Date.now()
-for (const t of ['message', 'record', 'room', 'rooms', 'participants', 'activity']) es.addEventListener(t, () => { lastEvent = Date.now() }, true)
+for (const t of ['message', 'record', 'redact', 'room', 'rooms', 'participants', 'activity']) es.addEventListener(t, () => { lastEvent = Date.now() }, true)
 setInterval(() => { if (Date.now() - lastEvent > 60_000 && cur()) { lastEvent = Date.now(); load(cur().topic).catch(() => {}) } }, 15_000)
 es.onopen = () => load(store.get('rk.room', null))
-es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else { renderSide(); renderChrome() } })
-es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { S.current = r; renderAll() } })
+// The handlers below only update S, then ask for a paint: a burst of events (an agent at work) is one paint.
+const paintPanelIf = (...pages) => () => { if (pages.includes(page)) renderPanel() }
+const paintRoomPanel = paintPanelIf('room')
+const paintPeoplePanel = paintPanelIf('people', 'room')
+es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else paintSoon(renderSide, renderChrome) })
+es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { adoptRoom(r); paintSoon(renderAll) } })
 es.addEventListener('record', (e) => {
   const { topic, rec, budget } = JSON.parse(e.data)
   const c = cur(); if (!c || topic !== c.topic) return
-  if (!c.log.some((x) => x.id === rec.id)) { c.log.push(rec); c.log.sort((a, b) => a.ts - b.ts) }
+  c.budget = budget
+  if (c.hasNewer) {
+    // up in history: hold it for when the reader comes back down, and say on the jump button that it came
+    if (!pendingLive.some((x) => x.id === rec.id)) { pendingLive.push(rec); if (rec.kind === 'msg') unseen++ }
+    if (pendingLive.length > 300) pendingLive = pendingLive.slice(-300) // past this, coming back loads the newest page anyway
+    return paintSoon(renderChrome, renderStrip, renderSide, paintRoomPanel, updateJumpBack)
+  }
+  if (!c.log.some((x) => x.id === rec.id)) { const late = c.log.length && c.log.at(-1).ts > rec.ts; c.log.push(rec); if (late) c.log.sort(byTs); if (rec.kind === 'msg') arrivals.add(rec.id) }
+  // at the bottom, a long-running room keeps a window, not a growing pile
+  const feed = $('feed'); if (headingDown || following() || feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140) trimTop(c)
   if (rec.kind === 'msg' && !document.hidden) markSeen(c.topic, rec.ts)
-  c.budget = budget; renderChrome(); renderFeed(); renderStrip(); renderSide(); if (page === 'room') renderPanel()
+  paintSoon(renderChrome, renderFeed, renderStrip, renderSide, paintRoomPanel)
+})
+// a removal reaches the message wherever it sits in the window, not only in the newest page
+es.addEventListener('redact', (e) => {
+  const { topic, id, by, ts } = JSON.parse(e.data)
+  const c = cur(); if (!c || topic !== c.topic) return
+  const r = c.log.find((x) => x.id === id)
+  if (r && !r.redacted) { Object.assign(r, { text: '', att: undefined, mentions: [], redacted: { by, ts } }); paintSoon(renderFeed) }
 })
 // Nothing is granted until this is answered. The key fragment is here because it is
 // the one thing that can be checked against the other person's screen.
@@ -1667,13 +2060,23 @@ function renderAsk () {
       <button class="btn btn-soft btn-sm is-stop" data-ask-deny="${esc(asking.topic)}">No</button></div>`
 }
 es.addEventListener('login-ask', (e) => { asking = JSON.parse(e.data); renderAsk(); toast(`${asking.deviceName} is asking to join`, 'hold') })
-es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; renderSide(); renderHead(); renderChrome(); renderStrip(); if (page === 'people' || page === 'room') renderPanel() } })
-es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; renderFeed() } })
+es.addEventListener('participants', (e) => { const { topic, participants } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().participants = participants; paintSoon(renderSide, renderHead, renderChrome, renderStrip, paintPeoplePanel) } })
+es.addEventListener('reactions', (e) => { const { topic, reactions } = JSON.parse(e.data); if (topic === cur()?.topic) { cur().reactions = reactions; paintSoon(renderFeed) } })
 es.addEventListener('activity', (e) => {
   const { topic, rec } = JSON.parse(e.data)
   if (topic !== cur()?.topic || rec.name !== activityAgent) return
-  activityLog.push(rec); if (activityLog.length > 600) activityLog = activityLog.slice(-400)
-  if (page === 'activity') { const el = $('panelBody'); const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60; renderPanel(); if (atEnd) scrollActivity() }
+  activityLog.push(rec)
+  const trimmed = activityLog.length > 600; if (trimmed) activityLog = activityLog.slice(-400)
+  if (page !== 'activity') return
+  const el = $('panelBody'); const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+  // one step: add its row, don't repaint the other several hundred
+  const list = el.querySelector('.act-log')
+  if (!trimmed && list?.querySelector('.act-row')) {
+    list.querySelector('.act-row.is-new')?.classList.remove('is-new')
+    list.insertAdjacentHTML('beforeend', actRowHTML(rec, true))
+    el._html = null // the DOM has moved on from the last full paint
+  } else renderPanel()
+  if (atEnd) scrollActivity()
 })
 es.addEventListener('agent-error', (e) => { const x = JSON.parse(e.data); toast(`${x.name}: ${x.error}`, 'bad') })
 // the new device's login, step by step, while it waits for the other side
@@ -1954,7 +2357,7 @@ function showDrop (on) {
 }
 // ---------- replying to a message: quote it, jump to it, and come back
 let replyTo = null
-const navStack = [] // scroll positions to return to, newest last
+const navStack = [] // places to return to after a jump, newest last: { id, top } of the message that was at the top
 function summary (id) {
   const r = (cur()?.log ?? []).find((x) => x.id === id)
   if (!r) return null
@@ -1964,7 +2367,8 @@ function summary (id) {
 function quoteHTML (r, prev) {
   const id = (r.re ?? [])[0]
   if (!id || prev?.id === id) return '' // answering the message right above needs no quote
-  const q = summary(id); if (!q) return ''
+  // the quoted message may be outside the window: the daemon sends its preview along with the reply (r.q)
+  const q = summary(id) ?? (r.q?.id === id ? r.q : null); if (!q) return ''
   return `<a class="quote" data-jump="${esc(q.id)}" title="Go to that message"><b>${esc(q.name)}</b><span>${esc(q.text)}</span></a>`
 }
 function setReplyTo (id) {
@@ -1976,27 +2380,152 @@ function setReplyTo (id) {
   ta.focus()
 }
 function clearReply () { replyTo = null; const bar = $('replyBar'); bar.hidden = true; bar.innerHTML = '' }
-function jumpTo (id) {
-  const feed = $('feed'); const el = feed.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)
-  if (!el) { toast('That message isn\'t loaded here'); return }
-  navStack.push(feed.scrollTop)
-  el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  el.classList.add('is-flash'); setTimeout(() => el.classList.remove('is-flash'), 1600)
+// A message's line, loading the window around it first when it isn't held. null if it can't be shown.
+const msgEl = (id) => $('feed').querySelector(`:scope > .msg[data-id="${CSS.escape(id)}"]`)
+async function reach (id) { return msgEl(id) ?? ((await showPage(id)) ? msgEl(id) : null) }
+// Places to return to are messages, not scroll offsets: the window may have loaded or dropped lines since.
+// `remember: false` for a step through search matches: only the first step of a search keeps a way back.
+async function jumpTo (id, { remember = true } = {}) {
+  const feed = $('feed')
+  stopSettling() // going somewhere else: stop holding the bottom
+  const back = anchorOf(feed, '.msg')
+  const held = !!msgEl(id) // already in the window: glide to it; loaded just now: land on it
+  const el = await reach(id)
+  if (!el) { toast('That message isn\'t in this room any more'); return }
+  if (back && remember) navStack.push({ id: back.id, top: back.top })
+  navLanding = id
+  const f = feed.getBoundingClientRect(); const r = el.getBoundingClientRect()
+  const centre = feed.scrollTop + r.top - f.top - (f.height - r.height) / 2
+  if (held) glide(centre); else { feed.scrollTop = centre; checkEdges() }
+  // the ring of light: restart it if this message was lit a moment ago
+  el.classList.remove('is-flash'); void el.offsetWidth; el.classList.add('is-flash')
+  clearTimeout(el._flash); el._flash = setTimeout(() => el.classList.remove('is-flash'), 2900)
+  updateJumpBack()
+  return el
+}
+
+// Light up the searched words inside a message for a few seconds (search.js matches the same way: a word or
+// its start, case and accents ignored). Marks go into the text nodes and come out again; nothing is re-rendered.
+const foldText = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+const searchWords = (q) => [...new Set((String(q ?? '').normalize('NFKC').match(/[\p{L}\p{N}]+/gu) ?? []).map(foldText))].slice(0, 12)
+function glowWords (msg, words) {
+  const bubble = msg?.querySelector('.bubble'); if (!bubble || !words.length) return
+  const res = words.map((w) => new RegExp(`(?<![\\p{L}\\p{N}])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\p{L}\\p{N}]*`, 'gu'))
+  // the message's own words only: not the quote it answers, not a file card or a voice memo
+  const walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.parentElement.closest('.quote, .fcard, .memo, mark') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT })
+  const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode)
+  const marks = []
+  for (const node of nodes) {
+    // fold one character at a time, remembering where each folded character came from
+    const text = node.data; let folded = ''; const from = []
+    for (let i = 0; i < text.length;) { const ch = String.fromCodePoint(text.codePointAt(i)); const f = foldText(ch); for (let k = 0; k < f.length; k++) from.push(i); folded += f; i += ch.length }
+    from.push(text.length)
+    const spans = []
+    for (const re of res) for (const m of folded.matchAll(re)) spans.push([from[m.index], from[m.index + m[0].length]])
+    if (!spans.length) continue
+    spans.sort((a, b) => a[0] - b[0])
+    const merged = []; for (const s of spans) { const l = merged.at(-1); if (l && s[0] <= l[1]) l[1] = Math.max(l[1], s[1]); else merged.push([...s]) }
+    // wrap from the end, so the offsets still to come stay where they were
+    for (const [s, e] of merged.reverse()) {
+      const r = document.createRange(); r.setStart(node, s); r.setEnd(node, e)
+      const m = document.createElement('mark'); m.className = 'hit-glow'; r.surroundContents(m); marks.push(m)
+    }
+  }
+  setTimeout(() => { for (const m of marks) { const p = m.parentNode; if (!p) continue; m.replaceWith(...m.childNodes); p.normalize() } }, 3300) // just after word-beat (3.2 s) ends
+}
+async function jumpBack () {
+  const feed = $('feed')
+  const spot = navStack.pop()
+  if (spot) {
+    stopSettling()
+    const held = !!msgEl(spot.id)
+    const el = await reach(spot.id)
+    if (el) { const top = feed.scrollTop + el.getBoundingClientRect().top - spot.top; if (held) glide(top); else { feed.scrollTop = top; checkEdges() } }
+  } else return toLatest()
   updateJumpBack()
 }
-function jumpBack () {
-  const feed = $('feed')
-  if (navStack.length) feed.scrollTo({ top: navStack.pop(), behavior: 'smooth' })
-  else feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' })
-  updateJumpBack()
+// The way back after a jump lasts while the reader stays near where they landed. Once they scroll on, well
+// away from it (a screen and a half), the down arrow means the latest again, never an old spot.
+let navLanding = null
+function expireWayBack () {
+  if (!navStack.length || gliding) return
+  const feed = $('feed'); const el = navLanding && msgEl(navLanding)
+  const f = feed.getBoundingClientRect(); const r = el?.getBoundingClientRect()
+  const away = !r || r.bottom < f.top - f.height * 1.5 || r.top > f.bottom + f.height * 1.5
+  if (away) { navStack.length = 0; navLanding = null }
 }
 function updateJumpBack () {
-  const feed = $('feed'); const btn = $('jumpBack')
+  const feed = $('feed'); const btn = $('jumpBack'); const c = cur()
   const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140
-  btn.hidden = !navStack.length && atBottom
-  btn.title = navStack.length ? 'Back to where you were' : 'Jump to the latest'
+  btn.hidden = !navStack.length && atBottom && (!c || holdsNewest(c))
+  btn.title = navStack.length ? 'Back to where you were' : unseen ? `${unseen} new message${unseen === 1 ? '' : 's'}: jump to the latest` : 'Jump to the latest'
+  const n = btn.querySelector('.n'); if (n) { n.hidden = !unseen || !!navStack.length; n.textContent = unseen > 99 ? '99+' : String(unseen) }
 }
-$('feed').addEventListener('scroll', () => { const feed = $('feed'); if (feed.scrollHeight - feed.scrollTop - feed.clientHeight < 140 && !navStack.length) $('jumpBack').hidden = true; else if (feed.scrollHeight - feed.scrollTop - feed.clientHeight >= 140) $('jumpBack').hidden = false })
+// ---------- search (the daemon's index: GET /api/search; matches come marked \u0002…\u0003)
+const snippetHTML = (s) => esc(s).replace(/\u0002/g, '<mark>').replace(/\u0003/g, '</mark>')
+const whenOf = (ts) => new Date(ts).toDateString() === new Date().toDateString() ? time(ts) : `${new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time(ts)}`
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms) } }
+
+// The room's search: a bar over the chat that steps through matches, newest first. Up goes older.
+const FIND_MAX = 200
+const finder = { q: '', hits: [], i: -1, seq: 0, remembered: false }
+function openFind () { $('findBar').hidden = false; finder.remembered = false; $('findInput').focus(); $('findInput').select() }
+function closeFind () { $('findBar').hidden = true; $('findInput').value = ''; Object.assign(finder, { q: '', hits: [], i: -1 }); finder.seq++; paintFind() }
+function paintFind () {
+  const n = finder.hits.length
+  $('findCount').textContent = !finder.q ? '' : n ? `${finder.i + 1} of ${n}${n >= FIND_MAX ? '+' : ''}` : 'No matches'
+  $('findUp').disabled = finder.i >= n - 1; $('findDown').disabled = finder.i <= 0
+}
+const runFind = debounce(async (q) => {
+  const c = cur(); q = q.trim(); finder.q = q
+  const seq = ++finder.seq
+  if (!q || !c) { finder.hits = []; finder.i = -1; return paintFind() }
+  let r; try { r = await api('GET', `/api/search?room=${encodeURIComponent(c.topic)}&q=${encodeURIComponent(q)}&limit=${FIND_MAX}`) } catch { return }
+  if (seq !== finder.seq) return // typed on since
+  finder.hits = r.results; finder.i = -1; paintFind()
+  stepFind(1)
+}, 250)
+// Matches are newest first, and the chat has the newest at the bottom: +1 is the match above (older), -1 the
+// match below (newer). The arrows point the way the chat moves.
+function stepFind (d) {
+  const i = finder.i + d; if (i < 0 || i >= finder.hits.length) return
+  finder.i = i; paintFind()
+  const words = searchWords(finder.q)
+  jumpTo(finder.hits[i].id, { remember: !finder.remembered }).then((el) => glowWords(el, words)); finder.remembered = true
+}
+$('findInput').addEventListener('input', (e) => runFind(e.target.value))
+$('findInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); stepFind(e.shiftKey ? -1 : 1) }
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFind() }
+})
+$('findUp').onclick = () => stepFind(1)
+$('findDown').onclick = () => stepFind(-1)
+$('findClose').onclick = closeFind
+
+// Search across every room: the field tops the rooms sidebar, and while it holds words the room list gives way
+// to matches from all rooms. Tapping one opens that room at that message.
+let globalHits = null; let globalSeq = 0 // null: show the room list
+const runGlobal = debounce(async (q) => {
+  q = q.trim(); const seq = ++globalSeq
+  if (!q) { globalHits = null; return renderSide() }
+  let r; try { r = await api('GET', `/api/search?q=${encodeURIComponent(q)}&limit=60`) } catch { return }
+  if (seq !== globalSeq) return
+  globalHits = r.results; renderSide()
+}, 250)
+const hitHTML = (h) => `<button type="button" class="search-hit" data-hit-topic="${esc(h.topic)}" data-hit-id="${esc(h.id)}" title="Open ${esc(h.room)} at this message">
+  <span class="hit-head"><b>${esc(h.room)}</b><span>${esc(h.name === me() ? 'you' : h.name)} · ${whenOf(h.ts)}</span></span><span class="hit-text">${snippetHTML(h.snippet)}</span></button>`
+async function openHit (topic, id) {
+  if (topic !== cur()?.topic) { await load(topic); await new Promise((r) => requestAnimationFrame(r)) } // let the room land first
+  if (window.innerWidth <= 720) { roomsScreen = false; applySide() }
+  const words = searchWords($('globalSearch').value)
+  jumpTo(id).then((el) => glowWords(el, words))
+}
+$('globalSearch').addEventListener('input', (e) => runGlobal(e.target.value))
+$('globalSearch').addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.target.value = ''; runGlobal('') } })
+
+// once per frame while scrolling: the jump button, and whether either end of the window needs more
+let scrollRaf = 0
+$('feed').addEventListener('scroll', () => { if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; expireWayBack(); updateJumpBack(); checkEdges() }) }, { passive: true })
 $('jumpBack').addEventListener('click', jumpBack)
 function renderPending () {
   const el = $('pending')
@@ -2120,8 +2649,16 @@ const side = $('side')
 let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
 const applySide = () => {
   const w = Number(store.get('rk.sideW', 272)); side.style.setProperty('--side-w', `${w}px`)
-  side.classList.toggle('is-collapsed', store.get('rk.sideC', '0') === '1')
+  const wasCollapsed = side.classList.contains('is-collapsed')
+  const collapsed = side.classList.toggle('is-collapsed', store.get('rk.sideC', '0') === '1')
   if (window.innerWidth <= 720) side.classList.toggle('is-mobile-hidden', !roomsScreen)
+  // opened or closed: the contents fade in at their new width. Opacity and transform only, so this costs the
+  // compositor, not a layout of the chat per frame.
+  if (collapsed !== wasCollapsed && !calmMotion.matches && side.animate) {
+    for (const el of side.querySelectorAll(':scope > .side-top, :scope > .side-body')) {
+      el.animate([{ opacity: 0, transform: 'translateX(-6px)' }, { opacity: 1, transform: 'none' }], { duration: 150, easing: 'cubic-bezier(0.22, 0.8, 0.24, 1)' })
+    }
+  }
 }
 applySide()
 $('sideGrip').addEventListener('dblclick', () => { store.set('rk.sideC', '1'); applySide() })
@@ -2224,16 +2761,32 @@ function renumber (list) {
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault(); grip.classList.add('is-active'); grip.setPointerCapture(e.pointerId)
     const startX = e.clientX; const startW = panel.getBoundingClientRect().width
-    const move = (ev) => { const w = Math.max(280, Math.min(720, startW - (ev.clientX - startX))); panel.style.setProperty('--panel-w', `${w}px`); store.set('rk.panelW', String(Math.round(w))) }
-    const up = () => { grip.classList.remove('is-active'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up) }
+    // newest width once per frame, saved once on release (as the left panel's grip does)
+    let w = startW; let raf = 0
+    const move = (ev) => {
+      w = Math.max(280, Math.min(720, startW - (ev.clientX - startX)))
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; panel.style.setProperty('--panel-w', `${w}px`) })
+    }
+    const up = () => {
+      grip.classList.remove('is-active'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up)
+      if (w !== startW) store.set('rk.panelW', String(Math.round(w)))
+    }
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up)
   })
   grip.addEventListener('dblclick', () => { store.set('rk.panelW', '340'); applyW() })
 }
 $('sideGrip').addEventListener('pointerdown', (e) => {
   const x0 = e.clientX; const w0 = side.getBoundingClientRect().width
-  const move = (ev) => { const w = Math.max(200, Math.min(460, w0 + ev.clientX - x0)); side.style.setProperty('--side-w', `${w}px`); store.set('rk.sideW', w) }
-  const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+  // a mouse reports moves faster than the screen draws: apply the newest width once per frame, save it once
+  let w = w0; let raf = 0
+  const move = (ev) => {
+    w = Math.max(200, Math.min(460, w0 + ev.clientX - x0))
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; side.style.setProperty('--side-w', `${w}px`) })
+  }
+  const up = () => {
+    window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up)
+    if (w !== w0) store.set('rk.sideW', w)
+  }
   window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
 })
 $('sideToggle').onclick = () => {
@@ -2297,6 +2850,8 @@ document.addEventListener('click', async (e) => {
   if (e.target.closest('[data-get-file]')) { getFile(e.target.closest('[data-get-file]').dataset.getFile); return }
   if (e.target.closest('[data-open-file]')) { openFile(e.target.closest('[data-open-file]').dataset.openFile); return }
   if (e.target.closest('[data-show-rooms]')) { roomsScreen = true; applySide(); return }
+  if (e.target.closest('[data-room-search]')) { if ($('findBar').hidden) openFind(); else closeFind(); return }
+  const hit = e.target.closest('[data-hit-id]'); if (hit) { openHit(hit.dataset.hitTopic, hit.dataset.hitId); return }
   const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
   const go = e.target.closest('[data-go]')
   if (go) {

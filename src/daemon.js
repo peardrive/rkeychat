@@ -170,15 +170,19 @@ export class App extends EventEmitter {
   }
 
   list () {
-    return [...this.rooms.values()].map(({ room }) => ({
-      name: room.cfg.name,
-      topic: room.topic,
-      owner: room.isOwner,
-      admitted: !!room.chain,
-      members: room.participantsList().filter((p) => p.status === 'active').length,
-      people: room.participantsList().filter((p) => p.status === 'active').map((p) => ({ name: p.name, role: p.role, online: p.online, local: p.local })),
-      last: (() => { const l = room.log().filter((r) => r.kind === 'msg' && !r.redacted).at(-1); return l ? { name: l.name, text: l.text || (l.att?.length ? 'Voice memo' : ''), ts: l.ts } : null })()
-    }))
+    return [...this.rooms.values()].map(({ room }) => {
+      const active = room.participantsList().filter((p) => p.status === 'active')
+      const l = room.lastMessage()
+      return {
+        name: room.cfg.name,
+        topic: room.topic,
+        owner: room.isOwner,
+        admitted: !!room.chain,
+        members: active.length,
+        people: active.map((p) => ({ name: p.name, role: p.role, online: p.online, local: p.local })),
+        last: l ? { name: l.name, text: l.text || (l.att?.length ? 'Voice memo' : ''), ts: l.ts } : null
+      }
+    })
   }
 
   // Create a room with just the people you pick. Local humans are always in;

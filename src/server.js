@@ -14,6 +14,7 @@ import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
 import { MAX_BLOB } from './room.js'
+import { FEED_PAGE } from './feed-window.js'
 import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
@@ -57,22 +58,26 @@ const serializeBudget = (b) => ({
 })
 
 export function roomSnapshot (room) {
+  const participants = room.participantsList()
+  const newest = room.page({ limit: FEED_PAGE })
   return {
     name: room.cfg.name,
     topic: room.topic,
     owner: room.isOwner,
     root: room.cfg.root,
     admitted: !!room.chain,
-    participants: room.participantsList(),
+    participants,
     members: room.members(),
     budget: serializeBudget(room.budget()),
     reactions: room.reactions(),
     style: room.style(),
     charter: room.charter(),
     spend: room.spend(),
-    overBudget: Object.fromEntries(room.participantsList().filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
+    overBudget: Object.fromEntries(participants.filter((p) => p.role === 'agent').map((p) => [p.name, room.overBudget(p.name)]).filter(([, v]) => v)),
     connections: room.connections(),
-    log: room.log().filter((r) => r.kind !== 'react' && r.kind !== 'redact' && r.kind !== 'invite').slice(-500)
+    // the newest page of the feed; the page asks GET /api/log for the rest as the reader scrolls
+    log: newest.log,
+    hasOlder: newest.hasOlder
   }
 }
 
@@ -88,22 +93,39 @@ export function serve ({ app }) {
     res.on('close', done); res.on('error', done); res.on('finish', done)
     return (data) => { if (gone) return false; try { return res.write(data) } catch { done(); return false } }
   }
+  // `data` may be a function: it is only called when a page is listening, so the daemon builds no
+  // snapshots while nobody has the UI open (the usual case for an agent machine).
   const push = (event, data) => {
-    const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+    if (!sse.size) return
+    const frame = `event: ${event}\ndata: ${JSON.stringify(typeof data === 'function' ? data() : data)}\n\n`
     for (const w of sse) w(frame)
   }
+  // The heavy, whole-state events come in bursts (an agent at work emits a step every few hundred ms, and each
+  // one marks the room changed). Send the latest state once per burst instead of once per step: the page only
+  // ever shows the newest one anyway.
+  const COALESCE_MS = 250
+  const pending = new Map() // key -> timer
+  const pushSoon = (key, event, data) => {
+    if (!sse.size || pending.has(key)) return
+    pending.set(key, setTimeout(() => { pending.delete(key); push(event, data) }, COALESCE_MS))
+  }
+  const pushRooms = () => pushSoon('rooms', 'rooms', () => app.list())
 
   const wire = ({ room }) => {
     const t = room.topic
+    const pushRoom = () => pushSoon(`room:${t}`, 'room', () => roomSnapshot(room))
     room.on('record', (rec) => {
-      if (rec.kind === 'react') return push('reactions', { topic: t, reactions: room.reactions() })
-      if (rec.kind === 'redact' || rec.kind === 'invite') return push('room', roomSnapshot(room))
-      push('record', { topic: t, rec, budget: serializeBudget(room.budget()) })
-      push('rooms', app.list())
+      if (rec.kind === 'react') return push('reactions', () => ({ topic: t, reactions: room.reactions() }))
+      // a removal: the page empties that message wherever it is in the window it holds, which the newest page
+      // in a room snapshot would not reach
+      if (rec.kind === 'redact' && rec.target) push('redact', { topic: t, id: rec.target, by: rec.name, ts: rec.ts })
+      if (rec.kind === 'redact' || rec.kind === 'invite') return pushRoom()
+      push('record', () => ({ topic: t, rec: room.decorate(rec), budget: serializeBudget(room.budget()) }))
+      pushRooms()
     })
-    room.on('changed', () => push('room', roomSnapshot(room)))
-    room.on('chain', () => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
-    room.on('presence', () => { push('participants', { topic: t, participants: room.participantsList() }); push('rooms', app.list()) })
+    room.on('changed', pushRoom)
+    room.on('chain', () => { pushRoom(); pushRooms() })
+    room.on('presence', () => { pushSoon(`participants:${t}`, 'participants', () => ({ topic: t, participants: room.participantsList() })); pushRooms() })
     room.on('agent-error', (e) => push('agent-error', { topic: t, ...e }))
     room.on('activity', (rec) => push('activity', { topic: t, rec }))
     room.on('fork', (f) => push('fork', { topic: t, seq: f.seq }))
@@ -122,8 +144,8 @@ export function serve ({ app }) {
     }
   }
   for (const r of app.rooms.values()) wire(r)
-  app.on('room-added', (r) => { wire(r); push('rooms', app.list()) })
-  app.on('room-renamed', ({ room }) => { push('room', roomSnapshot(room)); push('rooms', app.list()) })
+  app.on('room-added', (r) => { wire(r); pushRooms() })
+  app.on('room-renamed', ({ room }) => { push('room', () => roomSnapshot(room)); pushRooms() })
   app.on('login-ask', (ask) => push('login-ask', ask))
   app.on('login-progress', (p) => push('login-progress', p))
   app.on('login', (p) => push('login', p))
@@ -440,6 +462,37 @@ export function serve ({ app }) {
       const { room } = roomForAgent(as, key)
       const rec = await room.activity(as, String(text).trim())
       return { ok: !!rec }
+    },
+    // A window of the feed: ?room=&limit= plus one of before=<id> (older), after=<id> (newer) or around=<id>
+    // (that message in the middle, for jumping to it); none gives the newest. -> { log, hasOlder, hasNewer }
+    'GET /api/log': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const q = (k) => url.searchParams.get(k) || undefined
+      const out = room.page({ before: q('before'), after: q('after'), around: q('around'), limit: q('limit') })
+      need(out, 'that message is not in this room', 404)
+      return out
+    },
+    // Search. ?q= words; a message matches when it has every one of them, anywhere and in any order (each as a
+    // word or its start). Newest first.
+    //   with &room=: that room only -> { engine, results: [{ id, ts, name, snippet }] }
+    //   without:     every room you're in, merged -> results also carry { topic, room } (the room's name)
+    // Snippets mark each match with \u0002 ... \u0003 for the page to highlight.
+    'GET /api/search': (req, res, url) => {
+      const q = url.searchParams.get('q') ?? ''
+      const limit = Number(url.searchParams.get('limit')) || 50
+      const key = url.searchParams.get('room')
+      if (key) { const { room } = pick(key); return { engine: room.search.engine, results: room.find(q, { limit }) } }
+      const results = []
+      for (const { room } of app.rooms.values()) {
+        if (!room.chain) continue // not admitted yet: nothing of it is ours to read
+        for (const r of room.find(q, { limit })) results.push({ ...r, topic: room.topic, room: room.cfg.name })
+      }
+      return { results: results.sort((a, b) => b.ts - a.ts).slice(0, limit) }
+    },
+    // when an agent last posted before a message, for the thinking overlay's look-back: ?room=&id=&name= -> { ts }
+    'GET /api/log/previous': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      return { ts: room.previousBy(url.searchParams.get('id'), url.searchParams.get('name')) }
     },
     'GET /api/activity': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))
