@@ -8,7 +8,7 @@ Node 20 or newer (22 LTS is the easy path; 26 works too), git, macOS or Linux. E
 repo: pearcore and rKey are vendored under `vendor/`, so a fresh clone installs on its own.
 
 ```sh
-git clone git@github.com:peardrive/rkeychat.git && cd rkeychat
+git clone https://github.com/peardrive/rkeychat.git && cd rkeychat
 npm install && npm link          # once; puts `rkeychat` on your PATH
 rkeychat init --human NAME       # once: the name you post under
 rkeychat start --background      # the daemon (rkeychat stop ends it; rkeychat status shows the room)

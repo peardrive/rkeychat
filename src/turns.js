@@ -89,4 +89,7 @@ export function addressedTo (m, agent, byId = null) {
   return false
 }
 
-export const replyDepth = (triggers) => 1 + Math.max(0, ...triggers.map((t) => (t.human ? 0 : t.depth)))
+// A turn that answers a person is a fresh thread (depth 1), even if older agent
+// messages ride along in it: otherwise stale agent CCs make a person's mention
+// unanswerable once the rounds are spent.
+export const replyDepth = (triggers) => triggers.some((t) => t.human) ? 1 : 1 + Math.max(0, ...triggers.map((t) => t.depth))

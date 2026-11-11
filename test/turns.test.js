@@ -42,9 +42,13 @@ test('addressing: open floor for un-addressed human messages, mentions otherwise
   assert.equal(addressedTo(agent('claude', 1, ['claude']), 'claude'), false)
 })
 
-test('reply depth follows the deepest trigger', () => {
+test('reply depth follows the deepest trigger, unless a person is in the turn', () => {
   assert.equal(replyDepth([human('x')]), 1)
-  assert.equal(replyDepth([agent('a', 2), human('x')]), 3)
+  assert.equal(replyDepth([agent('a', 2)]), 3)
+  // stale agent CCs riding with a person's mention must not get it refused
+  assert.equal(replyDepth([agent('claude', 3), agent('kimi-zorin', 3), human('x')]), 1)
+  const spent = budget([human('hi'), agent('claude', 1), agent('kimi', 2), agent('claude', 3)])
+  assert.equal(spent.allows(replyDepth([agent('claude', 3), human('x')])), true)
 })
 
 test('mentions only match real participants; @all expands', () => {
