@@ -1,6 +1,6 @@
 {
   "name": "rkeychat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A room for humans and their agents, on pearcore, with rKey membership.",
   "type": "module",
   "bin": {
