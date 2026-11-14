@@ -52,7 +52,7 @@ function createWindow () {
   win = new BrowserWindow({
     width: 1240,
     height: 840,
-    minWidth: 720,
+    minWidth: 360, // narrow enough to be a phone: below 721 px the page takes its phone layout
     minHeight: 480,
     title: 'rKeyChat',
     backgroundColor: '#0f1115', // close to the UI's own background: no white flash
