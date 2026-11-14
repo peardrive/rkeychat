@@ -323,6 +323,26 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
 .room-row.is-unread .room-line .n { font-weight: 700; color: var(--text); }
 .room-row.is-unread .room-time { color: var(--accent); font-weight: 600; }
 .side.is-collapsed .room-row.is-desk { padding: 6px 0; }
+/* desktop: the box under + in the rooms panel: a room name and Create, or an invite and Join */
+.pop { position: fixed; z-index: 65; width: 300px; padding: 14px; border-radius: 14px; background: rgba(34, 35, 43, 0.98); border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-pop); animation: box-in 0.26s cubic-bezier(0.25, 0.5, 0.35, 1); }
+.pop form { display: flex; flex-direction: column; gap: 10px; animation: box-fade-in 0.18s ease; }
+.pop form.is-fading { animation: box-fade-out 0.11s ease forwards; }
+/* members / room settings in the room header: each opens its page in the right panel, lit while it is open */
+.page-btn.is-open { color: var(--accent); background: rgba(168, 206, 56, 0.13); box-shadow: 0 0 0 1px rgba(168, 206, 56, 0.25) inset; }
+/* floating boxes (this one, the room's ⋯ menu): soft in, soft out (dismissBox) */
+@keyframes box-in { from { opacity: 0; transform: translateY(-5px) scale(0.98); } }
+@keyframes box-out { to { opacity: 0; transform: translateY(-5px) scale(0.98); } }
+@keyframes box-fade-in { from { opacity: 0; } }
+@keyframes box-fade-out { to { opacity: 0; } }
+.is-leaving { animation: box-out 0.17s ease-in forwards !important; pointer-events: none; }
+.pop h3 { font-size: 13px; font-weight: 650; }
+.pop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pop-link { font-size: 12px; color: var(--accent); text-align: left; }
+.confirm-pop { width: 290px; display: flex; flex-direction: column; gap: 8px; }
+.confirm-pop .note { line-height: 1.5; }
+.pop-row.end { justify-content: flex-end; margin-top: 2px; }
+.pop-link:hover { text-decoration: underline; }
 /* the open room's people: a small toggle on the right of its box, on the last-message line under the time */
 .room-wrap { position: relative; }
 .people-toggle { position: absolute; right: 8px; bottom: 7px; display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 7px;
@@ -613,7 +633,7 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
   .bubble { -webkit-touch-callout: none; }
 }
 @media (hover: none) { .head-tools { opacity: 1; } }
-.menu { position: fixed; z-index: 60; min-width: 200px; padding: 5px; border-radius: 12px; background: rgba(34, 35, 43, 0.97); backdrop-filter: blur(20px); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); animation: tip-in 0.12s var(--ease); }
+.menu { position: fixed; z-index: 60; min-width: 200px; padding: 5px; border-radius: 12px; background: rgba(34, 35, 43, 0.97); backdrop-filter: blur(20px); border: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); animation: box-in 0.26s cubic-bezier(0.25, 0.5, 0.35, 1); }
 .menu button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; font-size: 14px; text-align: left; }
 .menu button:hover, .menu button:active { background: var(--accent); color: var(--accent-ink); }
 .menu .ico { width: 16px; height: 16px; }
@@ -649,6 +669,8 @@ mark { color: var(--text); background: rgba(255, 214, 10, 0.28); border-radius: 
   <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" stroke-width="3.2"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></symbol>
+  <symbol id="i-group" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3"/><path d="M6.5 19.5v-.8a5.5 5.5 0 0 1 11 0v.8"/><circle cx="5.2" cy="10" r="2.2"/><path d="M1.8 18.5v-.5a3.6 3.6 0 0 1 3.9-3.6"/><circle cx="18.8" cy="10" r="2.2"/><path d="M22.2 18.5v-.5a3.6 3.6 0 0 0-3.9-3.6"/></symbol>
   <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></symbol>
   <symbol id="i-collapse" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15M15.5 10l-2 2 2 2"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15M13.5 10l2 2-2 2"/></symbol>
@@ -775,7 +797,8 @@ let selectedMsg = null
 let joinedRequest = null
 let glossary = {}
 let people = { local: [], known: [] }
-async function loadPeople () { try { people = await api('GET', '/api/people') } catch {} if (page === 'invite') renderPanel() }
+// (a reply missing either list counts as empty: the pages that read these must never break on it)
+async function loadPeople () { try { const p = await api('GET', '/api/people'); people = { local: p?.local ?? [], known: p?.known ?? [] } } catch {} if (page === 'invite') renderPanel() }
 api('GET', '/api/glossary').then((g) => { glossary = g }).catch(() => {})
 const cur = () => S?.current
 const me = () => S?.device.participants.find((p) => p.role === 'human')?.name
@@ -1454,7 +1477,7 @@ async function openThinking (id) {
   $('copyThinking').onclick = () => navigator.clipboard?.writeText(acts.map((a) => `[${new Date(a.ts).toLocaleTimeString()}] ${a.text}`).join('\n')).then(() => toast('Copied. Paste it wherever it helps.'))
 }
 function closeOverlay () { $('overlay')?.remove() }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeOverlay(); closePicker(); if (replyTo && document.activeElement === ta) clearReply() } })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeOverlay(); closePicker(); closeNewRoom(); if (replyTo && document.activeElement === ta) clearReply() } })
 
 function renderNoRooms () {
   delete $('feed').dataset.sig
@@ -1583,7 +1606,7 @@ function deskRoomRow (r, c) {
       list = `<div class="room-people">${shown.map((p) => {
         const [tone, label] = personStatus(p, c.budget)
         return `<div class="person-row${p.role === 'agent' ? ' clickable' : ''}" ${p.role === 'agent' ? `data-activity="${esc(p.name)}" title="See what ${esc(p.name)} is doing"` : ''}>${faceHTML(p)}<span class="nm">${esc(p.name === me() ? `${p.name} (you)` : p.name)}</span><span class="status ${tone}">${esc(label)}</span></div>`
-      }).join('')}${more ? `<button class="person-row more" data-go="room" title="Everyone in ${esc(r.name)}, in Room details">+${more} other${more === 1 ? '' : 's'}</button>` : ''}</div>`
+      }).join('')}${more ? `<button class="person-row more" data-go="members" title="Everyone in ${esc(r.name)}, in Members">+${more} other${more === 1 ? '' : 's'}</button>` : ''}</div>`
     }
   }
   return `<div class="room-wrap"><button class="room-row is-desk${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}" data-room="${esc(r.topic)}" title="${esc(r.name)} · ${n} ${n === 1 ? 'person' : 'people'}${unread ? ' · new since you looked' : ''}">
@@ -1605,13 +1628,15 @@ function renderHead () {
   const online = active.filter((p) => p.online).length
   setHTML(h, `<button class="icon-btn m-only" data-show-rooms title="Rooms">${icon('rooms')}</button>
     <div class="faces">${active.slice(0, 5).map(faceHTML).join('')}</div>
-    <div><h2 class="clickable" data-open-room title="Room details">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
+    <div><h2 class="clickable" data-open-room title="Room settings">${esc(c.name)}</h2><div class="meta">${active.length} ${active.length === 1 ? 'person' : 'people'} · ${online} online${c.style === 'verbose' ? ' · verbose' : ''}</div></div>
     <span class="grow"></span>
     <button class="icon-btn" id="debugNote" ${debugOn() ? '' : 'hidden'} title="Start a debug note">${icon('mic')}<span class="rec-time"></span></button>
     <button class="icon-btn" data-room-search title="Search this room">${icon('search')}</button>
     ${pauseBtnHTML(c)}
+    <button class="icon-btn page-btn d-only${page === 'members' ? ' is-open' : ''}" data-page-toggle="members" data-page="members" title="Members: who is in ${esc(c.name)}">${icon('group')}</button>
+    <button class="icon-btn page-btn d-only${page === 'room' ? ' is-open' : ''}" data-page-toggle="room" data-page="room" title="Room settings: name, agents, rounds, the room prompt">${icon('sliders')}</button>
     ${c.owner ? `<button class="btn btn-soft btn-sm d-only" data-open-invite>${icon('plus')}Invite</button>` : ''}
-    <button class="icon-btn" data-menu title="More: room details, rename, leave">${icon('dots')}</button>`)
+    <button class="icon-btn" data-menu title="More: rename, invite, leave">${icon('dots')}</button>`)
   syncDebugBtn()
 }
 async function renameRoom () {
@@ -1621,12 +1646,11 @@ async function renameRoom () {
   try { await control({ action: 'rename', name: name.trim() }); toast(`Renamed to ${name.trim()}`) } catch (err) { toast(err.message) }
 }
 function openMenu (anchor) {
-  document.getElementById('menu')?.remove()
+  dismissBox(document.getElementById('menu'))
   const c = cur(); const paused = !!c?.budget?.paused
   const el = document.createElement('div'); el.className = 'menu'; el.id = 'menu'
   // desktop: this menu is the room's own (everything about you is in the top bar)
   el.innerHTML = !isPhone() ? [
-    `<button data-go="room">${icon('info')}Room details</button>`,
     c?.owner ? `<button data-go="rename">${icon('pen')}Rename room</button>` : '',
     c?.owner ? `<button data-go="invite">${icon('plus')}Invite someone</button>` : '',
     !c?.owner ? `<button data-go="leave">${icon('leave')}Leave room</button>` : ''
@@ -1666,7 +1690,9 @@ function renderInvitePage () {
 const PAGES = {
   rooms: { title: 'Rooms', icon: 'rooms', render: renderRoomsPage },
   people: { title: 'People', icon: 'people', render: renderPeoplePage },
-  room: { title: 'Room', icon: 'rooms', render: renderRoomPage },
+  // desktop: the room's settings and its members are two pages; the phone has one Room page with both
+  room: { get title () { return isPhone() ? 'Room' : 'Room settings' }, get icon () { return isPhone() ? 'rooms' : 'sliders' }, render: () => renderRoomPage() },
+  members: { title: 'Members', icon: 'group', render: () => renderRoomPage('members') },
   contacts: { title: 'Contacts', icon: 'people', render: renderContactsPage },
   profile: { title: 'Profile', icon: 'human', render: renderProfilePage },
   keys: { title: 'Verified', icon: 'lock', render: renderKeysPage },
@@ -1748,7 +1774,7 @@ function renderActivityPage () {
 function openPage (p) {
   page = p; store.set('rk.page', p || '')
   log.info('ui', p ? `panel: ${p}` : 'panel closed')
-  if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room') loadPeople()
+  if (p === 'rooms' || p === 'people' || p === 'contacts' || p === 'room' || p === 'members') loadPeople()
   $('panelBody')._html = null // opening a page always paints it fresh: a half-done drag or an open drawer starts over
   renderPanel()
 }
@@ -1756,7 +1782,7 @@ function renderPanel () {
   const panel = $('panel')
   // never repaint the room page under someone's unsaved edit or mid-drag
   if (page === 'room' && !panel.hidden && (document.getElementById('charterApply')?.hidden === false || document.querySelector('.order-item.is-drag') || document.activeElement?.id === 'charterText' || document.activeElement?.closest?.('.rule-panel'))) return
-  document.querySelectorAll('.nav-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
+  document.querySelectorAll('.nav-btn[data-page], .page-btn[data-page]').forEach((b) => b.classList.toggle('is-open', b.dataset.page === page))
   if (!page || !PAGES[page]) { panel.hidden = true; return }
   panel.hidden = false
   $('panelTitle').textContent = page === 'activity' && activityAgent ? `${activityAgent} · activity` : PAGES[page].title
@@ -1836,7 +1862,8 @@ const TIPS = {
   settings: 'Roles go out with every turn, as part of the room prompt. The token budget is the hard limit: once an agent has spent it for the day it stops being woken at all, which costs nothing — a wake is expensive because the agent re-reads its whole context before it writes a word.',
   style: 'On: agents post their full output here. Off: short posts, detail in files. Off is right for rooms where agents talk to each other, since they pay to read each other.'
 }
-function renderRoomPage () {
+// part: 'settings' (desktop Room settings), 'members' (desktop Members), 'all' (the phone's one Room page)
+function renderRoomPage (part = isPhone() ? 'all' : 'settings') {
   const c = cur(); if (!c) return '<p class="note">Create or join a room first.</p>'
   const b = c.budget
   const open = b.unlimited || (b.until && b.until > Date.now())
@@ -1905,12 +1932,22 @@ function renderRoomPage () {
   }
   const inRoom = new Set(everyone.map((p) => p.name))
   const addable = c.owner ? [...people.local, ...people.known].filter((p) => !inRoom.has(p.name)) : []
-  return `<div class="room-profile"><div class="big">${esc(c.name.slice(0, 1).toUpperCase())}</div><h2>${esc(c.name)}</h2><div class="meta">${everyone.filter((p) => p.status === 'active').length} in the room · ${everyone.filter((p) => p.online).length} online</div>
+  const leaveBtn = `<button class="btn btn-soft btn-sm" id="leaveBtn" data-confirm="Leave this room? Your keys are revoked here; the history stays with the others.">Leave</button>`
+  const inviteBtn = `<button class="btn btn-soft btn-sm" data-open-invite>${icon('plus')}Invite</button>`
+  const profile = (actions) => `<div class="room-profile"><div class="big">${esc(c.name.slice(0, 1).toUpperCase())}</div><h2>${esc(c.name)}</h2><div class="meta">${everyone.filter((p) => p.status === 'active').length} in the room · ${everyone.filter((p) => p.online).length} online</div>
       <div class="meta" title="${esc(c.root ?? '')}">Owned by <b>${esc(ownerName)}</b> · key ${esc((c.root ?? '').split(':')[1]?.slice(0, 8) ?? '')}</div>
-      <div class="inline">${c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button><button class="btn btn-soft btn-sm" data-open-invite>${icon('plus')}Invite</button>` : `<button class="btn btn-soft btn-sm" id="leaveBtn" data-confirm="Leave this room? Your keys are revoked here; the history stays with the others.">Leave</button>`}</div></div>
-    <section class="section"><div class="section-title-row"><h3 class="section-title">In this room</h3><span class="note">tap one for keys and options</span></div>${everyone.map(row).join('') || '<p class="note">Nobody yet.</p>'}
+      <div class="inline">${actions}</div></div>`
+  const membersSection = (withInvite) => `<section class="section"><div class="section-title-row"><h3 class="section-title">In this room${withInvite ? ` · ${everyone.filter((p) => p.status === 'active').length}` : ''}</h3>${withInvite && c.owner ? inviteBtn : '<span class="note">tap one for keys and options</span>'}</div>${everyone.map(row).join('') || '<p class="note">Nobody yet.</p>'}
       ${addable.length ? `<details style="margin-top:8px"><summary class="note">Add someone you already know</summary>${addable.map((p) => `<div class="row-item"><div class="avatar">${esc(p.name.slice(0, 1))}</div><div class="row-main"><span class="row-title">${esc(p.name)}</span><span class="row-sub">${p.local ? 'on this device' : `already approved in ${esc(p.from)}`}</span></div><button class="btn btn-soft btn-sm" data-add-member="${esc(p.name)}">Add</button></div>`).join('')}</details>` : ''}
-    </section>
+      ${withInvite ? '<p class="note">Tap someone for their keys and options.</p>' : ''}
+    </section>`
+  // desktop: Members and Room settings are two pages, each with its own button in the room header.
+  // The phone keeps one Room page with both.
+  if (part === 'members') return membersSection(true)
+  const head = part === 'settings'
+    ? profile(c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button>` : leaveBtn)
+    : profile(c.owner ? `<button class="btn btn-soft btn-sm" id="renameBtn">Rename</button>${inviteBtn}` : leaveBtn) + membersSection(false)
+  return `${head}
     <section class="section is-tight">
       <div class="section-title-row"><h3 class="section-title">Agents${b.paused ? ' <span class="pill tone-bad">paused</span>' : ''}</h3>
         <button class="btn btn-soft btn-sm" data-ctl="${b.paused ? 'resume' : 'pause'}">${icon(b.paused ? 'play' : 'pause')}${b.paused ? 'Resume' : 'Pause'}</button></div>
@@ -2097,8 +2134,8 @@ setInterval(() => { if (Date.now() - lastEvent > 60_000 && cur()) { lastEvent = 
 es.onopen = () => load(store.get('rk.room', null))
 // The handlers below only update S, then ask for a paint: a burst of events (an agent at work) is one paint.
 const paintPanelIf = (...pages) => () => { if (pages.includes(page)) renderPanel() }
-const paintRoomPanel = paintPanelIf('room')
-const paintPeoplePanel = paintPanelIf('people', 'room')
+const paintRoomPanel = paintPanelIf('room', 'members')
+const paintPeoplePanel = paintPanelIf('people', 'room', 'members')
 es.addEventListener('rooms', (e) => { if (!S) return; S.rooms = JSON.parse(e.data); if (!S.current && S.rooms.length) load(S.rooms[0].topic); else paintSoon(renderSide, renderChrome) })
 es.addEventListener('room', (e) => { const r = JSON.parse(e.data); if (S && r.topic === cur()?.topic) { adoptRoom(r); paintSoon(renderAll) } })
 es.addEventListener('record', (e) => {
@@ -2721,7 +2758,108 @@ if (!navigator.mediaDevices?.getUserMedia) { $('micBtn').hidden = true; $('memoB
 // Two plain buttons where a bare text field used to be: the field read as a search box
 // and nobody found room creation (Guy's debug note, Oct 28). "New room" opens the form
 // with the name focused; "Add someone" opens the invite page for the current room.
-$('newRoomBtn').onclick = $('newRoomIcon').onclick = () => { log.info('ui', 'New room'); openPage('rooms'); loadPeople(); setTimeout(() => $('panelCreate')?.querySelector('input[name=name]')?.focus(), 50) }
+// Boxes that float over the app (the new-room box, the room's ⋯ menu) fade in when they open and fade out when
+// they close, rather than popping. A closing box gives up its id at once, so it already counts as closed (and a
+// new one can open) while it fades. Under reduced motion it simply goes.
+const BOX_OUT_MS = 170; const BOX_SWAP_MS = 110
+function dismissBox (el) {
+  if (!el || el.classList.contains('is-leaving')) return
+  if (calmMotion.matches) return el.remove()
+  el.removeAttribute('id'); el.classList.add('is-leaving')
+  setTimeout(() => el.remove(), BOX_OUT_MS)
+}
+// A small box at the button that was pressed, asking before something that affects the whole room. Resolves
+// true on the main button (focused, so Enter takes it), false on Cancel, Esc or a click anywhere else.
+function confirmBox (anchor, { title, body, ok, danger = false }) {
+  dismissBox($('confirmPop'))
+  return new Promise((resolve) => {
+    const el = document.createElement('div'); el.className = 'pop confirm-pop'; el.id = 'confirmPop'
+    el.setAttribute('role', 'alertdialog'); el.setAttribute('aria-label', title)
+    el.innerHTML = `<h3>${esc(title)}</h3><p class="note">${esc(body)}</p>
+      <div class="pop-row end"><button type="button" class="btn btn-soft btn-sm" data-confirm-no>Cancel</button><button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'} btn-sm" data-confirm-yes>${esc(ok)}</button></div>`
+    document.body.append(el)
+    // under the button, right edges lined up; above it when there's no room below (the agent strip)
+    const r = anchor?.getBoundingClientRect() ?? { left: innerWidth / 2, right: innerWidth / 2, top: innerHeight / 2, bottom: innerHeight / 2 }
+    const w = el.offsetWidth; const h = el.offsetHeight
+    el.style.left = `${Math.max(12, Math.min(innerWidth - w - 12, r.right - w))}px`
+    el.style.top = `${r.bottom + 8 + h > innerHeight - 12 ? Math.max(12, r.top - h - 8) : r.bottom + 8}px`
+    let done = false
+    const finish = (yes) => {
+      if (done) return; done = true
+      document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', esc_, true)
+      dismissBox(el); resolve(yes)
+    }
+    const outside = (e) => { if (!el.contains(e.target)) finish(false) }
+    const esc_ = (e) => { if (e.key === 'Escape') { e.stopPropagation(); finish(false) } }
+    el.addEventListener('click', (e) => { if (e.target.closest('[data-confirm-yes]')) finish(true); else if (e.target.closest('[data-confirm-no]')) finish(false) })
+    // listen from the next tick, so the click that opened the box doesn't close it
+    setTimeout(() => { document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', esc_, true) })
+    el.querySelector('[data-confirm-yes]').focus()
+  })
+}
+// Pause or resume every agent in the room: what it does, said before it happens (src/turns.js, room.js post)
+function confirmAllAgents (anchor, action) {
+  const name = cur()?.name ?? 'this room'
+  return action === 'pause'
+    ? confirmBox(anchor, { title: `Pause every agent in ${name}?`, body: 'None of them will reply until you resume. A reply being written right now won\'t be posted.', ok: 'Pause', danger: true })
+    : confirmBox(anchor, { title: `Resume the agents in ${name}?`, body: 'They can reply again, within the round limit.', ok: 'Resume' })
+}
+// phone: New room is a page of its own
+$('newRoomBtn').onclick = () => { log.info('ui', 'New room'); openPage('rooms'); loadPeople(); setTimeout(() => $('panelCreate')?.querySelector('input[name=name]')?.focus(), 50) }
+// desktop: + opens a small box right under it: a name and Create (or, one click away, an invite and Join).
+// Nothing else on it, so the field you need is where you are already looking. People come after, with
+// + Invite in the new room's header.
+$('newRoomIcon').onclick = () => { if ($('newRoomPop')) closeNewRoom(); else { log.info('ui', 'New room'); openNewRoom('create') } }
+function closeNewRoom () { dismissBox($('newRoomPop')) }
+const newRoomForm = (mode) => mode === 'join'
+  ? `<form id="popJoin"><h3>Join a room</h3>
+      <input class="text-input mono" name="invite" placeholder="pearcore:// link or rkc1. code" autocomplete="off" spellcheck="false" required>
+      <div class="pop-row"><button type="button" class="pop-link" data-pop-mode="create">New room instead</button><button class="btn btn-primary btn-sm">Join</button></div></form>`
+  : `<form id="popCreate"><h3>New room</h3>
+      <input class="text-input" name="name" placeholder="Room name" autocomplete="off" maxlength="80" required>
+      <div class="pop-row"><button type="button" class="pop-link" data-pop-mode="join">Have an invite? Join a room</button><button class="btn btn-primary btn-sm">${icon('plus')}Create</button></div>
+      <p class="note">Just you to start. Add people with + Invite once it's open.</p></form>`
+function openNewRoom (mode) {
+  const label = mode === 'join' ? 'Join a room' : 'New room'
+  const open = $('newRoomPop')
+  if (open) {
+    // already showing: the box stays where it is and only its contents cross-fade
+    const form = open.querySelector('form')
+    const swap = () => { open.innerHTML = newRoomForm(mode); open.setAttribute('aria-label', label); open.querySelector('input').focus() }
+    if (calmMotion.matches || !form) return swap()
+    form.classList.add('is-fading'); setTimeout(swap, BOX_SWAP_MS)
+    return
+  }
+  const anchor = $('newRoomIcon')
+  const el = document.createElement('div'); el.className = 'pop'; el.id = 'newRoomPop'
+  el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', label)
+  el.innerHTML = newRoomForm(mode)
+  // just under +, lined up with the rooms panel's edges
+  const s = $('side').getBoundingClientRect()
+  el.style.width = `${Math.min(320, s.width)}px`
+  document.body.append(el)
+  el.style.top = `${anchor.getBoundingClientRect().bottom + 8}px`
+  el.style.left = `${s.left}px`
+  el.querySelector('input').focus()
+}
+document.addEventListener('submit', async (e) => {
+  const f = e.target; if (f.id !== 'popCreate' && f.id !== 'popJoin') return
+  e.preventDefault()
+  const btn = f.querySelector('.btn-primary'); btn.disabled = true
+  try {
+    if (f.id === 'popCreate') {
+      const name = String(new FormData(f).get('name') ?? '').trim(); if (!name) return
+      const r = await api('POST', '/api/rooms', { name, members: [] })
+      closeNewRoom(); toast(`Created "${r.name}". Add people with + Invite.`); await load(r.topic)
+    } else {
+      const text = String(new FormData(f).get('invite') ?? '').trim(); if (!text) return
+      closeNewRoom()
+      // a pearcore:// link is claimed in band (the host approves); an rkc1. code joins and hands back a request
+      if (/:\/\//.test(text)) return claimLogin(text)
+      const r = await api('POST', '/api/rooms/join', { invite: text }); joinedRequest = r.request; await load(r.room.topic)
+    }
+  } catch { /* api() has said what went wrong; the box stays, with what was typed */ } finally { btn.disabled = false }
+})
 $('addPeopleBtn').onclick = () => { log.info('ui', 'Add someone'); openPage('invite'); loadPeople() }
 const side = $('side')
 let roomsScreen = false // phone: the rooms list is a screen you visit; the app always opens on the chat
@@ -2878,6 +3016,12 @@ $('gearBtn').onclick = () => { openPage(page === 'settings' ? '' : 'settings'); 
 
 document.addEventListener('click', async (e) => {
   if (!e.target.closest('#picker') && !e.target.closest('[data-react-open]')) closePicker()
+  // the new-room box: switching between create and join keeps it open; a click anywhere else closes it
+  const popMode = e.target.closest('[data-pop-mode]'); if (popMode) { openNewRoom(popMode.dataset.popMode); return }
+  if ($('newRoomPop') && !e.target.closest('#newRoomPop, #newRoomIcon')) closeNewRoom()
+  // members and room settings (room header): each opens its own page in the right panel, and closes it again
+  const pageToggle = e.target.closest('[data-page-toggle]')
+  if (pageToggle) { const p = pageToggle.dataset.pageToggle; if (p === 'members') loadPeople(); openPage(page === p ? '' : p); return }
   const rp = e.target.closest('[data-react-pick]')
   if (rp) { closePicker(); toggleReaction(rp.dataset.reactPick, rp.dataset.emoji); return }
   const ro = e.target.closest('[data-react-open]')
@@ -2934,16 +3078,16 @@ document.addEventListener('click', async (e) => {
   const mb = e.target.closest('[data-menu]'); if (mb) { openMenu(mb); return }
   const go = e.target.closest('[data-go]')
   if (go) {
-    document.getElementById('menu')?.remove()
+    dismissBox(document.getElementById('menu'))
     const g = go.dataset.go
-    if (g === 'pause') return control({ action: cur()?.budget?.paused ? 'resume' : 'pause' })
+    if (g === 'pause') { const action = cur()?.budget?.paused ? 'resume' : 'pause'; if (await confirmAllAgents(document.querySelector('[data-menu]'), action)) control({ action }); return }
     if (g === 'rename') return renameRoom()
     if (g === 'leave') { if (!confirm('Leave this room? Your keys are revoked here; the history stays with the others.')) return; return api('POST', '/api/revoke', { room: roomArg(), name: me() }).then(() => toast('You left the room')).catch((err) => toast(err.message)) }
     if (g === 'settings') loadSettings()
     if (g === 'invite') loadPeople()
     openPage(g); return
   }
-  if (!e.target.closest('#menu')) document.getElementById('menu')?.remove()
+  if (!e.target.closest('#menu')) dismissBox(document.getElementById('menu'))
   if (!t) return
   const d = t.dataset
   if (d.room) { selectedMsg = null; joinedRequest = null; if (window.innerWidth <= 720) { roomsScreen = false; applySide() } await load(d.room); return }
@@ -2953,7 +3097,12 @@ document.addEventListener('click', async (e) => {
   if (d.reply) { setReplyTo(d.reply); return }
   if (d.jump) { jumpTo(d.jump); return }
   if (d.info) { selectedMsg = d.info; openPage('keys'); renderFeed(); return }
-  if (d.ctl) { if (d.confirm && !confirm(d.confirm)) return; return control({ action: d.ctl, ...(d.n ? { n: Number(d.n) } : {}) }) }
+  if (d.ctl) {
+    if (d.confirm && !confirm(d.confirm)) return
+    // pausing or resuming every agent asks first (one agent's own pause stays one click)
+    if ((d.ctl === 'pause' || d.ctl === 'resume') && !(await confirmAllAgents(t, d.ctl))) return
+    return control({ action: d.ctl, ...(d.n ? { n: Number(d.n) } : {}) })
+  }
   if (d.revoke) { if (confirm(`Revoke ${d.revoke}? It, and anything it enrolled, is cut out of the room.`)) api('POST', '/api/revoke', { room: roomArg(), name: d.revoke }); return }
   if (d.play) { playMemo(d.play, t.closest('.memo')?.dataset.mime); return }
   if (t.id === 'dropMemo') { clearPending(); return }
@@ -3017,7 +3166,7 @@ document.addEventListener('change', (e) => {
   if (d.agentToggle) control({ action: e.target.checked ? 'resume' : 'pause', agent: d.agentToggle })
   if (d.agentLimit) control({ action: 'limit', agent: d.agentLimit, n: Number(e.target.value) || 0 })
 })
-setInterval(() => S && (renderStrip(), page === 'room' && renderPanel()), 30_000)
+setInterval(() => S && (renderStrip(), (page === 'room' || page === 'members') && renderPanel()), 30_000)
 </script>
 </body>
 </html>
