@@ -18,7 +18,9 @@ function sqlite () {
   if (Sqlite !== undefined) return Sqlite
   Sqlite = null
   const from = []
-  try { from.push(import.meta.resolve('pearcore')) } catch {} // pearcore's copy, wherever npm put it
+  // pearcore's copy, wherever npm put it. Its package.json, not the bare name: pearcore has no main module, so
+  // the bare name resolves nowhere (and the phone's bundler, which follows import.meta.resolve, refused to pack).
+  try { from.push(import.meta.resolve('pearcore/package.json')) } catch {}
   from.push(import.meta.url)
   for (const base of from) {
     try { Sqlite = createRequire(base)('better-sqlite3'); break } catch {}
