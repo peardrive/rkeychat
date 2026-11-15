@@ -41,9 +41,9 @@ export function budget (log, { now = Date.now(), defaultRounds = DEFAULT_ROUNDS 
         case 'resume': paused = false; break
         case 'reset': limit = defaultRounds; unlimited = false; until = null; break
       }
-    } else if (r.kind === 'msg' && r.via === 'mirror') {
-      // a mirrored terminal exchange is a record of what was said, not a live
-      // turn: it neither resets nor spends rounds
+    } else if (r.kind === 'msg' && (r.via === 'mirror' || r.via === 'note')) {
+      // a mirrored terminal exchange, or a shared debug note, is a record of what was said,
+      // not a live turn: it neither resets nor spends rounds
     } else if (r.kind === 'msg') {
       if (r.human) {
         // a human speaking resets the round count (but not a standing
@@ -82,11 +82,14 @@ export function budget (log, { now = Date.now(), defaultRounds = DEFAULT_ROUNDS 
 //   - otherwise only when mentioned
 //   - a human replying to a specific message (re) addresses its author, not the floor
 export function addressedTo (m, agent, byId = null) {
-  if (m.kind !== 'msg' || m.name === agent || m.via === 'mirror' || m.redacted) return false
+  if (m.kind !== 'msg' || m.name === agent || m.via === 'mirror' || m.via === 'note' || m.redacted) return false
   if (m.mentions.includes(agent)) return true
   if (m.human && m.re?.length && byId) return m.re.some((id) => byId.get(id)?.name === agent)
   if (m.human && m.mentions.length === 0 && !m.re?.length) return true
   return false
 }
 
-export const replyDepth = (triggers) => 1 + Math.max(0, ...triggers.map((t) => (t.human ? 0 : t.depth)))
+// A turn that answers a person is a fresh thread (depth 1), even if older agent
+// messages ride along in it: otherwise stale agent CCs make a person's mention
+// unanswerable once the rounds are spent.
+export const replyDepth = (triggers) => triggers.some((t) => t.human) ? 1 : 1 + Math.max(0, ...triggers.map((t) => t.depth))

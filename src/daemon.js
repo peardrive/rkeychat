@@ -1,14 +1,16 @@
 // Boots pearcore for this device and runs every room it's in. Rooms can be
 // created or joined while the daemon runs (GUI or CLI); no restart needed.
 
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { existsSync, readFileSync, appendFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { createCore } from 'pearcore/src/core.js'
 import { Chain, generate, consent, enroll } from 'rkey'
-import { loadConfig, saveConfig, dataDir, participantSigners, rootSigner, deviceSigner, migrate } from './config.js'
+import { loadConfig, saveConfig, dataDir, participantSigners, rootSigner, deviceSigner, migrate, addParticipant, readKeyFile } from './config.js'
 import { RoomStore } from './store.js'
 import { Room, joinRequest } from './room.js'
 import { AgentRunner } from './agents.js'
+import { parseTools, resolveTools, describeTools } from './tools.js'
 import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
 import { Login } from './login.js'
@@ -99,21 +101,88 @@ export class App extends EventEmitter {
     return room
   }
 
+  // A project agent: a Claude Code conversation that lives in `dir`, with its own key
+  // in `dir/.rkeychat/agent.json`. Added live — no daemon restart — and signed into
+  // every room this device owns right away; rooms owned elsewhere need the usual
+  // `rkeychat request` + approval, like any new key on this device.
+  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null }) {
+    dir = resolve(String(dir ?? '').trim() || process.cwd())
+    if (!existsSync(dir)) throw new Error(`no such folder: ${dir}`)
+    const keyFile = join(dir, '.rkeychat', 'agent.json')
+    // `tools` is what it may do without asking (src/tools.js): a preset name, or a list.
+    // Unset means the lab preset; `none` is the old behaviour (ask, so headless: refuse).
+    tools = parseTools(tools)
+    if (tools !== undefined) resolveTools(tools, dir) // throws on an unknown preset, before anything is written
+    const bridge = { kind: 'claude', dir, permissionMode, ...(tools !== undefined ? { tools } : {}), ...(model ? { model } : {}) }
+    addParticipant(this.cfg, name, { role: 'agent', bridge, keyFile })
+    saveConfig(this.cfg)
+    // the key is a secret: keep it out of the project's git history
+    try {
+      const gi = join(dir, '.gitignore')
+      const cur = existsSync(gi) ? readFileSync(gi, 'utf8') : ''
+      if (existsSync(join(dir, '.git')) && !/^\.rkeychat\/?$/m.test(cur)) appendFileSync(gi, `${cur && !cur.endsWith('\n') ? '\n' : ''}.rkeychat/\n`)
+    } catch {}
+    const p = this.participants[name]
+    const enrolled = []
+    for (const { room, runners } of this.rooms.values()) {
+      room.local[name] = p
+      runners.set(name, new AgentRunner(room, name, bridge))
+      if (room.isOwner) {
+        try {
+          await room.approve({ participants: [{ ref: p.signer.ref, name, role: 'agent', consent: await consent(p.signer, room.cfg.root) }] })
+          enrolled.push(room.cfg.name)
+        } catch (err) { console.error(`[${room.cfg.name}] could not enroll ${name}:`, err.message) }
+      }
+    }
+    this.emit('agents-changed')
+    return { name, dir, keyFile, ref: p.signer.ref, account: p.account?.ref ?? null, enrolled, tools: describeTools(tools) }
+  }
+
+  // Change what a project agent may do without asking. Live: its process is retired (after
+  // its turn, if one is in flight) and the next turn starts one with the new flags.
+  setAgentTools (name, tools) {
+    const raw = this.cfg.participants[name]
+    if (!raw) throw new Error(`no agent ${name} on this device`)
+    if (raw.bridge?.kind !== 'claude') throw new Error(`${name} is not a project agent (its bridge is ${raw.bridge?.kind ?? 'stream'}); tools apply to project agents only`)
+    tools = parseTools(tools) ?? 'lab'
+    resolveTools(tools, raw.bridge.dir)
+    if (tools === 'lab') delete raw.bridge.tools; else raw.bridge.tools = tools
+    saveConfig(this.cfg)
+    // the runners hold the same bridge object (participantSigners passes it through), so
+    // they already see the change; retire the processes that were started with the old flags
+    for (const { runners } of this.rooms.values()) runners.get(name)?.reconfigured?.()
+    this.emit('agents-changed')
+    return { name, tools: describeTools(tools) }
+  }
+
+  agents () {
+    return Object.entries(this.cfg.participants).filter(([, p]) => p.role === 'agent').map(([name, p]) => ({
+      name, bridge: p.bridge?.kind ?? 'stream', dir: p.bridge?.dir ?? null, keyFile: p.keyFile ?? null, ref: p.ref,
+      tools: p.bridge?.kind === 'claude' ? describeTools(p.bridge.tools) : null,
+      sessions: p.keyFile ? (() => { try { return readKeyFile(p.keyFile).sessions ?? {} } catch { return {} } })() : {},
+      rooms: [...this.rooms.values()].map(({ room, runners }) => ({ name: room.cfg.name, topic: room.topic, enrolled: !!(room.state && room.local[name] && room.state.isActive(room.local[name].signer.ref)), state: room.agentState.get(name) ?? 'idle', busy: !!runners.get(name)?.busy }))
+    }))
+  }
+
   find (key) {
     if (!key) return this.rooms.values().next().value ?? null
     return this.rooms.get(key) ?? [...this.rooms.values()].find((r) => r.room.cfg.name === key) ?? null
   }
 
   list () {
-    return [...this.rooms.values()].map(({ room }) => ({
-      name: room.cfg.name,
-      topic: room.topic,
-      owner: room.isOwner,
-      admitted: !!room.chain,
-      members: room.participantsList().filter((p) => p.status === 'active').length,
-      people: room.participantsList().filter((p) => p.status === 'active').map((p) => ({ name: p.name, role: p.role, online: p.online, local: p.local })),
-      last: (() => { const l = room.log().filter((r) => r.kind === 'msg' && !r.redacted).at(-1); return l ? { name: l.name, text: l.text || (l.att?.length ? 'Voice memo' : ''), ts: l.ts } : null })()
-    }))
+    return [...this.rooms.values()].map(({ room }) => {
+      const active = room.participantsList().filter((p) => p.status === 'active')
+      const l = room.lastMessage()
+      return {
+        name: room.cfg.name,
+        topic: room.topic,
+        owner: room.isOwner,
+        admitted: !!room.chain,
+        members: active.length,
+        people: active.map((p) => ({ name: p.name, role: p.role, online: p.online, local: p.local })),
+        last: l ? { name: l.name, text: l.text || (l.att?.length ? 'Voice memo' : ''), ts: l.ts } : null
+      }
+    })
   }
 
   // Create a room with just the people you pick. Local humans are always in;
@@ -243,7 +312,11 @@ export class App extends EventEmitter {
   }
 }
 
-export async function runDaemon ({ createRoomName } = {}) {
+// Everything a daemon is, without owning the process: config → pearcore → rooms → HTTP.
+// `rkeychat start` wraps it with a terminal (runDaemon); the desktop app (electron/main.js)
+// hosts it in Electron's main process and calls `stop` on quit. EADDRINUSE comes back as
+// a thrown error with `code` set, for the caller to explain in its own words.
+export async function bootDaemon ({ createRoomName } = {}) {
   const loaded = loadConfig()
   if (!loaded) throw new Error('no config — run `rkeychat init` first')
   const cfg = migrate(loaded)
@@ -252,10 +325,27 @@ export async function runDaemon ({ createRoomName } = {}) {
   await app.init()
   app.login = new Login(app)
   if (createRoomName && !cfg.rooms.some((r) => r.name === createRoomName)) await app.createRoom(createRoomName)
+  const server = await serve({ app })
 
-  const server = await serve({ app }).catch((err) => {
+  // a bug deep in pearcore must not take the whole chat down: log it loudly and carry on
+  process.on('uncaughtException', (err) => console.error('[daemon] uncaught exception (kept running):', err?.stack ?? err))
+  process.on('unhandledRejection', (err) => console.error('[daemon] unhandled rejection (kept running):', err?.stack ?? err))
+
+  let stopped = false
+  const stop = async () => {
+    if (stopped) return; stopped = true
+    server.close()
+    for (const { room, runners } of app.rooms.values()) { for (const r of runners.values()) r.stop?.(); room.stop() }
+    try { await core.accounts.logout() } catch {}
+  }
+  return { cfg, core, app, server, stop }
+}
+
+export async function runDaemon ({ createRoomName } = {}) {
+  const { cfg, app, stop } = await bootDaemon({ createRoomName }).catch((err) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`\n  rkeychat is already running on this device (port ${cfg.port}).\n  Open http://127.0.0.1:${cfg.port}, or use rkeychat commands in this terminal; they talk to the running daemon.\n`)
+      const port = loadConfig()?.port ?? 4455
+      console.error(`\n  rkeychat is already running on this device (port ${port}).\n  Open http://127.0.0.1:${port}, or use rkeychat commands in this terminal; they talk to the running daemon.\n`)
       process.exit(1)
     }
     throw err
@@ -266,16 +356,7 @@ export async function runDaemon ({ createRoomName } = {}) {
   console.log('  this terminal is the daemon: leave it running (Ctrl-C stops it).')
   console.log('  run rkeychat commands from another tab, or next time use: rkeychat start --background\n')
 
-  // a bug deep in pearcore must not take the whole chat down: log it loudly and carry on
-  process.on('uncaughtException', (err) => console.error('[daemon] uncaught exception (kept running):', err?.stack ?? err))
-  process.on('unhandledRejection', (err) => console.error('[daemon] unhandled rejection (kept running):', err?.stack ?? err))
-
-  const shutdown = async () => {
-    server.close()
-    for (const { room } of app.rooms.values()) room.stop()
-    try { await core.accounts.logout() } catch {}
-    process.exit(0)
-  }
+  const shutdown = async () => { await stop(); process.exit(0) }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 }

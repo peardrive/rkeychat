@@ -22,7 +22,7 @@
     "module": "file:./shims/module",
     "os": "npm:bare-os@^3.9.3",
     "path": "npm:bare-path@^3.1.2",
-    "pearcore": "file:../../pearcore-mobile",
+    "pearcore": "git+https://github.com/peardrive/pearcore-mobile.git#v0.1.0-bare.4",
     "qrcode": "file:./shims/qrcode",
     "rkey": "file:../../rKey",
     "url": "npm:bare-url@^2.5.4",

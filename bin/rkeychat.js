@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { loadConfig, saveConfig, newConfig, addParticipant, migrate, dataDir, newIdentity, accountSigner } from '../src/config.js'
 import { decodeInvite } from '../src/server.js'
 
+// A CLI whose reader walked away (`| head`, bin/wait-once.sh) should stop
+// quietly rather than dump an unhandled EPIPE.
+process.stdout.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0) })
+
 const USAGE = `rkeychat — a room for you and your agents, on pearcore + rKey
 
   rkeychat                     where am I, what's next
@@ -20,7 +24,8 @@ rooms
   rkeychat rooms                       list rooms
   rkeychat room create NAME            new room (you own it)
   rkeychat room join INVITE            join someone's room; prints the request to send them
-  rkeychat invite [--room R]           owner: invite code for a room
+  rkeychat invite [--room R] [--qr]    owner: invite to a room; --qr is a pearcore link they scan, no paste-back
+  rkeychat invitations [grant|deny|cancel TOPIC]   what is outstanding, and who is waiting on you
   rkeychat approve REQUEST [--room R]  owner: enroll a device + its participants
   rkeychat request [--room R]          print this device's join request again
 
@@ -31,16 +36,22 @@ talk                                   (--room R picks the room; default: the fi
   rkeychat models install              download the speech model (Parakeet v3, ~490 MB)
   rkeychat glossary [add HEARD MEANT | rm HEARD]   dictation fixes, e.g. add "pair core" pearcore
   rkeychat log [N] | status
-  rkeychat wait --as NAME              stream turns for a CLI agent (Claude Code: run under Monitor)
+  rkeychat wait --as NAME [--once]     stream turns for a CLI agent (--once: exit after one; Claude Code wants this)
   rkeychat react [--as NAME] [TARGET|last] EMOJI [--off]   react to a message (never wakes anyone)
   rkeychat activity --as NAME TEXT     report what an agent is doing (people can watch; agents never read it)
 
 agents
   rkeychat add NAME [--hermes URL --key KEY]   add an agent on this device
+  rkeychat agent init NAME [--dir DIR]         a project agent: this folder gets its own seat (key in DIR/.rkeychat, a Claude Code conversation per room, run by the daemon)
+  rkeychat agent list                          project and device agents, with their rooms and session ids
+  rkeychat agent tools NAME lab|none|RULES     what a project agent may do without asking (default lab: git, npm, node, rkeychat, read-only shell, reading the folders beside it)
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
+  rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
+  rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
   rkeychat purpose --room ROOM [TEXT] [--order a,b]   the room's standing prompt for agents; order = who answers first
@@ -59,6 +70,9 @@ const { values: opt, positionals: pos } = parseArgs({
     hermes: { type: 'string' },
     key: { type: 'string' },
     model: { type: 'string' },
+    dir: { type: 'string' },
+    permission: { type: 'string' },
+    tools: { type: 'string' },
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
@@ -69,6 +83,8 @@ const { values: opt, positionals: pos } = parseArgs({
     background: { type: 'boolean' },
     voice: { type: 'boolean' },
     off: { type: 'boolean' },
+    once: { type: 'boolean' },
+    qr: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
   }
 })
@@ -95,7 +111,9 @@ async function api (method, path, payload) {
 
 const hhmm = (ts) => new Date(ts).toTimeString().slice(0, 5)
 const fmt = (r) => r.kind === 'control'
-  ? `  · ${r.name} ${r.action}${r.agent ? ' @' + r.agent : ''}${r.n ? ' ' + r.n : ''}${r.until ? ' until ' + new Date(r.until).toLocaleTimeString() : ''}`
+  ? (r.action === 'rename'
+      ? `  · ${r.name} named this room "${r.roomName ?? '?'}"`
+      : `  · ${r.name} ${r.action}${r.agent ? ' @' + r.agent : ''}${r.n ? ' ' + r.n : ''}${r.until ? ' until ' + new Date(r.until).toLocaleTimeString() : ''}`)
   : `[${hhmm(r.ts)}] ${r.name}${r.human ? '' : ` (r${r.depth})`}: ${r.text}`
 
 async function nextStep () {
@@ -115,7 +133,7 @@ async function nextStep () {
 
 switch (cmd) {
   case undefined:
-    console.log(await nextStep())
+    console.log(opt.help ? USAGE : await nextStep())
     break
   case 'help':
     console.log(USAGE)
@@ -139,6 +157,42 @@ switch (cmd) {
     if (await running()) console.log('restart the daemon to bring it online: rkeychat stop && rkeychat start --background')
     if (cfg.rooms.length) console.log('existing rooms need it enrolled: the room owner approves `rkeychat request --room ROOM` from this device')
     break
+  }
+  case 'agent': {
+    // Project agents: `rkeychat agent init NAME` from inside a project folder gives that
+    // folder its own seat in the rooms — key in <dir>/.rkeychat/agent.json, a Claude Code
+    // conversation per room, owned and resumed by the daemon.
+    const sub = pos[0] ?? 'list'
+    if (sub === 'init' || sub === 'add') {
+      const name = pos[1] ?? die('usage: rkeychat agent init NAME [--dir DIR] [--permission acceptEdits|plan|default] [--tools Read,Edit,Bash] [--model M]')
+      const dir = resolve(opt.dir ?? process.cwd())
+      if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
+      const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model })
+      console.log(`@${r.name} lives in ${r.dir}\n  key: ${r.keyFile}\n  session key ${r.ref.slice(0, 24)}… · account ${r.account?.slice(0, 24) ?? '—'}…`)
+      console.log(`  ${r.tools}   (change it: rkeychat agent tools ${r.name} lab|none|RULE,RULE…)`)
+      console.log(r.enrolled.length ? `  signed into: ${r.enrolled.join(', ')}` : '  no rooms owned on this device; for others: rkeychat request --room ROOM, then the owner approves')
+      console.log(`  mention @${r.name} in a room and that folder answers. Open its conversation by hand: cd ${r.dir} && claude --resume <session id from rkeychat agent list>`)
+      break
+    }
+    if (sub === 'list') {
+      if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
+      const agents = await api('GET', '/api/agents')
+      if (!agents.length) { console.log('no agents on this device. rkeychat agent init NAME (project) or rkeychat add NAME (device)'); break }
+      for (const a of agents) {
+        console.log(`@${a.name.padEnd(18)} ${a.bridge.padEnd(7)} ${a.dir ?? ''}`)
+        if (a.tools) console.log(`    ${a.tools}`)
+        for (const r of a.rooms) console.log(`    ${r.name.padEnd(18)} ${r.enrolled ? 'enrolled' : 'not enrolled'}  ${r.state}${a.sessions[r.topic] ? `  session ${a.sessions[r.topic]}` : ''}`)
+      }
+      break
+    }
+    if (sub === 'tools') {
+      // what the seat may do without asking; headless, anything else is refused
+      const name = pos[1] ?? die('usage: rkeychat agent tools NAME lab|none|RULE,RULE…   e.g. rkeychat agent tools peardrive "Bash(git:*),Bash(npm:*),Read"')
+      const r = await api('POST', '/api/agents/tools', { name, tools: pos[2] ?? opt.tools ?? 'lab' })
+      console.log(`@${r.name}: ${r.tools}\n  in effect from its next turn`)
+      break
+    }
+    die('usage: rkeychat agent init NAME [--dir DIR] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES')
   }
   case 'start': {
     if (await running()) {
@@ -184,6 +238,16 @@ switch (cmd) {
       console.log(`created "${r.name}". Invite others: rkeychat invite --room "${r.name}"`)
     } else if (sub === 'join') {
       const invite = pos[0] ?? die('usage: rkeychat room join INVITE')
+      // Two shapes of invitation. A pearcore:// link ("Show an invitation to scan", rkeychat invite --qr) is
+      // claimed in band: the host is asked to approve and nothing is pasted back. An rkc1. code is the older
+      // way: join the room's space, then send the owner the request this prints.
+      if (/:\/\//.test(invite)) {
+        if (!(await running())) die('start the daemon first (rkeychat start --background), then run this again')
+        console.log('Asking to join. The owner has to approve on their side; this waits for them…')
+        const r = await api('POST', '/api/login/claim', { code: invite })
+        console.log(r.joined?.length ? `You're in: ${r.joined.join(', ')}` : 'Approved, but no room was granted yet.')
+        break
+      }
       if (!(await running())) {
         // daemon down: remember it; it joins on next start
         const cfg = cfgOrDie(); const inv = decodeInvite(invite)
@@ -199,7 +263,38 @@ switch (cmd) {
   case 'join': // old spelling
     die('use: rkeychat room join INVITE')
     break
-  case 'invite': console.log((await api('GET', '/api/invite' + q({ room: opt.room }))).invite); break
+  case 'invite': {
+    // --qr: a scannable pairing code for this room alone. Whoever scans it is let in
+    // in band — no request to paste back, and nothing but this room is granted.
+    if (opt.qr) {
+      const o = await api('POST', '/api/login/offer', { room: opt.room })
+      const mins = Math.round((o.expires - Date.now()) / 60000)
+      console.log(`Invitation to "${o.room}" — good once, for ${mins} minutes.\n`)
+      console.log(o.code)
+      console.log('\nA plain pearcore link: scan or paste it in the other rKeyChat.')
+      console.log('They join as themselves — not your account, and none of your other rooms.')
+      console.log(`You will be asked to approve before anything is granted.  rkeychat invitations`)
+      break
+    }
+    console.log((await api('GET', '/api/invite' + q({ room: opt.room }))).invite)
+    break
+  }
+  case 'invitations': {
+    // what is outstanding, and who is at the door
+    const { invitations, asking } = await api('GET', '/api/login/pending')
+    const sub = pos[0]
+    if (sub === 'grant' || sub === 'deny' || sub === 'cancel') {
+      const r = await api('POST', `/api/login/${sub}`, { topic: pos[1] ?? die(`usage: rkeychat invitations ${sub} TOPIC`) })
+      console.log(JSON.stringify(r)); break
+    }
+    if (!invitations.length) { console.log('no invitations outstanding'); break }
+    for (const i of invitations) {
+      const mins = Math.max(0, Math.round((i.expires - Date.now()) / 60000))
+      console.log(`${i.topic.slice(0, 12)}  ${i.room ?? 'account login'}  ${i.used ? 'used' : `${mins} min left`}`)
+    }
+    for (const a of asking) console.log(`  ^ ${a.deviceName} (${a.device.slice(8, 20)}…) is asking — rkeychat invitations grant ${a.topic.slice(0, 12)}`)
+    break
+  }
   case 'devices': { const r = await api('POST', '/api/rooms/devices', { room: opt.room }); console.log(r.added.length ? `added ${r.added.join(', ')}` : 'all your devices are already in'); break }
   case 'request': console.log((await api('GET', '/api/request' + q({ room: opt.room }))).request); break
   case 'approve': console.log(`enrolled ${(await api('POST', '/api/approve', { room: opt.room, code: pos[0] })).enrolled} keys`); break
@@ -219,6 +314,44 @@ switch (cmd) {
     else if (action === 'limit') { payload.agent = a ?? die('usage: rkeychat control limit AGENT N'); payload.n = Number(b ?? 0) }
     else if ((action === 'pause' || action === 'resume') && a) payload.agent = a
     console.log(fmt({ ...(await api('POST', '/api/control', payload)), name: 'you' }))
+    break
+  }
+  case 'notes': {
+    // The other end of Debug notes: what was recorded while using the app. `notes` lists them,
+    // `notes ID` prints one trace; the audio sits beside it and its path is printed.
+    if (pos[0] === 'pull') {
+      const link = pos[1] ?? die('usage: rkeychat notes pull LINK   (the pearcore:// link under their Settings → Debug)')
+      console.log('Joining their notes space and waiting for the list (they need rKeyChat open)…')
+      const r = await api('POST', '/api/debug/pull', { link })
+      console.log(`${r.notes.length} note${r.notes.length === 1 ? '' : 's'} from ${r.host}, ${r.pulled} new file${r.pulled === 1 ? '' : 's'} → ${r.dir}`)
+      for (const id of r.notes) console.log(`  ${id}    rkeychat notes ${id}`)
+      break
+    }
+    if (pos[0] === 'share') {
+      const id = pos[1] ?? die('usage: rkeychat notes share ID --room ROOM')
+      const r = await api('POST', '/api/debug/share', { id, room: opt.room })
+      console.log(`shared ${r.files} files to "${r.roomName}": ${r.text}`)
+      break
+    }
+    const { notes, dir, sharelink } = await api('GET', '/api/debug/notes')
+    const id = pos[0]
+    if (!id) {
+      if (!notes.length) { console.log(`no notes yet (${dir})`); break }
+      for (const n of notes) console.log(`${n.id}  ${String(n.steps ?? '?').padStart(4)} steps  ${String(n.seconds ?? '?').padStart(7)}s  ${n.room ?? ''}${n.from ? `  (from ${n.from})` : ''}`)
+      if (sharelink) console.log(`\nshare: ${sharelink}`)
+      break
+    }
+    const n = notes.find((x) => x.id === id || x.id.startsWith(id)) ?? die(`no note matching "${id}"`)
+    const { readFileSync } = await import('node:fs')
+    const d = n.dir ?? join(dir, 'notes', n.id)
+    console.log(`${n.id} · ${n.seconds ?? '?'}s · ${n.room ?? 'no room'} · ${n.window ?? ''}${n.from ? ` · from ${n.from}` : ''}`)
+    if (n.audio) console.log(`audio: ${join(d, n.audio)}`)
+    console.log('')
+    for (const line of readFileSync(join(d, 'trace.jsonl'), 'utf8').trim().split('\n')) {
+      const e = JSON.parse(line)
+      const at = `${String(Math.floor(e.t / 60)).padStart(2, '0')}:${String(Math.floor(e.t % 60)).padStart(2, '0')}`
+      console.log(`${at}  ${e.kind.padEnd(5)}  ${e.text}${e.times ? ` (x${e.times})` : ''}${e.data ? `  ${JSON.stringify(e.data)}` : ''}`)
+    }
     break
   }
   case 'files': {
@@ -256,7 +389,9 @@ switch (cmd) {
     if (pos[0] !== 'agent' || !pos[1]) die('usage: rkeychat debug agent NAME')
     for (const r of await api('GET', '/api/debug/agent' + q({ name: pos[1] }))) {
       if (!r.hosted) { console.log(`${r.room}: ${pos[1]} isn't hosted on this device`); continue }
-      console.log(`${r.room}: ${r.reason}\n  bridge ${r.bridge} · busy ${r.busy} · listeners ${r.listeners} · state ${r.state ?? 'idle'}${r.key ? ` · key ${r.key.slice(0, 24)}…` : ''}${r.triggers.length ? '\n  ' + r.triggers.map((t) => `${t.from}: ${t.text}`).join('\n  ') : ''}`)
+      const tok = (n) => !n ? '0' : n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n)
+      if (r.overBudget) console.log(`${r.room}: OVER BUDGET — spent ${tok(r.overBudget.spent)} of a ${tok(r.overBudget.cap)} daily cap, so it is not being woken at all`)
+      console.log(`${r.room}: ${r.reason}\n  bridge ${r.bridge} · busy ${r.busy} · listeners ${r.listeners} · state ${r.state ?? 'idle'} · spent today ${tok(r.spentToday)}${r.key ? ` · key ${r.key.slice(0, 24)}…` : ''}${r.triggers.length ? '\n  ' + r.triggers.map((t) => `${t.from}: ${t.text}`).join('\n  ') : ''}`)
     }
     break
   }
@@ -345,11 +480,15 @@ switch (cmd) {
           while ((i = buf.indexOf('\n')) >= 0) {
             const line = buf.slice(0, i); buf = buf.slice(i + 1)
             const ev = JSON.parse(line)
-            if (ev.type === 'ready' && !announced) { console.log(`[rkeychat] listening as @${ev.name} (streams forever: in Claude Code run this under the Monitor tool, not as a plain command)`); announced = true }
+            if (ev.type === 'ready' && !announced) { console.log(`[rkeychat] listening as @${ev.name}${opt.once ? ' (will exit on the first turn)' : ' (streams forever: in Claude Code use --once under a background Bash instead)'}`); announced = true }
             if (ev.type === 'turn') {
               console.log(`=== rkeychat turn for @${ev.name} in "${ev.room}" — reply: rkeychat send --room "${ev.room}" --as ${ev.name} "..."  (or --pass) ===`)
               console.log(ev.prompt)
               console.log('=== end turn ===')
+              // --once: one complete turn and out, so a caller that waits on this
+              // process is told the moment there is something to answer. Unanswered
+              // turns stay queued in the daemon, so relaunching loses nothing.
+              if (opt.once) { await new Promise((r) => process.stdout.write('', r)); process.exit(0) }
             }
           }
         }

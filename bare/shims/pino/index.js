@@ -9,13 +9,14 @@ function make (opts = {}, bindings = {}) {
     log[name] = (a, b, ...rest) => {
       if (!on || n < min) return
       const [obj, msg] = typeof a === 'string' ? [b, a] : [a, b]
-      const tag = bindings && Object.keys(bindings).length ? ' ' + JSON.stringify(bindings) : ''
+      const tag = bindings?.name ? ` ${bindings.name}` : bindings && Object.keys(bindings).length ? ' ' + JSON.stringify(bindings) : ''
       const extra = obj instanceof Error ? ' ' + obj.stack : obj && typeof obj === 'object' ? ' ' + safe(obj) : ''
       ;(n >= 50 ? console.error : console.log)(`[${name}]${tag} ${msg ?? ''}${extra}`, ...rest)
     }
   }
   log.level = opts.level ?? 'info'
-  log.child = (b) => make(opts, { ...bindings, ...b })
+  // pearcore's createChild(name) passes a STRING; spreading it gave {"0":"M","1":"e"…}
+  log.child = (b) => make(opts, { ...bindings, ...(typeof b === 'string' ? { name: b } : b || {}) })
   log.flush = () => {}
   return log
 }
