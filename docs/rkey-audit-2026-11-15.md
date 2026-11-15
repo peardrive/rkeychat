@@ -95,6 +95,9 @@ device already active in the room, and it switches the name-in-use check off for
 device can ask for `silversurfer` or any other taken name with role `human` and get admin under it. So: Guy hands any invite to anyone, the recipient's daemon (or a
 patched one) puts `{ name: 'guy', role: 'human' }` in its request, Guy sees "silversurfer-laptop wants into
 rKeyChat Lab", approves, and the stranger is `guy` with admin: posts as Guy, pauses agents, redacts, invites.
+Bound (kimi-zorin's red-team pass, 16:44): the key gets `bind chat admin` but **not** `delegate` (527), so H1
+alone cannot write the chain or enroll further keys; its reach is the admin controls and posting under the
+owner's name, which is the phishing payload.
 **Fix:** `ownDevice` must require the requesting *account* to be the root (`p.account?.ref === root`, which the
 owner's own phone can prove with a consent signed by the root), and the ask prompt must list every name and
 role in the request so a human can see what they are approving. Test: a request naming the owner from a
@@ -119,7 +122,10 @@ queued, and the owner folds every pending op blindly (`#foldPending`, 462). An a
 can enroll any key under itself with scope `bind chat agent` and it posts at once. Kimi-mini's "rate limit
 enrollment" is this, but the real fix is narrower: the owner should fold without asking only **self-revokes**
 and **an account's enroll of one session key per device it is present on**; anything else waits for the ask
-prompt. Also cap `pending.json` (today unbounded, written to disk per op).
+prompt. Also cap `pending.json` (today unbounded, written to disk per op). And `#foldPending` swallows every
+refused op in a bare `catch {}` (465): blind *and* silent, so whatever filter is added must at least count and
+log refusals (kimi-zorin). Note that `readopt` (537) already enrolls an account root *without* `delegate`; the
+main `approve` path is the only place that grants it, which makes the H2/H3 fix smaller than it looks.
 
 ### M1. Backdated messages from a removed key
 `#admits` trusts `rec.ts` (room.js:352). A key revoked as `removed` keeps `trustedAt` true for any `ts` before
