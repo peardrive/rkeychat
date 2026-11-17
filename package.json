@@ -58,7 +58,10 @@
     },
     "mac": {
       "category": "public.app-category.social-networking",
-      "identity": null,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "electron/entitlements.mac.plist",
+      "entitlementsInherit": "electron/entitlements.mac.plist",
       "target": [
         {
           "target": "dmg",
@@ -75,7 +78,8 @@
       ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "rKeyChat uses the microphone for dictation and debug notes.",
-        "NSCameraUsageDescription": "rKeyChat uses the camera to scan invitation codes."
+        "NSCameraUsageDescription": "rKeyChat uses the camera to scan invitation codes.",
+        "NSLocalNetworkUsageDescription": "rKeyChat finds your other devices on this network and talks to them directly."
       }
     },
     "dmg": {

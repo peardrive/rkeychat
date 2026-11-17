@@ -26,11 +26,27 @@ trap restore EXIT
 ELECTRON="$(node -p "require('./node_modules/electron/package.json').version")"
 echo "building better-sqlite3 for Electron ${ELECTRON}..."
 npx electron-rebuild -f -v "$ELECTRON" -w better-sqlite3 -o better-sqlite3
+# THE MAC BUILD IS SIGNED BY PEARDRIVE LLC AND NOTARIZED BY APPLE (2026-11-16), as PearDrive's is.
+# electron-builder finds the "Developer ID Application" certificate in this Mac's keychain by itself, signs
+# every binary with the hardened runtime, and, with the APPLE_API_* variables notary-env.sh sets (the key
+# named by path, never read here), has Apple notarize the app before the zip and the dmg are made. A
+# firewall and the microphone and camera permissions then see one rKeyChat across every build.
+if [[ "$PLATFORM" == mac && -f "$HOME/Anjou/_publishing/mac/notary-env.sh" ]]; then source "$HOME/Anjou/_publishing/mac/notary-env.sh"; fi
 case "$PLATFORM" in
   mac)   npx electron-builder --mac ;;
   linux) npx electron-builder --linux ;;
   *) echo "usage: build-app.sh [mac|linux]" >&2; exit 2 ;;
 esac
+if [[ "$PLATFORM" == mac && -x "$HOME/Anjou/_publishing/mac/verify-signed.sh" ]]; then
+  # read into a variable first: `... | grep -q` under pipefail fails at random (see ship-app.sh, 2026-11-16)
+  IDS="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+  if grep -q "Developer ID Application" <<<"$IDS"; then
+    "$HOME/Anjou/_publishing/mac/verify-signed.sh" release/mac-arm64/rKeyChat.app ${APPLE_API_KEY:+--notarized} \
+      || { echo "ABORT: the Mac build is not signed as a release must be (see the FAIL line above)" >&2; exit 1; }
+  else
+    echo "WARN: no Developer ID certificate in this keychain: the Mac build is NOT signed by Peardrive LLC"
+  fi
+fi
 DELIVERIES="$HOME/Anjou/_deliveries"
 mkdir -p "$DELIVERIES"
 shopt -s nullglob
