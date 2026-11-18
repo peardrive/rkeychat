@@ -15,6 +15,13 @@ import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
 import { Login } from './login.js'
 
+const VIAS = ['cli', 'acp']
+function checkVia (via) {
+  via = String(via ?? 'cli').trim() || 'cli'
+  if (!VIAS.includes(via)) throw new Error(`unknown via "${via}" (cli or acp)`)
+  return via
+}
+
 async function openCore (cfg) {
   const core = await createCore({ rootPath: join(dataDir(), 'pearcore') })
   // pearcore (through c8633de) attaches its file-watcher handlers unbound, so the
@@ -105,7 +112,7 @@ export class App extends EventEmitter {
   // in `dir/.rkeychat/agent.json`. Added live — no daemon restart — and signed into
   // every room this device owns right away; rooms owned elsewhere need the usual
   // `rkeychat request` + approval, like any new key on this device.
-  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null }) {
+  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null, via = 'cli' }) {
     dir = resolve(String(dir ?? '').trim() || process.cwd())
     if (!existsSync(dir)) throw new Error(`no such folder: ${dir}`)
     const keyFile = join(dir, '.rkeychat', 'agent.json')
@@ -113,7 +120,11 @@ export class App extends EventEmitter {
     // Unset means the lab preset; `none` is the old behaviour (ask, so headless: refuse).
     tools = parseTools(tools)
     if (tools !== undefined) resolveTools(tools, dir) // throws on an unknown preset, before anything is written
-    const bridge = { kind: 'claude', dir, permissionMode, ...(tools !== undefined ? { tools } : {}), ...(model ? { model } : {}) }
+    // `via` is how the daemon drives Claude Code: `cli` (claude -p, stream-json) or `acp`
+    // (the Agent Client Protocol adapter, src/acp.js: permissions answered from the tool
+    // list, a person's message cancels a running turn, sessions resumed by id).
+    via = checkVia(via)
+    const bridge = { kind: 'claude', dir, permissionMode, ...(via === 'acp' ? { via } : {}), ...(tools !== undefined ? { tools } : {}), ...(model ? { model } : {}) }
     addParticipant(this.cfg, name, { role: 'agent', bridge, keyFile })
     saveConfig(this.cfg)
     // the key is a secret: keep it out of the project's git history
@@ -135,7 +146,22 @@ export class App extends EventEmitter {
       }
     }
     this.emit('agents-changed')
-    return { name, dir, keyFile, ref: p.signer.ref, account: p.account?.ref ?? null, enrolled, tools: describeTools(tools) }
+    return { name, dir, keyFile, ref: p.signer.ref, account: p.account?.ref ?? null, enrolled, tools: describeTools(tools), via }
+  }
+
+  // Switch a project agent between the two ways of driving Claude Code. Live: its process
+  // is retired (after its turn, if one is in flight); the next turn starts the other kind,
+  // resuming the same conversation by session id.
+  setAgentVia (name, via) {
+    const raw = this.cfg.participants[name]
+    if (!raw) throw new Error(`no agent ${name} on this device`)
+    if (raw.bridge?.kind !== 'claude') throw new Error(`${name} is not a project agent (its bridge is ${raw.bridge?.kind ?? 'stream'})`)
+    via = checkVia(via)
+    if (via === 'acp') raw.bridge.via = 'acp'; else delete raw.bridge.via
+    saveConfig(this.cfg)
+    for (const { runners } of this.rooms.values()) runners.get(name)?.reconfigured?.()
+    this.emit('agents-changed')
+    return { name, via }
   }
 
   // Change what a project agent may do without asking. Live: its process is retired (after
@@ -157,7 +183,7 @@ export class App extends EventEmitter {
 
   agents () {
     return Object.entries(this.cfg.participants).filter(([, p]) => p.role === 'agent').map(([name, p]) => ({
-      name, bridge: p.bridge?.kind ?? 'stream', dir: p.bridge?.dir ?? null, keyFile: p.keyFile ?? null, ref: p.ref,
+      name, bridge: p.bridge?.kind ?? 'stream', via: p.bridge?.kind === 'claude' ? (p.bridge.via ?? 'cli') : null, dir: p.bridge?.dir ?? null, keyFile: p.keyFile ?? null, ref: p.ref,
       tools: p.bridge?.kind === 'claude' ? describeTools(p.bridge.tools) : null,
       sessions: p.keyFile ? (() => { try { return readKeyFile(p.keyFile).sessions ?? {} } catch { return {} } })() : {},
       rooms: [...this.rooms.values()].map(({ room, runners }) => ({ name: room.cfg.name, topic: room.topic, enrolled: !!(room.state && room.local[name] && room.state.isActive(room.local[name].signer.ref)), state: room.agentState.get(name) ?? 'idle', busy: !!runners.get(name)?.busy }))

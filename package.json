@@ -18,6 +18,8 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "^0.108.1",
+    "@agentclientprotocol/sdk": "^2.8.0",
     "@noble/hashes": "^2.4.0",
     "hyperdht": "^6.34.0",
     "pearcore": "file:vendor/pearcore-156a268.tgz",

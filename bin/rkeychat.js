@@ -45,6 +45,7 @@ agents
   rkeychat agent init NAME [--dir DIR]         a project agent: this folder gets its own seat (key in DIR/.rkeychat, a Claude Code conversation per room, run by the daemon)
   rkeychat agent list                          project and device agents, with their rooms and session ids
   rkeychat agent tools NAME lab|none|RULES     what a project agent may do without asking (default lab: git, npm, node, rkeychat, read-only shell, reading the folders beside it)
+  rkeychat agent via NAME acp|cli              how the daemon drives it: acp (Agent Client Protocol: permissions answered from the tool list, a person interrupts a turn) or cli (claude -p); init takes --acp
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
@@ -73,6 +74,7 @@ const { values: opt, positionals: pos } = parseArgs({
     dir: { type: 'string' },
     permission: { type: 'string' },
     tools: { type: 'string' },
+    acp: { type: 'boolean' },
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
@@ -167,9 +169,10 @@ switch (cmd) {
       const name = pos[1] ?? die('usage: rkeychat agent init NAME [--dir DIR] [--permission acceptEdits|plan|default] [--tools Read,Edit,Bash] [--model M]')
       const dir = resolve(opt.dir ?? process.cwd())
       if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
-      const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model })
+      const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model, via: opt.acp ? 'acp' : undefined })
       console.log(`@${r.name} lives in ${r.dir}\n  key: ${r.keyFile}\n  session key ${r.ref.slice(0, 24)}… · account ${r.account?.slice(0, 24) ?? '—'}…`)
       console.log(`  ${r.tools}   (change it: rkeychat agent tools ${r.name} lab|none|RULE,RULE…)`)
+      console.log(`  driven via ${r.via}${r.via === 'acp' ? ' (Agent Client Protocol: permissions answered from the tool list, a person\'s message interrupts a turn)' : ' (claude -p; switch: rkeychat agent via ' + r.name + ' acp)'}`)
       console.log(r.enrolled.length ? `  signed into: ${r.enrolled.join(', ')}` : '  no rooms owned on this device; for others: rkeychat request --room ROOM, then the owner approves')
       console.log(`  mention @${r.name} in a room and that folder answers. Open its conversation by hand: cd ${r.dir} && claude --resume <session id from rkeychat agent list>`)
       break
@@ -179,7 +182,7 @@ switch (cmd) {
       const agents = await api('GET', '/api/agents')
       if (!agents.length) { console.log('no agents on this device. rkeychat agent init NAME (project) or rkeychat add NAME (device)'); break }
       for (const a of agents) {
-        console.log(`@${a.name.padEnd(18)} ${a.bridge.padEnd(7)} ${a.dir ?? ''}`)
+        console.log(`@${a.name.padEnd(18)} ${(a.via ? `${a.bridge}/${a.via}` : a.bridge).padEnd(10)} ${a.dir ?? ''}`)
         if (a.tools) console.log(`    ${a.tools}`)
         for (const r of a.rooms) console.log(`    ${r.name.padEnd(18)} ${r.enrolled ? 'enrolled' : 'not enrolled'}  ${r.state}${a.sessions[r.topic] ? `  session ${a.sessions[r.topic]}` : ''}`)
       }
@@ -192,7 +195,14 @@ switch (cmd) {
       console.log(`@${r.name}: ${r.tools}\n  in effect from its next turn`)
       break
     }
-    die('usage: rkeychat agent init NAME [--dir DIR] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES')
+    if (sub === 'via') {
+      // how the daemon drives the seat's Claude Code; the conversation is kept either way
+      const name = pos[1] ?? die('usage: rkeychat agent via NAME acp|cli')
+      const r = await api('POST', '/api/agents/via', { name, via: pos[2] ?? die('usage: rkeychat agent via NAME acp|cli') })
+      console.log(`@${r.name}: driven via ${r.via} from its next turn (same conversation, resumed by session id)`)
+      break
+    }
+    die('usage: rkeychat agent init NAME [--dir DIR] [--acp] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES | rkeychat agent via NAME acp|cli')
   }
   case 'start': {
     if (await running()) {

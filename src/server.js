@@ -206,9 +206,15 @@ export function serve ({ app }) {
     // keyed from a project folder. Adding one is live; no restart.
     'GET /api/agents': async () => app.agents(),
     'POST /api/agents': async (req) => {
-      const { name, dir, permissionMode, tools, model } = await body(req)
+      const { name, dir, permissionMode, tools, model, via } = await body(req)
       need(name, 'an agent needs a name'); need(dir, 'an agent needs a project folder (dir)')
-      return app.addAgent({ name, dir, permissionMode, tools, model })
+      return app.addAgent({ name, dir, permissionMode, tools, model, via })
+    },
+    // how the daemon drives a project agent's Claude Code: cli (claude -p) or acp
+    'POST /api/agents/via': async (req) => {
+      const { name, via } = await body(req)
+      need(name, 'which agent?')
+      return app.setAgentVia(name, via)
     },
     // what a project agent may do without asking: a preset (lab, none) or a list of rules
     'POST /api/agents/tools': async (req) => {

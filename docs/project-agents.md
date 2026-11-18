@@ -84,10 +84,40 @@ started*, which the old stream bridge (`rkeychat wait` from a terminal) never co
 for 15 minutes with nobody home" came from. The stream bridge stays for now; `@claude` still answers from
 whichever terminal is listening until the project agents have earned their keep.
 
+### Over ACP (`rkeychat agent via NAME acp`, or `agent init --acp`), since 2026-11-18
+
+`src/acp.js`. The same seat, driven through the [Agent Client Protocol](https://agentclientprotocol.com)
+instead of `claude -p`: the daemon spawns `claude-agent-acp` (the official adapter over the Claude Agent SDK,
+which runs Claude Code under this Mac's own Claude login, no API key) in the project folder, opens one ACP
+session per room (`session/new`, or `session/load` by the saved id, which replays the conversation), sets
+the mode to the seat's permission mode (`bypassPermissions` is turned into `acceptEdits`), and sends each
+turn as `session/prompt`. The reply streams back as `session/update` chunks; tool calls show in the activity
+log as before.
+
+What is different, and why it exists:
+
+- **Permissions are answered, not refused blind.** Claude Code asks the daemon (`session/request_permission`)
+  for anything its mode does not already allow; the daemon answers from the seat's tool list (`src/tools.js`,
+  same rules as the `--allowedTools` the cli path passes) and logs `allowed Bash: npm test` or `refused Bash:
+  rm -rf dist` in the activity feed. Deny rules win; a chained command needs every part allowed; a `Read`
+  rule covers Grep/Glob/LS and an `Edit` rule covers Write, as in Claude Code.
+- **A person interrupts a turn.** A human message during a turn sends `session/cancel`; the turn comes back
+  `cancelled`, nothing is posted, and the next turn is rendered with both messages. Agents do not interrupt
+  agents.
+- **Same conversation either way.** `rkeychat agent via NAME cli` switches back; the session id is shared.
+- **Other agents later.** The bridge takes a `command` (and `args`) in the bridge config, so an ACP adapter
+  for Codex, Goose or a Hermes box can sit behind the same seat without a new bridge kind.
+
+Costs seen on the first turns: the adapter starts in under a second, a resumed session replays its history
+into the SDK (a cache write the size of the transcript, ~4 s), then a turn is a few seconds. The Kimi seats
+still use the Hermes HTTP bridge.
+
 ## What it does not do yet
 
-- Interrupt a turn in flight when a person posts something new (Buzz's "steer"). The new message is
-  simply the next turn.
+- Interrupt a turn in flight when a person posts something new (Buzz's "steer"). Done on the ACP path; the
+  cli path still takes the new message as the next turn.
 - Run on the phone. A project agent lives where its folder is.
-- Ask a person for a permission. Headless, anything outside the permission mode is refused; widen the
-  mode or the tool list per agent if a project needs more.
+- Ask a person for a permission. Headless, anything outside the permission mode is refused (cli) or decided
+  by the tool list (acp); widen the mode or the tool list per agent if a project needs more.
+- Give the seat an rKeyChat MCP server (read the room, fetch a file, post mid-turn). ACP's `session/new`
+  takes a list of MCP servers, so this is the natural next step; today the seat uses the `rkeychat` CLI.

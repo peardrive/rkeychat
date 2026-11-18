@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
 import { agentSession } from './config.js'
+import { AcpProcess } from './acp.js'
 import { resolveTools } from './tools.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
@@ -141,12 +142,19 @@ export class AgentRunner {
     // pushed again, so the agent answers once rather than twice. Without this, a
     // follow-up sits unseen until the agent happens to finish.
     const now = Date.now()
-    const pending = this.bridge.kind === 'stream' ? this.room.triggersFor(this.name) : []
+    const acp = this.bridge.kind === 'claude' && this.bridge.via === 'acp'
+    const pending = this.bridge.kind === 'stream' || acp ? this.room.triggersFor(this.name) : []
     const fresh = pending.filter((t) => !this.offered?.includes(t.id))
     if (this.busy) {
-      if (this.bridge.kind !== 'stream' || !this.listeners.size) return
       // Only a person preempts. An agent answering an agent can wait its turn.
       if (!fresh.some((t) => t.human)) return
+      if (acp) {
+        // the running turn is cancelled; when it comes back cancelled, #runClaude
+        // renders a new turn carrying both messages and asks again
+        this.proc?.cancel()
+        return
+      }
+      if (this.bridge.kind !== 'stream' || !this.listeners.size) return
       this.room.setAgentState(this.name, 'idle')
       this.busy = false
     } else if (this.bridge.kind === 'stream' && !fresh.length && this.offered?.length && now - (this.offeredAt ?? 0) < REOFFER) {
@@ -168,8 +176,10 @@ export class AgentRunner {
     this.room.setAgentState(this.name, 'thinking')
     const turn = renderTurn(this.room, this.name, { intro: false })
     this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}`, { claim: turn.triggers.map((t) => t.id) }).catch(() => {})
+    this.offered = turn.triggers.map((t) => t.id) // what this turn covers; a newer human message preempts it (ACP)
     if (!this.proc) {
-      this.proc = new ClaudeProcess({
+      const Proc = this.bridge.via === 'acp' ? AcpProcess : ClaudeProcess
+      this.proc = new Proc({
         name: this.name,
         room: this.room,
         participant: this.room.local[this.name],
@@ -179,8 +189,15 @@ export class AgentRunner {
         onActivity: (text, extra) => this.room.activity(this.name, text, extra).catch(() => {})
       })
     }
-    const { reply, usage } = await this.proc.prompt(turn.text)
-    if (usage) await this.room.activity(this.name, 'answered', { usage }).catch(() => {})
+    const { reply, usage, cancelled } = await this.proc.prompt(turn.text)
+    if (usage) await this.room.activity(this.name, cancelled ? 'interrupted' : 'answered', { usage }).catch(() => {})
+    if (cancelled) {
+      // a person spoke mid-turn: nothing is posted; the next poke renders a turn with both
+      this.busy = false
+      this.room.setAgentState(this.name, 'idle')
+      setImmediate(() => this.poke())
+      return
+    }
     await this.#deliver(reply, turn.triggers.map((t) => t.id))
   }
 
