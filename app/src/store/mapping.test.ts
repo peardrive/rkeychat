@@ -19,6 +19,11 @@ describe('toChatMessage', () => {
     expect(toChatMessage({ ...rec, redacted: { by: 'guy', ts: 1 }, text: '' }).redacted).toBe(true);
   });
 
+  it('never hands Markdown an undefined text', () => {
+    expect(toChatMessage({ ...rec, text: undefined as unknown as string }).text).toBe('');
+    expect(toChatMessage({ ...rec, kind: 'activity', text: undefined as unknown as string }).text).toBe('rkeychat: ');
+  });
+
   it('turns activity into a system line "name: text"', () => {
     const m = toChatMessage({ ...rec, kind: 'activity', text: 'reading src/index.ts' });
     expect(m.system).toBe(true);

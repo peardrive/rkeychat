@@ -30,7 +30,8 @@ export function toChatMessage(rec: Rec, opts: { me?: string | null; reactions?: 
     id: rec.id,
     author: { id: rec.name, name: rec.name, agent: !rec.human },
     ts: rec.ts,
-    text: system ? `${rec.name}: ${rec.text}` : rec.text,
+    // A record may carry no text at all (an attachment-only message, an older redaction): Markdown needs a string.
+    text: system ? `${rec.name}: ${rec.text ?? ''}` : rec.text ?? '',
     re: rec.re?.length ? rec.re : undefined,
     reactions: system ? undefined : reactionsOf(opts.reactions, rec.id, opts.me ?? null),
     attachments: rec.att?.length ? rec.att.map(attachmentOf) : undefined,

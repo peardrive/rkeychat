@@ -1,7 +1,7 @@
 /**
  * Middle column: one conversation. Header (rename inline, menu), the messages, who is thinking, the composer.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { rkc, type TextInputRef } from '../hooks';
 import { Button, Composer, Dialog, EmptyState, IconButton, MenuButton, MessageList, Pane, PaneHeader, SegmentedControl, StatusDot, Text, TextField, Toggle, useToast, type MenuItem } from '../kit';
@@ -78,9 +78,9 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
     }
   };
 
-  const loadOlder = () => {
+  const loadOlder = useCallback(() => {
     if (topic && convId) actions.loadOlder(topic, convId).catch((e) => toast({ title: 'Could not load earlier messages', description: (e as Error).message, tone: 'danger' }));
-  };
+  }, [topic, convId, actions, toast]);
 
   const rename = async (title: string) => {
     setRenaming(false);
@@ -161,16 +161,21 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
         </View>
       ) : (
         <>
-          {thread.hasOlder ? (
-            // Its own row above the list, so it never sits on the day divider. Goes away once PearKit's
-            // MessageList takes onReachTop/loadingOlder.
-            <View className="items-center border-b border-overlay/[0.06] py-1.5">
-              <Button size="sm" variant="subtle" icon="arrow-up" label="Earlier messages" loading={thread.loadingOlder} onPress={loadOlder} />
-            </View>
-          ) : null}
           <MessageList
             look="flat"
             messages={messages}
+            header={
+              !thread.hasOlder && messages.length ? (
+                <View className="items-center py-2">
+                  <Text variant="micro" tone="subtle">
+                    The beginning of this conversation
+                  </Text>
+                </View>
+              ) : undefined
+            }
+            onReachTop={thread.hasOlder ? loadOlder : undefined}
+            loadingOlder={thread.loadingOlder}
+            onLinkPress={(url) => void window.open(url, '_blank')}
             currentUserId={state.me?.human ?? undefined}
             onReact={(id, emoji) => {
               const mine = messages.find((m) => m.id === id)?.reactions?.find((r) => r.emoji === emoji)?.mine;
