@@ -57,13 +57,13 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder }: ProjectPa
     return p && p.online === false ? 'offline' : 'idle';
   };
 
-  const header = <PaneHeader title="Project" subtitle={room?.name} size={phone ? 'display' : 'title'} leading={phone ? <IconButton icon="chevron-left" size="sm" accessibilityLabel="Back" onPress={onClose} className="-ml-1 mr-1" /> : undefined} actions={phone ? undefined : [{ icon: 'close', label: 'Hide project', onPress: onClose }]} />;
+  const header = <PaneHeader title={room && !room.folder ? 'Chat' : 'Project'} subtitle={room?.name} size={phone ? 'display' : 'title'} leading={phone ? <IconButton icon="chevron-left" size="sm" accessibilityLabel="Back" onPress={onClose} className="-ml-1 mr-1" /> : undefined} actions={phone ? undefined : [{ icon: 'close', label: 'Hide project', onPress: onClose }]} />;
 
   if (!room) {
     return (
       <Pane width={width} surface="pane" className="border-l border-overlay/[0.06]">
         {header}
-        <EmptyState icon="folder" title="No project selected" />
+        <EmptyState icon="folder" title="Nothing selected" />
       </Pane>
     );
   }
@@ -78,7 +78,7 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder }: ProjectPa
       {header}
       <PaneBody contentClassName="gap-1 px-4 pb-5">
         {/* Prompt */}
-        <SectionLabel label="Project prompt" inset="none" className="pb-1.5 pt-1" />
+        <SectionLabel label={room.folder ? 'Project prompt' : 'Room prompt'} inset="none" className="pb-1.5 pt-1" />
         <TextField
           multiline
           value={prompt}

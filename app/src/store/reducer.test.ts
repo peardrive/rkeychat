@@ -150,6 +150,15 @@ describe('paging', () => {
   });
 });
 
+describe('reactions', () => {
+  it('a reactions push replaces the room map once the room is known', () => {
+    const snap: RoomSnapshot = { name: 'r', topic: T, owner: true, admitted: true, participants: [], members: [], reactions: { m1: { '👍': ['guy'] } }, charter: { text: '', order: [], agents: {} }, log: [], hasOlder: false, convs: [], folder: null, app: null, seats: [] };
+    const s = run([{ type: 'room', snapshot: snap }, { type: 'reactions', topic: T, reactions: { m1: { '👍': ['guy', 'jeffrey'], '🎉': ['jeffrey'] } } }], booted);
+    expect(s.details[T].reactions.m1['👍']).toEqual(['guy', 'jeffrey']);
+    expect(reducer(booted, { type: 'reactions', topic: 'unknown', reactions: {} })).toBe(booted);
+  });
+});
+
 describe('agent state', () => {
   it('tracks seats per conversation', () => {
     const s = run([{ type: 'agentState', topic: T, name: 'rkeychat', conv: 'c2', state: 'thinking' }, { type: 'agentState', topic: T, name: 'rkeychat', conv: 'c2', state: 'idle' }], booted);

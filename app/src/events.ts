@@ -15,7 +15,7 @@ export interface EventSink {
   readonly connected: boolean;
 }
 
-export const EVENT_NAMES: EventName[] = ['record', 'convs', 'room', 'rooms', 'participants', 'activity', 'agent-state', 'agent-error'];
+export const EVENT_NAMES: EventName[] = ['record', 'convs', 'room', 'rooms', 'participants', 'activity', 'reactions', 'agent-state', 'agent-error'];
 
 /** Pluggable source: the real EventSource, or the mock bus. */
 export type EventSourceFactory = (handlers: EventHandlers) => EventSink;

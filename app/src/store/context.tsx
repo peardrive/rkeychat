@@ -12,7 +12,8 @@ const SELECTED_KEY = 'rkc.app.selected';
 const PAGE = 60;
 
 export interface Actions {
-  reload(): Promise<void>;
+  /** Re-fetch everything; resolves with the room list (the reducer's state may not have rendered yet). */
+  reload(): Promise<RoomSummary[]>;
   select(topic: string | null, conv: string | null): Promise<void>;
   loadOlder(topic: string, conv: string): Promise<void>;
   send(topic: string, conv: string, text: string, re?: string[]): Promise<void>;
@@ -61,8 +62,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'init', device: { name: res.device.name, human }, rooms: res.rooms, current: null });
           if (res.current && sel.conv) dispatch({ type: 'room', snapshot: res.current, conv: sel.conv });
           else if (res.current) dispatch({ type: 'room', snapshot: res.current });
+          return res.rooms;
         } catch (e) {
           dispatch({ type: 'error', error: (e as Error).message });
+          return [];
         }
       },
       async select(topic, conv) {
@@ -158,12 +161,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      await actions.reload();
+      // Use the fetched list, not stateRef: the dispatch above has not necessarily rendered yet.
+      const rooms = await actions.reload();
       if (!alive) return;
-      const s = stateRef.current;
       const remembered = readSelected();
-      const first = s.roomOrder[0];
-      if (remembered && s.rooms[remembered.topic]) await actions.select(remembered.topic, remembered.conv);
+      const first = rooms[0]?.topic;
+      if (remembered && rooms.some((r) => r.topic === remembered.topic)) await actions.select(remembered.topic, remembered.conv);
       else if (first) await actions.select(first, 'main');
     })();
 
@@ -179,6 +182,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       rooms: (rooms) => dispatch({ type: 'rooms', rooms }),
       participants: ({ topic, participants }) => dispatch({ type: 'participants', topic, participants }),
       activity: ({ topic, rec }) => dispatch({ type: 'activity', topic, rec }),
+      reactions: ({ topic, reactions }) => dispatch({ type: 'reactions', topic, reactions }),
       'agent-state': ({ topic, name, conv, state }) => dispatch({ type: 'agentState', topic, name, conv, state }),
       'agent-error': ({ topic, name, conv, error }) => {
         dispatch({ type: 'agentState', topic, name, conv: conv ?? 'main', state: 'error' });

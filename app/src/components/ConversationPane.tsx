@@ -162,8 +162,10 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
       ) : (
         <>
           {thread.hasOlder ? (
-            <View className="items-center pb-1">
-              <Button size="sm" variant="ghost" icon="arrow-up" label="Earlier messages" loading={thread.loadingOlder} onPress={loadOlder} />
+            // Its own row above the list, so it never sits on the day divider. Goes away once PearKit's
+            // MessageList takes onReachTop/loadingOlder.
+            <View className="items-center border-b border-overlay/[0.06] py-1.5">
+              <Button size="sm" variant="subtle" icon="arrow-up" label="Earlier messages" loading={thread.loadingOlder} onPress={loadOlder} />
             </View>
           ) : null}
           <MessageList

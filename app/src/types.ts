@@ -138,6 +138,8 @@ export type Events = {
   rooms: RoomSummary[];
   participants: { topic: string; participants: Participant[] };
   activity: { topic: string; rec: Rec };
+  /** The whole room's reactions map after a react record (the daemon does not re-push `room` for it). */
+  reactions: { topic: string; reactions: Reactions };
   'agent-state': { topic: string; name: string; conv: string; state: AgentState };
   'agent-error': { topic: string; name: string; conv?: string; error: string };
 };

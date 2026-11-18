@@ -170,7 +170,7 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
       collapseOnDrag={fullWidth ? false : 60}
       contentClassName="px-2.5"
     >
-      <DropZone onDrop={onDrop} overlay="Drop a folder to start a project">
+      <DropZone onDrop={onDrop} overlay="Drop a folder to start a project" className="w-full min-h-0 flex-1">
         {fullWidth && !rkc()?.desktop ? null : (
           <SidebarHeader className="px-1.5">
             <WindowControls />

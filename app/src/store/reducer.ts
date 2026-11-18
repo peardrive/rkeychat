@@ -1,7 +1,7 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Conversation, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Conversation, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
 
@@ -55,6 +55,7 @@ export type Action =
   | { type: 'activity'; topic: string; rec: Rec }
   | { type: 'agentState'; topic: string; name: string; conv: string; state: AgentState }
   | { type: 'participants'; topic: string; participants: Participant[] }
+  | { type: 'reactions'; topic: string; reactions: Reactions }
   | { type: 'sendPending'; topic: string; conv: string; rec: Rec }
   | { type: 'sendDone'; topic: string; conv: string; localId: string; rec: Rec }
   | { type: 'sendFailed'; topic: string; conv: string; localId: string }
@@ -194,6 +195,11 @@ export function reducer(state: State, action: Action): State {
       const d = state.details[action.topic];
       if (!d) return state;
       return { ...state, details: { ...state.details, [action.topic]: { ...d, participants: action.participants } } };
+    }
+    case 'reactions': {
+      const d = state.details[action.topic];
+      if (!d) return state;
+      return { ...state, details: { ...state.details, [action.topic]: { ...d, reactions: action.reactions } } };
     }
     case 'sendPending': {
       const key = convKey(action.topic, action.conv);
