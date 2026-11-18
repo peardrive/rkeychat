@@ -50,6 +50,9 @@ agents
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat send --conv ID TEXT...          post into one conversation of the room (default: the one the answered message is in, else main)
+  rkeychat convs [--room R]                the room's conversations; rkeychat convs new TITLE | rename ID TITLE | archive ID | unarchive ID
+  rkeychat project init [DIR] [--name N] [--agent SEAT]   a folder becomes a project: a room bound to it, with its own seat over ACP
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
@@ -75,6 +78,8 @@ const { values: opt, positionals: pos } = parseArgs({
     permission: { type: 'string' },
     tools: { type: 'string' },
     acp: { type: 'boolean' },
+    conv: { type: 'string' },
+    agent: { type: 'string' },
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
@@ -311,9 +316,32 @@ switch (cmd) {
   case 'send': {
     // --file PATH shares a file from this device by hash (no copy; the original is the source)
     const att = opt.file ? [await api('POST', '/api/share', { room: opt.room, path: resolve(opt.file) })] : undefined
-    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined, att })
+    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined, att, conv: opt.conv })
     console.log(out.passed ? `passed (${out.room})` : fmt(out))
     if (out.fixes?.length) console.log(`  fixed: ${out.fixes.map(([a, b]) => `${a} → ${b}`).join(', ')}`)
+    break
+  }
+  case 'convs': {
+    // conversations of one room: list, or new | rename | archive | unarchive
+    const sub = pos[0]
+    if (!sub) {
+      const convs = await api('GET', '/api/convs?room=' + encodeURIComponent(opt.room ?? ''))
+      for (const c of convs) console.log(`${c.conv.padEnd(18)} ${c.title.padEnd(32)} ${String(c.count).padStart(4)} msgs${c.archived ? '  archived' : ''}${c.busy.length ? '  thinking: ' + c.busy.join(', ') : ''}${c.last ? '  last ' + new Date(c.last.ts).toLocaleString() : ''}`)
+      if (!convs.length) console.log('no conversations')
+      break
+    }
+    if (sub === 'new') { const c = await api('POST', '/api/convs', { room: opt.room, title: pos.slice(1).join(' ') || 'New conversation' }); console.log(`${c.conv}  ${c.title}`); break }
+    if (sub === 'rename') { const c = await api('POST', '/api/convs/rename', { room: opt.room, conv: pos[1], title: pos.slice(2).join(' ') }); console.log(`${c.conv}  ${c.title}`); break }
+    if (sub === 'archive' || sub === 'unarchive') { const c = await api('POST', '/api/convs/archive', { room: opt.room, conv: pos[1], archived: sub === 'archive' }); console.log(`${c.conv}  ${c.title}${c.archived ? '  archived' : ''}`); break }
+    die('usage: rkeychat convs [--room R] | convs new TITLE | convs rename ID TITLE | convs archive ID | convs unarchive ID')
+  }
+  case 'project': {
+    // a folder becomes a project: a room bound to it, the app note, and a seat in that folder
+    if (pos[0] !== 'init') die('usage: rkeychat project init [DIR] [--name N] [--agent SEAT]')
+    if (!(await running())) die("the daemon isn't running. Start it: rkeychat start --background")
+    const folder = resolve(pos[1] ?? opt.dir ?? process.cwd())
+    const r = await api('POST', '/api/projects', { folder, name: opt.name, agent: opt.agent, via: 'acp' })
+    console.log(`project "${r.room.name}" → ${folder}\n  seat @${r.seat.name}${r.seat.existing ? ' (already in this folder)' : ''} · talk to it: rkeychat send --room "${r.room.name}" "@${r.seat.name} hi"`)
     break
   }
   case 'control': {

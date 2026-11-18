@@ -61,8 +61,12 @@ carries `conv` (filled in with `'main'` when absent).
 | `GET /api/activity?room=&conv=&…` | | activity | `conv` optional |
 | `POST /api/projects` | `{ folder, name?, agent?, via? }` | `{ room: RoomSummary, seat }` | creates the room, binds the folder, writes the `app` record, adds the project agent (`via` default `acp`), names it after the folder |
 | `POST /api/rooms/folder` | `{ room, folder }` | RoomSummary | bind or rebind a folder to an existing room |
-| `GET /api/pick-folder` | | `{ folder }` or `{ folder: null }` | Electron only: native folder dialog (via preload IPC); 404 in a browser |
-| `GET /app/*` | | static | the Vite build of `app/dist`; SPA fallback to `app/dist/index.html` |
+| `GET /app/*` | | static | the Vite build of `app/dist`; SPA fallback to `app/dist/index.html`; a short "not built yet" page otherwise |
+
+The native folder picker is not a route: in Electron the page calls `window.rkc.pickFolder()` (preload IPC) and then
+`POST /api/projects`; a plain browser shows a dialog with a path field. `GET /api/state` reports `device.desktop`.
+CLI: `rkeychat project init [DIR] [--name N] [--agent SEAT]`, `rkeychat convs [new|rename|archive|unarchive]`,
+`rkeychat send --conv ID`.
 
 Control actions added to the server whitelist: `conv`, `app`.
 
