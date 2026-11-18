@@ -34,6 +34,9 @@ let owned = null // { kind: 'inproc', stop } | { kind: 'child', proc } — a dae
 let quitting = false
 
 const origin = () => `http://127.0.0.1:${port}`
+// which page the window opens: the room page at / (default) or the new projects shell at /app/
+// (`RKEYCHAT_SHELL=app` or `--app`; the shell is the branch `projects`' work in progress)
+const SHELL = process.argv.includes('--app') || process.env.RKEYCHAT_SHELL === 'app' ? 'app' : 'room'
 
 async function daemonUp (timeoutMs = 800) {
   try { return (await fetch(`${origin()}/api/rooms`, { signal: AbortSignal.timeout(timeoutMs) })).ok } catch { return false }
@@ -70,7 +73,7 @@ function createWindow ({ setup = false } = {}) {
     }
   })
   if (setup) win.loadFile(path.join(HERE, 'first-run.html'))
-  else win.loadURL(origin())
+  else win.loadURL(origin() + (SHELL === 'app' ? '/app/' : ''))
   // sharelinks and web URLs belong in the system browser, not in new rKeyChat windows
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url)
@@ -99,6 +102,12 @@ function allowMicrophone () {
     String(requestingOrigin || '').startsWith(origin()) && ALLOWED.has(permission))
   // the page asks this when a debug note or dictation gets no microphone, so it can say whether macOS is the one blocking
   ipcMain.handle('mic-status', () => (process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('microphone') : 'unknown'))
+  // projects: a native folder picker and "open in Finder" for the new shell
+  ipcMain.handle('pick-folder', async () => {
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], message: 'Choose the project folder' })
+    return r.canceled ? null : (r.filePaths[0] ?? null)
+  })
+  ipcMain.handle('open-folder', (e, p) => { if (typeof p === 'string' && p.startsWith('/')) { shell.openPath(p); return true } return false })
   if (process.platform === 'darwin') {
     systemPreferences.askForMediaAccess('microphone')
       .then((granted) => { if (!granted) console.warn('[desktop] macOS denied the microphone: System Settings → Privacy & Security → Microphone') })

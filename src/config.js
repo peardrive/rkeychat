@@ -130,6 +130,10 @@ export function newIdentity (cfg, name) {
 // The per-room Claude Code session of a project agent, remembered in its key file so a
 // daemon restart resumes the same conversation (and `claude --resume <id>` from the
 // project folder opens it by hand).
+// Where a seat keeps a conversation's session id: the room topic for the default conversation (as before
+// conversations existed), `topic/conv` for the others.
+export const sessionKeyOf = (topic, conv) => conv && conv !== 'main' ? `${topic}/${conv}` : topic
+
 export function agentSession (p, topic, sessionId) {
   if (!p.keyFile) return null
   const data = readKeyFile(p.keyFile)

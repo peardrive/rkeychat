@@ -96,10 +96,14 @@ export class RoomSearch {
 
   // Messages that have every one of the words, anywhere and in any order; newest first. [{ id, ts, snippet }]:
   // snippet has MARK_ON/MARK_OFF around matches. Never a removed message.
-  find (q, { limit = 50 } = {}) {
+  // `conv`: only that conversation's messages (filtered after the index lookup; the index is room-wide).
+  find (q, { limit = 50, conv } = {}) {
     const words = wordsOf(q); if (!words.length) return []
     limit = Math.max(1, Math.min(200, Number(limit) || 50))
-    const { ids: removed } = this.room.blocked()
+    const { ids: blocked } = this.room.blocked()
+    const removed = conv
+      ? { has: (id) => blocked.has(id) || this.room.store.convOf(this.room.store.get(id)) !== conv }
+      : blocked
     if (this.#open()) {
       try {
         this.#catchUp()
@@ -107,7 +111,7 @@ export class RoomSearch {
         // FTS5 even when a word is in every message; the real time sorts the page. A few extra rows, since a
         // removal not caught up yet is filtered out here.
         const rows = this.db.prepare(`select id, ts, snippet(msgs, 2, '${MARK_ON}', '${MARK_OFF}', '…', 14) as snippet
-          from msgs where msgs match ? order by rowid desc limit ?`).all(queryOf(q), limit + 20)
+          from msgs where msgs match ? order by rowid desc limit ?`).all(queryOf(q), conv ? limit * 4 + 20 : limit + 20)
         return rows.filter((r) => !removed.has(r.id)).map((r) => ({ id: r.id, ts: Number(r.ts), snippet: r.snippet }))
           .sort((a, b) => b.ts - a.ts).slice(0, limit)
       } catch (err) {

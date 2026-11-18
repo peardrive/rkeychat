@@ -20,7 +20,8 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { client, ndJsonStream } from '@agentclientprotocol/sdk'
 import { resolveTools } from './tools.js'
-import { agentSession } from './config.js'
+import { agentSession, sessionKeyOf } from './config.js'
+import { MAIN } from './proto.js'
 
 const IDLE_MS = 30 * 60_000
 const TURN_TIMEOUT_MS = 20 * 60_000
@@ -32,9 +33,10 @@ export function adapterPath () {
 }
 
 export class AcpProcess {
-  constructor ({ name, room, participant, bridge, system, onActivity }) {
+  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity }) {
     this.name = name
     this.room = room
+    this.conv = conv
     this.p = participant
     this.bridge = bridge // { kind: 'claude', via: 'acp', dir, permissionMode?, tools?, model?, command? }
     this.system = system
@@ -51,6 +53,7 @@ export class AcpProcess {
   }
 
   get alive () { return !!this.child }
+  get sessionKey () { return sessionKeyOf(this.room.topic, this.conv) }
 
   // ---- lifecycle ----
 
@@ -90,7 +93,7 @@ export class AcpProcess {
     await this.#connect()
     const cwd = this.bridge.dir
     const systemPrompt = this.system ? { mode: 'append', content: [{ type: 'text', text: this.system }] } : undefined
-    const saved = agentSession(this.p, this.room.topic)
+    const saved = agentSession(this.p, this.sessionKey)
     let sessionId = null
     if (saved) {
       try {
@@ -99,13 +102,13 @@ export class AcpProcess {
         sessionId = saved
       } catch (err) {
         this.onActivity(`the saved session could not be resumed (${String(err?.message ?? err).slice(0, 80)}); starting a fresh one`)
-        agentSession(this.p, this.room.topic, null)
+        agentSession(this.p, this.sessionKey, null)
       } finally { this.loading = false }
     }
     if (!sessionId) {
       const res = await this.cx.request('session/new', { cwd, mcpServers: [], ...(systemPrompt ? { systemPrompt } : {}) })
       sessionId = res.sessionId
-      agentSession(this.p, this.room.topic, sessionId)
+      agentSession(this.p, this.sessionKey, sessionId)
     }
     this.sessionId = sessionId
     let mode = this.bridge.permissionMode ?? 'acceptEdits'

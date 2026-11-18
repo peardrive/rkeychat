@@ -1,7 +1,10 @@
 // Boots pearcore for this device and runs every room it's in. Rooms can be
 // created or joined while the daemon runs (GUI or CLI); no restart needed.
 
-import { join, resolve } from 'node:path'
+import { join, resolve, basename } from 'node:path'
+
+// a seat name from a folder name: lower case, letters digits - _ only
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project'
 import { existsSync, readFileSync, appendFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { createCore } from 'pearcore/src/core.js'
@@ -112,7 +115,10 @@ export class App extends EventEmitter {
   // in `dir/.rkeychat/agent.json`. Added live — no daemon restart — and signed into
   // every room this device owns right away; rooms owned elsewhere need the usual
   // `rkeychat request` + approval, like any new key on this device.
-  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null, via = 'cli' }) {
+  async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null, via = 'cli', rooms = null }) {
+    name = String(name ?? '').trim().toLowerCase()
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(name)) throw new Error('an agent name is 1-40 characters: letters, digits, - and _')
+    if (this.cfg.participants[name]) throw new Error(`there is already a participant called ${name} on this device`)
     dir = resolve(String(dir ?? '').trim() || process.cwd())
     if (!existsSync(dir)) throw new Error(`no such folder: ${dir}`)
     const keyFile = join(dir, '.rkeychat', 'agent.json')
@@ -135,7 +141,9 @@ export class App extends EventEmitter {
     } catch {}
     const p = this.participants[name]
     const enrolled = []
+    // `rooms`: only these (a project's seat belongs to its project); default every room this device owns
     for (const { room, runners } of this.rooms.values()) {
+      if (rooms && !rooms.includes(room.topic)) continue
       room.local[name] = p
       runners.set(name, new AgentRunner(room, name, bridge))
       if (room.isOwner) {
@@ -206,9 +214,66 @@ export class App extends EventEmitter {
         admitted: !!room.chain,
         members: active.length,
         people: active.map((p) => ({ name: p.name, role: p.role, online: p.online, local: p.local })),
-        last: l ? { name: l.name, text: l.text || (l.att?.length ? 'Voice memo' : ''), ts: l.ts } : null
+        last: l ? { name: l.name, text: l.text || (l.att?.length ? 'Voice memo' : ''), ts: l.ts } : null,
+        // projects and conversations (docs/projects-api.md)
+        folder: room.cfg.folder ?? null,
+        app: room.appInfo(),
+        convs: room.conversations().map(({ conv, title, archived, last, count, busy }) => ({ conv, title, archived, last, count, busy }))
       }
     })
+  }
+
+  // A project: a room bound to a folder on this device, with its own seat (a project agent in that
+  // folder, driven over ACP unless said otherwise) and the signed note that says what the room is.
+  // One gesture from the shell: drop a folder, and the room, the chain, the seat and the note exist.
+  async createProject ({ folder, name, agent, via = 'acp' } = {}) {
+    folder = resolve(String(folder ?? '').trim())
+    if (!folder || !existsSync(folder)) throw new Error(`no such folder: ${folder}`)
+    const base = basename(folder)
+    name = String(name ?? '').trim() || base
+    if (this.cfg.rooms.some((r) => r.folder === folder)) throw new Error(`${folder} is already a project ("${this.cfg.rooms.find((r) => r.folder === folder).name}")`)
+    const room = await this.createRoom(name)
+    const rcfg = this.cfg.rooms.find((r) => r.topic === room.topic)
+    rcfg.folder = folder
+    saveConfig(this.cfg)
+    const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+    if (human) await room.setApp(human, { role: 'project', title: name }).catch((err) => console.error(`[${name}] app note:`, err.message))
+    // the seat: named after the folder unless taken, in the folder, in this room only
+    let seat = String(agent ?? '').trim() || slug(base)
+    if (this.cfg.participants[seat] && this.cfg.participants[seat].bridge?.dir !== folder) {
+      let i = 2; while (this.cfg.participants[`${seat}${i}`]) i++
+      seat = `${seat}${i}`
+    }
+    let seatInfo = null
+    if (this.cfg.participants[seat]) {
+      // the folder already has a seat on this device (e.g. rkeychat agent init was run there): sign it into the room
+      const p = this.participants[seat]
+      room.local[seat] = p
+      this.rooms.get(room.topic).runners.set(seat, new AgentRunner(room, seat, p.bridge))
+      await room.approve({ participants: [{ ref: p.signer.ref, name: seat, role: 'agent', consent: await consent(p.signer, room.cfg.root) }] })
+      seatInfo = { name: seat, dir: folder, existing: true }
+    } else {
+      seatInfo = await this.addAgent({ name: seat, dir: folder, via, rooms: [room.topic] })
+    }
+    this.emit('rooms-changed')
+    return { room: this.list().find((r) => r.topic === room.topic), seat: seatInfo }
+  }
+
+  // Bind (or rebind) a folder to a room on this device; the room becomes a project here.
+  async setRoomFolder (topic, folder) {
+    const r = this.rooms.get(topic)
+    if (!r) throw new Error('no such room')
+    folder = folder == null || folder === '' ? null : resolve(String(folder).trim())
+    if (folder && !existsSync(folder)) throw new Error(`no such folder: ${folder}`)
+    const rcfg = this.cfg.rooms.find((x) => x.topic === topic)
+    rcfg.folder = folder ?? undefined
+    if (!folder) delete rcfg.folder
+    saveConfig(this.cfg)
+    const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+    if (human && r.room.isOwner) await r.room.setApp(human, { role: folder ? 'project' : 'chat' }).catch(() => {})
+    r.room.emit('changed')
+    this.emit('rooms-changed')
+    return this.list().find((x) => x.topic === topic)
   }
 
   // Create a room with just the people you pick. Local humans are always in;

@@ -13,7 +13,10 @@ import { isRemote, authorized, newPairToken, redeem, sessions, revokeSession, ta
 import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
-import { MAX_BLOB } from './room.js'
+import { MAX_BLOB, mimeOf } from './room.js'
+import { MAIN, isConvId } from './proto.js'
+import { existsSync, statSync } from 'node:fs'
+import { resolve as resolvePath, normalize, basename } from 'node:path'
 import { FEED_PAGE } from './feed-window.js'
 import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
@@ -21,6 +24,8 @@ import { randomBytes } from 'node:crypto'
 
 // A bundled app has no src/ui on disk: it writes the UI out at boot and points here.
 const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
+// the new shell's build (app/dist), served at /app/
+const APP_DIR = resolvePath(process.env.RKEYCHAT_APP || join(dirname(fileURLToPath(import.meta.url)), '..', 'app', 'dist'))
 const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url')
 const unb64 = (s) => JSON.parse(Buffer.from(String(s).trim(), 'base64url').toString('utf8'))
 
@@ -57,15 +62,26 @@ const serializeBudget = (b) => ({
   remaining: b.remaining === Infinity ? null : b.remaining, agents: b.agents
 })
 
-export function roomSnapshot (room) {
+// The seats (agents) hosted on this device for this room, with how each is driven.
+const seatsOf = (room, cfg) => Object.entries(cfg?.participants ?? {}).filter(([name, p]) => p.role === 'agent' && room.local[name])
+  .map(([name, p]) => ({ name, bridge: p.bridge?.kind ?? 'stream', via: p.bridge?.kind === 'claude' ? (p.bridge.via ?? 'cli') : null, dir: p.bridge?.dir ?? null }))
+
+// `conv`: the conversation whose feed page the snapshot carries (default: the room's main one).
+export function roomSnapshot (room, { conv = MAIN, cfg } = {}) {
   const participants = room.participantsList()
-  const newest = room.page({ limit: FEED_PAGE })
+  const newest = room.page({ limit: FEED_PAGE, conv }) ?? { log: [], hasOlder: false }
   return {
     name: room.cfg.name,
     topic: room.topic,
     owner: room.isOwner,
     root: room.cfg.root,
     admitted: !!room.chain,
+    // projects and conversations (docs/projects-api.md)
+    folder: room.cfg.folder ?? null,
+    app: room.appInfo(),
+    convs: room.conversations(),
+    conv,
+    seats: seatsOf(room, cfg),
     participants,
     members: room.members(),
     budget: serializeBudget(room.budget()),
@@ -83,6 +99,7 @@ export function roomSnapshot (room) {
 
 export function serve ({ app }) {
   const { cfg, device } = app
+  const snapshot = (room, conv = MAIN) => roomSnapshot(room, { conv, cfg })
   const sse = new Set()
   // Long-lived responses (event stream, agent wait): a write after the client has
   // gone must never throw. On Bare's HTTP server it surfaces as an 'error' event
@@ -113,7 +130,7 @@ export function serve ({ app }) {
 
   const wire = ({ room }) => {
     const t = room.topic
-    const pushRoom = () => pushSoon(`room:${t}`, 'room', () => roomSnapshot(room))
+    const pushRoom = () => pushSoon(`room:${t}`, 'room', () => snapshot(room))
     room.on('record', (rec) => {
       if (rec.kind === 'react') return push('reactions', () => ({ topic: t, reactions: room.reactions() }))
       // a removal: the page empties that message wherever it is in the window it holds, which the newest page
@@ -124,6 +141,11 @@ export function serve ({ app }) {
       pushRooms()
     })
     room.on('changed', pushRoom)
+    // the conversation list: titles, last message, counts, who is thinking where
+    const pushConvs = () => pushSoon(`convs:${t}`, 'convs', () => ({ topic: t, convs: room.conversations() }))
+    room.on('record', (rec) => { if (rec.kind === 'msg' || (rec.kind === 'control' && (rec.action === 'conv' || rec.action === 'app'))) pushConvs() })
+    room.on('changed', pushConvs)
+    room.on('agent-state', (e) => { push('agent-state', { topic: t, ...e }); pushConvs() })
     room.on('chain', () => { pushRoom(); pushRooms() })
     room.on('presence', () => { pushSoon(`participants:${t}`, 'participants', () => ({ topic: t, participants: room.participantsList() })); pushRooms() })
     room.on('agent-error', (e) => push('agent-error', { topic: t, ...e }))
@@ -145,12 +167,15 @@ export function serve ({ app }) {
   }
   for (const r of app.rooms.values()) wire(r)
   app.on('room-added', (r) => { wire(r); pushRooms() })
-  app.on('room-renamed', ({ room }) => { push('room', () => roomSnapshot(room)); pushRooms() })
+  app.on('rooms-changed', pushRooms)
+  app.on('room-renamed', ({ room }) => { push('room', () => snapshot(room)); pushRooms() })
   app.on('login-ask', (ask) => push('login-ask', ask))
   app.on('login-progress', (p) => push('login-progress', p))
   app.on('login', (p) => push('login', p))
 
   const need = (cond, msg, status = 400) => { if (!cond) { const e = new Error(msg); e.status = status; throw e } }
+  // ?conv= on a route: a conversation id, else the room's main conversation
+  const convArg = (url) => { const c = url.searchParams.get('conv'); if (c && !isConvId(c)) need(false, 'not a conversation id'); return c || MAIN }
   const pick = (key) => { const r = app.find(key); need(r, key ? `no room "${key}"` : 'no rooms yet. Create one first', 404); return r }
   // the default `as`: the local human; on a device with none, the only local participant; else say what's available
   const localHuman = () => {
@@ -170,12 +195,55 @@ export function serve ({ app }) {
 
     'GET /api/state': (req, res, url) => {
       const r = app.find(url.searchParams.get('room'))
+      const conv = convArg(url)
       return {
-        device: { name: cfg.deviceName, ref: device.ref, root: cfg.root ? app.root().ref : null, participants: Object.entries(cfg.participants).map(([name, p]) => ({ name, role: p.role, ref: p.ref, bridge: p.bridge?.kind })) },
+        device: { name: cfg.deviceName, ref: device.ref, root: cfg.root ? app.root().ref : null, participants: Object.entries(cfg.participants).map(([name, p]) => ({ name, role: p.role, ref: p.ref, bridge: p.bridge?.kind })), desktop: !!process.versions?.electron },
         rooms: app.list(),
         canTranscribe: canTranscribe(cfg),
-        current: r ? roomSnapshot(r.room) : null
+        current: r ? snapshot(r.room, conv) : null
       }
+    },
+
+    // ---- conversations (docs/projects-api.md) ----
+    'GET /api/convs': (req, res, url) => pick(url.searchParams.get('room')).room.conversations(),
+    'POST /api/convs': async (req) => {
+      const { room: key, title, runtime, text } = await body(req)
+      const { room } = pick(key)
+      const c = await room.setConversation(localHuman(), { title: String(title ?? 'New conversation').trim().slice(0, 120) || 'New conversation', runtime: runtime === undefined ? undefined : runtime })
+      if (String(text ?? '').trim()) await room.post(localHuman(), text, { conv: c.conv })
+      return room.conversation(c.conv) ?? c
+    },
+    'POST /api/convs/rename': async (req) => {
+      const { room: key, conv, title } = await body(req)
+      const { room } = pick(key)
+      need(isConvId(conv), 'which conversation?'); need(String(title ?? '').trim(), 'a conversation needs a title')
+      return room.setConversation(localHuman(), { conv, title: String(title).trim().slice(0, 120) })
+    },
+    'POST /api/convs/archive': async (req) => {
+      const { room: key, conv, archived = true } = await body(req)
+      const { room } = pick(key)
+      need(isConvId(conv) && conv !== MAIN, 'the main conversation stays')
+      return room.setConversation(localHuman(), { conv, archived: !!archived })
+    },
+    'POST /api/convs/runtime': async (req) => {
+      const { room: key, conv, runtime = null } = await body(req)
+      const { room, runners } = pick(key)
+      need(isConvId(conv), 'which conversation?')
+      const c = await room.setConversation(localHuman(), { conv, runtime })
+      for (const r of runners.values()) r.retire?.(conv) // that conversation's processes start over with the new runtime
+      return c
+    },
+
+    // ---- projects: a room bound to a folder, with its own seat ----
+    'POST /api/projects': async (req) => {
+      const { folder, name, agent, via } = await body(req)
+      need(String(folder ?? '').trim(), 'a project needs a folder')
+      return app.createProject({ folder, name, agent, via })
+    },
+    'POST /api/rooms/folder': async (req) => {
+      const { room: key, folder } = await body(req)
+      const { room } = pick(key)
+      return app.setRoomFolder(room.topic, folder)
     },
     'GET /api/events': (req, res) => {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
@@ -189,7 +257,7 @@ export function serve ({ app }) {
     'POST /api/rooms': async (req) => {
       const { name, members = [] } = await body(req)
       const room = await app.createRoom(name, { members })
-      return roomSnapshot(room)
+      return snapshot(room)
     },
     'GET /api/people': () => ({
       local: Object.entries(cfg.participants).filter(([, p]) => p.role === 'agent').map(([name]) => ({ name, role: 'agent', local: true })),
@@ -236,29 +304,31 @@ export function serve ({ app }) {
     'POST /api/rooms/join': async (req) => {
       const { invite } = await body(req)
       const { room, request } = await app.joinRoom(invite)
-      return { room: roomSnapshot(room), request: encodeRequest(request) }
+      return { room: snapshot(room), request: encodeRequest(request) }
     },
 
     'POST /api/send': async (req) => {
-      const { room: key, as = localHuman(), text, re = [], pass = false, via, att } = await body(req)
+      const { room: key, as = localHuman(), text, re = [], pass = false, via, att, conv } = await body(req)
       nameOrDie(as)
+      if (conv) need(isConvId(conv), 'not a conversation id')
       const { room, runners } = runners0(as, key)
       // a mirrored terminal exchange is just recorded: no turns, no rounds, no glossary
-      if (via === 'mirror') return { ...(await room.post(as, text, { via })), roomName: room.cfg.name }
+      if (via === 'mirror') return { ...(await room.post(as, text, { via, conv })), roomName: room.cfg.name }
       const runner = runners.get(as)
-      if (pass) { runner?.answered({ passed: true }); return { ok: true, passed: true, room: room.cfg.name } }
+      if (pass) { runner?.answered({ passed: true, conv }); return { ok: true, passed: true, room: room.cfg.name } }
       const reIds = re.length ? re : (runner?.offered ?? [])
       // dictated messages get the transcription fixes before they're signed
       const fixed = via === 'voice' ? applyGlossary(text) : { text, fixes: [] }
-      const rec = await room.post(as, fixed.text, { re: reIds, via, att })
-      runner?.answered()
+      const rec = await room.post(as, fixed.text, { re: reIds, via, att, conv })
+      runner?.answered({ conv: rec.conv })
       return { ...rec, roomName: room.cfg.name, fixes: fixed.fixes }
     },
     'POST /api/control': async (req) => {
-      const { room: key, action, n, until, hours, agent, style, text, order, agents, name } = await body(req)
+      const { room: key, action, n, until, hours, agent, style, text, order, agents, name, conv, archived, runtime } = await body(req)
       const { room } = pick(key)
-      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename']
+      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename', 'conv']
       if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
+      if (action === 'conv') need(isConvId(conv), 'which conversation?')
       if (action === 'charter' && order !== undefined) need(Array.isArray(order) && order.every((o) => room.participantsList().some((p) => p.name === o && p.role === 'agent')), 'order must list agents in this room')
       if (action === 'charter' && agents !== undefined) {
         const isAgent = (x) => room.participantsList().some((p) => p.name === x && p.role === 'agent')
@@ -267,7 +337,7 @@ export function serve ({ app }) {
       }
       need(ok.includes(action), `unknown action "${action}"`)
       const u = until ?? (hours ? Date.now() + Number(hours) * 3600_000 : undefined)
-      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name })
+      return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name, conv, archived, runtime })
     },
 
     // what each agent in this room has spent in the last day, measured
@@ -474,7 +544,7 @@ export function serve ({ app }) {
     'GET /api/log': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))
       const q = (k) => url.searchParams.get(k) || undefined
-      const out = room.page({ before: q('before'), after: q('after'), around: q('around'), limit: q('limit') })
+      const out = room.page({ before: q('before'), after: q('after'), around: q('around'), limit: q('limit'), conv: convArg(url) })
       need(out, 'that message is not in this room', 404)
       return out
     },
@@ -487,7 +557,7 @@ export function serve ({ app }) {
       const q = url.searchParams.get('q') ?? ''
       const limit = Number(url.searchParams.get('limit')) || 50
       const key = url.searchParams.get('room')
-      if (key) { const { room } = pick(key); return { engine: room.search.engine, results: room.find(q, { limit }) } }
+      if (key) { const { room } = pick(key); return { engine: room.search.engine, results: room.find(q, { limit, conv: url.searchParams.get('conv') || undefined }) } }
       const results = []
       for (const { room } of app.rooms.values()) {
         if (!room.chain) continue // not admitted yet: nothing of it is ours to read
@@ -504,7 +574,8 @@ export function serve ({ app }) {
       const { room } = pick(url.searchParams.get('room'))
       const since = Number(url.searchParams.get('since')) || 0
       const until = Number(url.searchParams.get('until')) || Infinity
-      return room.activityFor(url.searchParams.get('as'), 5000).filter((r) => r.ts > since && r.ts <= until).slice(-(Number(url.searchParams.get('limit')) || 400))
+      const conv = url.searchParams.get('conv') || null
+      return room.activityFor(url.searchParams.get('as'), 5000).filter((r) => r.ts > since && r.ts <= until && (!conv || r.conv === conv)).slice(-(Number(url.searchParams.get('limit')) || 400))
     },
     'POST /api/redact': async (req) => {
       const { room: key, target, reason, blockFiles } = await body(req)
@@ -678,6 +749,22 @@ export function serve ({ app }) {
   }
   const runners0 = (as, key) => (cfg.participants[as]?.role === 'agent' ? roomForAgent(as, key) : pick(key))
 
+  // The new shell (app/, a Vite build) at /app/: static files out of app/dist, and its index for any
+  // path it routes itself. Not built yet → a short page saying how.
+  const serveApp = (req, res, url) => {
+    const rel = normalize(decodeURIComponent(url.pathname.replace(/^\/app\/?/, ''))).replace(/^(\.\.(\/|$))+/, '')
+    let file = resolvePath(APP_DIR, rel)
+    if (!file.startsWith(APP_DIR)) { res.writeHead(403); return res.end('no') }
+    if (!rel || !existsSync(file) || statSync(file).isDirectory()) file = join(APP_DIR, 'index.html')
+    if (!existsSync(file)) {
+      res.writeHead(503, { 'content-type': 'text/html' })
+      return res.end('<!doctype html><meta charset="utf-8"><body style="font:15px system-ui;padding:40px;background:#09080d;color:#ddd"><h2>The new shell is not built yet</h2><p>Run <code>npm run app:build</code> in the rKeyChat folder (or <code>npm --prefix app run dev</code> while working on it), then reload.</p>')
+    }
+    const bytes = readFileSync(file)
+    res.writeHead(200, { 'content-type': mimeOf(file) + (/\.(html|js|mjs|css|json)$/.test(file) ? '; charset=utf-8' : ''), 'content-length': bytes.length, 'cache-control': file.endsWith('index.html') ? 'no-store' : 'public, max-age=3600' })
+    res.end(bytes)
+  }
+
   const handler = async (req, res) => {
     const url = new URL(req.url, 'http://x')
     if (req.method === 'GET' && url.pathname === '/pair') {
@@ -691,6 +778,7 @@ export function serve ({ app }) {
     }
     if (req.method === 'GET' && url.pathname.startsWith('/api/blob/')) return serveBlob(req, res, url)
     if (req.method === 'GET' && url.pathname.startsWith('/api/file/')) return serveFile(req, res, url)
+    if (req.method === 'GET' && (url.pathname === '/app' || url.pathname.startsWith('/app/'))) return serveApp(req, res, url)
     const route = routes[`${req.method} ${url.pathname}`]
     if (!route) { res.writeHead(404); return res.end('not found') }
     try {
