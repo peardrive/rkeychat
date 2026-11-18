@@ -1,0 +1,39 @@
+{
+  "name": "rkeychat-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The rKeyChat shell: projects and their conversations, on PearKit. Served by the daemon at /app/.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:mock": "VITE_MOCK=1 vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "screens": "node scripts/screens.mjs",
+    "screens:interact": "node scripts/interact.mjs"
+  },
+  "dependencies": {
+    "@fontsource/plus-jakarta-sans": "^5.1.0",
+    "nativewind": "^4.2.7",
+    "pearkit": "file:../../pearkit--projects-shell",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-native-svg": "^15.16.0",
+    "react-native-web": "^0.21.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.64.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

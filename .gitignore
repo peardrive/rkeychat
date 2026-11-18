@@ -4,3 +4,6 @@ dist/
 .DS_Store
 release/
 .rkeychat/
+# the new shell (app/): built by `npm run app:build`, served by the daemon at /app/
+app/node_modules/
+app/dist/

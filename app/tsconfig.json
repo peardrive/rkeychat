@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "nativewind",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "paths": {
+      "pearkit": ["../../pearkit--projects-shell/src/index.ts"],
+      "react-native": ["../../pearkit--projects-shell/node_modules/react-native/types_generated/index.d.ts"]
+    }
+  },
+  "include": ["src", "nativewind-env.d.ts", "vite.config.ts"]
+}
