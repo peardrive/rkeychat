@@ -63,7 +63,7 @@ const serializeBudget = (b) => ({
 })
 
 // The seats (agents) hosted on this device for this room, with how each is driven.
-const seatsOf = (room, cfg) => Object.entries(cfg?.participants ?? {}).filter(([name, p]) => p.role === 'agent' && room.local[name])
+const seatsOf = (room, cfg) => Object.entries(cfg?.participants ?? {}).filter(([name, p]) => p.role === 'agent' && room.local[name] && room.state?.isActive(room.local[name].signer.ref))
   .map(([name, p]) => ({ name, bridge: p.bridge?.kind ?? 'stream', via: p.bridge?.kind === 'claude' ? (p.bridge.via ?? 'cli') : null, dir: p.bridge?.dir ?? null }))
 
 // `conv`: the conversation whose feed page the snapshot carries (default: the room's main one).

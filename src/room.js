@@ -108,7 +108,7 @@ export class Room extends EventEmitter {
 
   // Search results as the page shows them: newest first, with who wrote each.
   find (q, opts) {
-    return this.search.find(q, opts).map((r) => ({ ...r, name: this.view(this.store.get(r.id)).name }))
+    return this.search.find(q, opts).map((r) => { const rec = this.store.get(r.id); return { ...r, name: this.view(rec).name, conv: this.store.convOf(rec) } })
   }
 
   async space () {
