@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { getApi } from '../api';
-import { rkc, type TextInputRef } from '../hooks';
+import { SAFE_BOTTOM, SAFE_TOP, isTouch, rkc, type TextInputRef } from '../hooks';
 import { DropZone, SearchField, Sidebar, SidebarContent, SidebarFooter, SidebarGroupRow, SidebarHeader, SidebarItem, SidebarSection, SidebarSpacer, SidebarThreadItem, SidebarToggle, Text, WindowControls, useSidebar, useToast, type DroppedItem } from '../kit';
 import { shortTime } from '../time';
 import { useStore } from '../store/context';
@@ -132,9 +132,9 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
           live={roomIsThinking(state, r.topic)}
           onToggle={() => toggle(r.topic)}
           onPress={() => {
-            if (!expanded) toggle(r.topic);
-            else if (!selectedHere) select(r.topic, 'main');
-            else toggle(r.topic);
+            // Phone: the row only opens and closes the group; a conversation row is what navigates.
+            if (fullWidth || !expanded || selectedHere) toggle(r.topic);
+            else select(r.topic, 'main');
           }}
         />
         {expanded ? (
@@ -160,6 +160,7 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
 
   const shownProjects = projects.filter(matches);
   const shownChats = chats.filter(matches);
+  const touch = isTouch();
 
   return (
     <Sidebar
@@ -172,7 +173,8 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
       collapseOnDrag={fullWidth ? false : 60}
       contentClassName="px-2.5"
     >
-      <DropZone onDrop={onDrop} overlay="Drop a folder to start a project" className="w-full min-h-0 flex-1">
+      <DropZone onDrop={onDrop} overlay={touch ? null : 'Drop a folder to start a project'} disabled={touch} className="w-full min-h-0 flex-1">
+        {fullWidth ? <View style={{ height: SAFE_TOP } as never} /> : null}
         {fullWidth && !rkc()?.desktop ? null : (
           <SidebarHeader className="px-1.5">
             <WindowControls />
@@ -180,7 +182,7 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
             {fullWidth ? null : <SidebarToggle />}
           </SidebarHeader>
         )}
-        <SearchBar ref={searchRef} value={query} onChangeText={setQuery} />
+        <SearchBar ref={searchRef} value={query} onChangeText={setQuery} shortcut={touch ? undefined : '⌘K'} />
         <SidebarContent className="pb-2">
           {q && hits.length ? (
             <SidebarSection title="Messages">
@@ -196,20 +198,21 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
           {shownChats.length ? <SidebarSection title="Chats">{shownChats.map(renderGroup)}</SidebarSection> : null}
         </SidebarContent>
         <SidebarFooter className="gap-0.5 pt-1">
-          <SidebarItem icon="add" label="New project" onPress={() => onNewProject()} />
-          <SidebarItem icon="setting-2-bold" label="Settings" onPress={onOpenSettings} />
+          <SidebarItem icon="add" label="New project" onPress={() => onNewProject()} className={touch ? 'py-2.5' : undefined} />
+          <SidebarItem icon="setting-2-bold" label="Settings" onPress={onOpenSettings} className={touch ? 'py-2.5' : undefined} />
+          {fullWidth ? <View style={{ height: SAFE_BOTTOM } as never} /> : null}
         </SidebarFooter>
       </DropZone>
     </Sidebar>
   );
 }
 
-const SearchBar = React.forwardRef<TextInputRef, { value: string; onChangeText: (t: string) => void }>(function SearchBar({ value, onChangeText }, ref) {
+const SearchBar = React.forwardRef<TextInputRef, { value: string; onChangeText: (t: string) => void; shortcut?: string }>(function SearchBar({ value, onChangeText, shortcut }, ref) {
   const { collapsed } = useSidebar();
   if (collapsed) return null;
   return (
     <View className="w-full px-0.5 pb-2">
-      <SearchField ref={ref} value={value} onChangeText={onChangeText} placeholder="Search" shortcut="⌘K" />
+      <SearchField ref={ref} value={value} onChangeText={onChangeText} placeholder="Search" shortcut={shortcut} />
     </View>
   );
 });

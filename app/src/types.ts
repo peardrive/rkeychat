@@ -20,7 +20,7 @@ export type ConvSummary = Pick<Conversation, 'conv' | 'title' | 'archived' | 'la
 export type AppRecord = { app: 'rkeychat'; role: 'project' | 'chat'; name: string; icon?: string; home?: { device: string; name: string } | null } | null;
 
 /** One of the owner's own devices (`GET /api/devices`); this one first, with `here: true`. */
-export type Device = { ref: string; name: string; online: boolean; here: boolean };
+export type Device = { ref: string; name: string; online: boolean; here: boolean; /** On the `here` entry: can this device hold a project folder (false on a phone). */ canHost?: boolean };
 
 /** `POST /api/projects` when another device is asked to create the project. */
 export type PendingProject = { pending: true; asked: string; via: string; id: string; online: boolean };
@@ -121,6 +121,8 @@ export type DeviceInfo = {
   participants: { name: string; role: 'human' | 'agent'; ref: string; bridge?: string }[];
   /** True when the daemon runs inside the desktop app (window.rkc is the folder picker then). */
   desktop?: boolean;
+  /** False on a phone: projects must be homed on one of the owner's computers. */
+  canHost?: boolean;
 };
 
 export type StateResponse = {

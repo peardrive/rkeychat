@@ -10,6 +10,9 @@ import React from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { Avatar, CountBadge, Icon, StatusDot, Text, Tooltip, cn, useSidebar, type StatusTone } from 'pearkit';
 
+/** Touch-first device: rows grow to 44px targets. */
+const touch = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
 export interface SidebarGroupRowProps {
   seed: string;
   title: string;
@@ -58,7 +61,7 @@ export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, o
         accessibilityLabel={title}
         accessibilityState={{ expanded: open, selected: !!selected }}
         onPress={onPress ?? onToggle}
-        className={cn('min-w-0 flex-1 flex-row items-center gap-2.5 py-1.5 pl-2 pr-1', Platform.OS === 'web' && 'cursor-pointer select-none')}
+        className={cn('min-w-0 flex-1 flex-row items-center gap-2.5 pl-2 pr-1', touch ? 'py-2.5' : 'py-1.5', Platform.OS === 'web' && 'cursor-pointer select-none')}
       >
         {avatar}
         <View className="min-w-0 flex-1">
@@ -74,7 +77,7 @@ export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, o
         {trailing}
         {unread ? <CountBadge value={unread} tone="warning" /> : null}
       </Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Collapse' : 'Expand'} accessibilityState={{ expanded: open }} onPress={onToggle} hitSlop={6} className={cn('h-5 w-5 items-center justify-center rounded-xs hover:bg-overlay/[0.08]', Platform.OS === 'web' && 'cursor-pointer')}>
+      <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Collapse' : 'Expand'} accessibilityState={{ expanded: open }} onPress={onToggle} hitSlop={touch ? 12 : 6} className={cn('items-center justify-center rounded-xs hover:bg-overlay/[0.08]', touch ? 'h-8 w-8' : 'h-5 w-5', Platform.OS === 'web' && 'cursor-pointer')}>
         <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} tone="subtle" />
       </Pressable>
     </View>
@@ -104,7 +107,7 @@ export function SidebarThreadItem({ title, snippet, time, unread = 0, selected, 
       accessibilityLabel={title}
       accessibilityState={{ selected: !!selected }}
       onPress={onPress}
-      className={cn('app-region-no-drag w-full flex-row items-center gap-2 rounded-md py-[6px] pr-2', nested ? 'pl-[42px]' : 'pl-2.5', Platform.OS === 'web' && 'cursor-pointer select-none', selected ? 'bg-selected' : 'hover:bg-overlay/5 active:bg-overlay/[0.08]')}
+      className={cn('app-region-no-drag w-full flex-row items-center gap-2 rounded-md pr-2', touch ? 'py-2' : 'py-[6px]', nested ? 'pl-[42px]' : 'pl-2.5', Platform.OS === 'web' && 'cursor-pointer select-none', selected ? 'bg-selected' : 'hover:bg-overlay/5 active:bg-overlay/[0.08]')}
     >
       <View className="min-w-0 flex-1 gap-px">
         <View className="flex-row items-center gap-1.5">

@@ -29,7 +29,8 @@ const ME = 'guy';
 const DEVICE = 'studio';
 const HERE = 'rkey:studio';
 const DEVICES: Device[] = [
-  { ref: HERE, name: DEVICE, online: true, here: true },
+  // A touch device plays the phone: it cannot hold a project folder.
+  { ref: HERE, name: DEVICE, online: true, here: true, canHost: !(typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) },
   { ref: 'rkey:macbook', name: 'macbook', online: true, here: false },
   { ref: 'rkey:zorin', name: 'zorin', online: false, here: false },
 ];
@@ -247,7 +248,7 @@ export const mockApi: Api = {
     await sleep(LATENCY);
     const r = key ? find(key) : null;
     return {
-      device: { name: DEVICE, ref: HERE, root: 'rkey:guy', participants: [{ name: ME, role: 'human', ref: 'rkey:guy' }, { name: 'rkeychat', role: 'agent', ref: 'rkey:rkeychat', bridge: 'claude' }] },
+      device: { name: DEVICE, ref: HERE, root: 'rkey:guy', canHost: DEVICES[0].canHost, participants: [{ name: ME, role: 'human', ref: 'rkey:guy' }, { name: 'rkeychat', role: 'agent', ref: 'rkey:rkeychat', bridge: 'claude' }] },
       rooms: [...rooms.values()].map(summary),
       canTranscribe: false,
       current: r ? snapshot(r, conv ?? 'main') : null,

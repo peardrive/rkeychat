@@ -13,7 +13,7 @@ export type State = {
   ready: boolean;
   connected: boolean;
   error: string | null;
-  me: { device: string; ref?: string; human: string | null } | null;
+  me: { device: string; ref?: string; human: string | null; canHost?: boolean } | null;
   /** The owner's devices, this one first. */
   devices: Device[];
   /** Projects another device was asked to create; `topic` is set once the room shows up. */
@@ -49,7 +49,7 @@ export const initialState: State = {
 };
 
 export type Action =
-  | { type: 'init'; device: { name: string; ref?: string; human: string | null }; rooms: RoomSummary[]; current?: RoomSnapshot | null }
+  | { type: 'init'; device: { name: string; ref?: string; human: string | null; canHost?: boolean }; rooms: RoomSummary[]; current?: RoomSnapshot | null }
   | { type: 'devices'; devices: Device[] }
   | { type: 'pendingProject'; id: string; name: string; asked: string }
   | { type: 'pendingDone'; id: string }
@@ -128,7 +128,7 @@ function applyRooms(state: State, rooms: RoomSummary[]): State {
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'init': {
-      let s = applyRooms({ ...state, ready: true, error: null, me: { device: action.device.name, ref: action.device.ref, human: action.device.human } }, action.rooms);
+      let s = applyRooms({ ...state, ready: true, error: null, me: { device: action.device.name, ref: action.device.ref, human: action.device.human, canHost: action.device.canHost } }, action.rooms);
       if (action.current) s = reducer(s, { type: 'room', snapshot: action.current });
       return s;
     }

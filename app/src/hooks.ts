@@ -52,6 +52,15 @@ export function rkc(): RkcBridge | undefined {
   return (globalThis as unknown as { rkc?: RkcBridge }).rkc;
 }
 
+/** A touch-first device (a phone's WebView, a tablet): bigger targets, no drag-drop, no shortcut hints. */
+export function isTouch(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+}
+
+/** iOS safe areas inside a WebView with contentInsetAdjustmentBehavior='never'. CSS env() through RNW styles. */
+export const SAFE_TOP = 'env(safe-area-inset-top)';
+export const SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
+
 /** Hidden until `ms` have passed: avoids flashing spinners on fast requests. */
 export function useDelayed(value: boolean, ms = 250) {
   const [shown, setShown] = useState(false);

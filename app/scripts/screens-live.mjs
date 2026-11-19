@@ -9,7 +9,8 @@ const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scree
 const browser = await chromium.launch();
 const errors = [];
 for (const [name, viewport] of [['live-desktop', { width: 1280, height: 800 }], ['live-phone', { width: 390, height: 844 }]]) {
-  const ctx = await browser.newContext({ viewport, colorScheme: 'dark', deviceScaleFactor: 2 });
+  const mobile = viewport.width < 720;
+  const ctx = await browser.newContext({ viewport, colorScheme: 'dark', deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: console ${m.text()}`); });

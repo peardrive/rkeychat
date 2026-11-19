@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
-import { rkc } from '../hooks';
+import { SAFE_TOP, rkc } from '../hooks';
 import { Avatar, Button, Chip, Divider, EmptyState, Icon, IconButton, Pane, PaneBody, PaneHeader, SectionLabel, SegmentedControl, StatusDot, Text, TextField, copyToClipboard, useToast, type StatusTone } from '../kit';
 import { useStore } from '../store/context';
 import { archivedConvs, convTitle, homeOf, selectedRoom, thinkingIn } from '../store/selectors';
@@ -57,7 +57,16 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder }: ProjectPa
     return p && p.online === false ? 'offline' : 'idle';
   };
 
-  const header = <PaneHeader title={room && !room.folder ? 'Chat' : 'Project'} subtitle={room?.name} size={phone ? 'display' : 'title'} leading={phone ? <IconButton icon="chevron-left" size="sm" accessibilityLabel="Back" onPress={onClose} className="-ml-1 mr-1" /> : undefined} actions={phone ? undefined : [{ icon: 'close', label: 'Hide project', onPress: onClose }]} />;
+  const header = (
+    <PaneHeader
+      title={room && !room.folder ? 'Chat' : 'Project'}
+      subtitle={room?.name}
+      size={phone ? 'display' : 'title'}
+      style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined}
+      leading={phone ? <IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onClose} className="-ml-1 mr-1" /> : undefined}
+      actions={phone ? undefined : [{ icon: 'close', label: 'Hide project', onPress: onClose }]}
+    />
+  );
 
   if (!room) {
     return (

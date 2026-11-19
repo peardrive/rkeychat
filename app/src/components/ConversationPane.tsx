@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { rkc, type TextInputRef } from '../hooks';
+import { SAFE_BOTTOM, SAFE_TOP, isTouch, rkc, type TextInputRef } from '../hooks';
 import { Button, Composer, Dialog, EmptyState, IconButton, MenuButton, MessageList, Pane, PaneHeader, SegmentedControl, StatusDot, Text, TextField, Toggle, useToast, type MenuItem } from '../kit';
 import { useStore } from '../store/context';
 import { collapseActivity, mergeThread, toChatMessage } from '../store/mapping';
@@ -114,12 +114,17 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
 
   const title = convTitle(conv);
   const replyRec = replyTo ? thread?.items.find((x) => x.id === replyTo) : null;
-  const back = onBack ? <IconButton icon="chevron-left" size="sm" accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1 app-region-no-drag" /> : undefined;
+  const touch = isTouch();
+  // Phone: 44px targets (hitSlop grows the 30px buttons), the header under the status bar, the composer above the home indicator.
+  const slop = phone ? 8 : undefined;
+  const headerStyle = phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined;
+  const composerStyle = phone ? ({ paddingBottom: `calc(12px + ${SAFE_BOTTOM})` } as never) : undefined;
+  const back = onBack ? <IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1 app-region-no-drag" /> : undefined;
 
   if (!room || !conv) {
     return (
       <Pane glow>
-        <PaneHeader title="rKeyChat" subtitle={state.ready ? (state.roomOrder.length ? 'Pick a conversation' : 'No projects yet') : 'Connecting…'} dragRegion leading={back} />
+        <PaneHeader title="rKeyChat" subtitle={state.ready ? (state.roomOrder.length ? 'Pick a conversation' : 'No projects yet') : 'Connecting…'} dragRegion leading={back} style={headerStyle} />
         {state.error ? (
           <EmptyState icon="wifi-slash" title="The daemon is not answering" description={state.error} actions={<Button label="Retry" onPress={() => void actions.reload()} />} />
         ) : state.ready ? (
@@ -141,6 +146,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
         title={renaming ? ' ' : title}
         subtitle={renaming ? undefined : room.name}
         leading={back}
+        style={headerStyle}
         actions={
           <View className="flex-row items-center gap-1">
             {renaming ? (
@@ -148,10 +154,10 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
                 <RenameField initial={title} onDone={rename} onCancel={() => setRenaming(false)} />
               </View>
             ) : (
-              <IconButton icon="document" size="sm" tooltip="Rename" onPress={() => setRenaming(true)} className="app-region-no-drag" />
+              <IconButton icon="document" size="sm" hitSlop={slop} tooltip="Rename" onPress={() => setRenaming(true)} className="app-region-no-drag" />
             )}
             <MenuButton items={menu} tooltip="Conversation" size="sm" className="app-region-no-drag" />
-            <IconButton icon="info-circle" size="sm" active={projectOpen} tooltip={{ label: projectOpen ? 'Hide project' : 'Show project', shortcut: '⌘I' }} onPress={onToggleProject} className="app-region-no-drag" />
+            <IconButton icon="info-circle" size="sm" hitSlop={slop} active={projectOpen} tooltip={{ label: projectOpen ? 'Hide project' : 'Show project', shortcut: touch ? undefined : '⌘I' }} onPress={onToggleProject} className="app-region-no-drag" />
           </View>
         }
       />
@@ -191,7 +197,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
           />
         </>
       )}
-      <View className="gap-1.5 px-4 pb-4 pt-1">
+      <View className="gap-1.5 px-4 pb-4 pt-1" style={composerStyle}>
         <View className="h-5 flex-row items-center gap-1.5 px-1">
           {thinking.length ? (
             <>

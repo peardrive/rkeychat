@@ -12,8 +12,8 @@ mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 const errors = [];
 
-async function shot(name, { width, height, scheme = 'dark', before }) {
-  const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme, deviceScaleFactor: 2 });
+async function shot(name, { width, height, scheme = 'dark', before, mobile = false }) {
+  const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: console ${m.text()}`); });
@@ -56,14 +56,43 @@ await shot('desktop-new-project', {
     await page.waitForTimeout(400);
   },
 });
-await shot('phone-list', { width: 390, height: 844 });
-await shot('phone-conversation', { width: 390, height: 844, before: openRedesign });
-await shot('phone-project', {
-  width: 390, height: 844,
+// Phone: a touch device. A project row taps open and closed; a conversation row opens the conversation page.
+const phone = { width: 390, height: 844, mobile: true };
+await shot('phone-list', {
+  ...phone,
   before: async (page) => {
-    await openRedesign(page);
-    await page.getByRole('button', { name: 'Show project' }).first().click();
+    await page.getByRole('button', { name: 'pearcast', exact: true }).tap();
+    await page.waitForTimeout(300);
+    if (await page.getByText('Chapter markers').count()) throw new Error('pearcast did not collapse on tap');
+    await page.getByRole('button', { name: 'pearcast', exact: true }).tap();
+    await page.waitForTimeout(300);
+    if (!(await page.getByText('Chapter markers').count())) throw new Error('pearcast did not expand on tap');
+  },
+});
+await shot('phone-conversation', {
+  ...phone,
+  before: async (page) => {
+    await page.getByText('Redesign the share row').first().tap();
+    await page.waitForTimeout(700);
+    if (!(await page.getByRole('button', { name: 'Back' }).count())) throw new Error('no back control on the conversation page');
+  },
+});
+await shot('phone-project', {
+  ...phone,
+  before: async (page) => {
+    await page.getByText('Redesign the share row').first().tap();
+    await page.waitForTimeout(700);
+    await page.getByRole('button', { name: 'Show project' }).first().tap();
     await page.waitForTimeout(500);
+    if (!(await page.getByRole('button', { name: 'Back' }).count())) throw new Error('no back control on the project page');
+  },
+});
+await shot('phone-new-project', {
+  ...phone,
+  before: async (page) => {
+    await page.getByText('New project').tap();
+    await page.getByRole('textbox', { name: 'Name' }).fill('From the phone');
+    await page.waitForTimeout(400);
   },
 });
 

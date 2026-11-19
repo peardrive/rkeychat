@@ -34,9 +34,12 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
 
   const devices = orderDevices(state.devices);
   const here = devices.find((d) => d.here) ?? null;
-  const chosen = devices.find((d) => d.ref === home) ?? here;
-  const livesHere = !chosen || chosen.here;
-  const picker = rkc()?.pickFolder;
+  // A phone cannot hold a folder: the default is the first online computer, else the first other device.
+  const canHostHere = here ? here.canHost !== false && state.me?.canHost !== false : state.me?.canHost !== false;
+  const fallback = devices.find((d) => !d.here && d.online && d.canHost !== false) ?? devices.find((d) => !d.here) ?? null;
+  const chosen = devices.find((d) => d.ref === home) ?? (canHostHere ? here : fallback);
+  const livesHere = !!chosen?.here || (!chosen && canHostHere);
+  const picker = canHostHere ? rkc()?.pickFolder : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -78,6 +81,7 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
     }
     const n = name.trim();
     if (!n) return fail('A project needs a name.');
+    if (!canHostHere && (!chosen || chosen.here)) return fail('This device cannot hold a project; pick one of your computers.');
     if (chosen && !chosen.online && !chosen.here) return fail(`${chosen.name} is offline; the request would wait.`);
     setBusy(true);
     try {
@@ -145,7 +149,11 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
             {devices.length ? (
               <SegmentedControl
                 fullWidth
-                options={devices.map((d: Device) => ({ value: d.ref, label: d.here ? `${d.name} · here` : d.online ? d.name : `${d.name} · offline`, disabled: !d.online && !d.here }))}
+                options={devices.map((d: Device) => ({
+                  value: d.ref,
+                  label: d.here ? (canHostHere ? `${d.name} · here` : d.name) : d.online ? d.name : `${d.name} · offline`,
+                  disabled: d.here ? !canHostHere : !d.online,
+                }))}
                 value={chosen?.ref ?? ''}
                 onChange={setHome}
               />
@@ -155,11 +163,18 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
               </Text>
             )}
             {chosen && !chosen.here ? (
-              <View className="flex-row items-center gap-1.5">
-                <StatusDot tone={chosen.online ? 'success' : 'neutral'} size={6} />
-                <Text variant="caption" tone="subtle">
-                  {chosen.name} will make the folder under its workspace root and run the seat.
-                </Text>
+              <View className="gap-1">
+                <View className="flex-row items-center gap-1.5">
+                  <StatusDot tone={chosen.online ? 'success' : 'neutral'} size={6} />
+                  <Text variant="caption" tone="subtle">
+                    Will be created on {chosen.name} in its Projects folder.
+                  </Text>
+                </View>
+                {!canHostHere ? (
+                  <Text variant="caption" tone="subtle">
+                    This device cannot hold projects; pick one of your computers.
+                  </Text>
+                ) : null}
               </View>
             ) : folder ? (
               <View className="flex-row items-center gap-2">

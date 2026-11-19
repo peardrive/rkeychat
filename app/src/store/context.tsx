@@ -61,7 +61,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const sel = stateRef.current.selected;
           const res = await api().state(sel.topic, sel.conv);
           const human = res.device.participants.find((p) => p.role === 'human')?.name ?? null;
-          dispatch({ type: 'init', device: { name: res.device.name, ref: res.device.ref, human }, rooms: res.rooms, current: null });
+          dispatch({ type: 'init', device: { name: res.device.name, ref: res.device.ref, human, canHost: res.device.canHost }, rooms: res.rooms, current: null });
           if (res.current && sel.conv) dispatch({ type: 'room', snapshot: res.current, conv: sel.conv });
           else if (res.current) dispatch({ type: 'room', snapshot: res.current });
           return res.rooms;
