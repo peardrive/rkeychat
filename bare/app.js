@@ -35,6 +35,7 @@ process.env.HOME ??= docs
 const write = (rel, text) => { const p = path.join(assetDir, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, text) }
 write('ui/index.html', assets.ui)
 if (assets.jsqr) write('ui/jsQR.js', assets.jsqr)
+if (assets.icon) { const p = path.join(assetDir, 'app-icon.png'); fs.writeFileSync(p, Buffer.from(assets.icon, 'base64')); process.env.RKEYCHAT_ICON = p }
 for (const [rel, text] of Object.entries(assets.migrations)) write(path.join('migrations', rel), text)
 process.env.RKEYCHAT_UI = path.join(assetDir, 'ui', 'index.html')
 process.env.PEARCORE_MIGRATIONS_PATH = path.join(assetDir, 'migrations')

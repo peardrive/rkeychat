@@ -11,6 +11,7 @@ const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replac
 import { existsSync, readFileSync, appendFileSync, mkdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { loadSettings } from './glossary.js'
+import { writeManifest } from './app-space.js'
 import { EventEmitter } from 'node:events'
 import { createCore } from 'pearcore/src/core.js'
 import { Chain, generate, consent, enroll } from 'rkey'
@@ -249,6 +250,7 @@ export class App extends EventEmitter {
     const rcfg = this.cfg.rooms.find((r) => r.topic === room.topic)
     rcfg.folder = folder
     saveConfig(this.cfg)
+    this.#manifest(room, 'project').catch((err) => console.error(`[${name}] manifest:`, err.message))
     const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
     if (human) await room.setApp(human, { role: 'project', title: name, home: { device: this.device.ref, name: this.cfg.deviceName }, org: org ?? undefined }).catch((err) => console.error(`[${name}] app note:`, err.message))
     // the seat: named after the folder unless taken, in the folder, in this room only
@@ -272,6 +274,14 @@ export class App extends EventEmitter {
     }
     this.emit('rooms-changed')
     return { room: this.list().find((r) => r.topic === room.topic), seat: seatInfo }
+  }
+
+  // The space's manifest (.pearmeta/app.json + the icon): what this room is to rKeyChat, for PearDrive's "My Apps".
+  async #manifest (room, kind) {
+    const space = await room.space()
+    if (!space) return
+    const home = kind === 'project' ? { device: this.device.ref, name: this.cfg.deviceName } : null
+    await writeManifest(this.core, space, { kind, name: room.cfg.name, home })
   }
 
   // Where new projects go on this device when nobody names a folder: the workspace root (a setting).
@@ -378,6 +388,7 @@ export class App extends EventEmitter {
     saveConfig(this.cfg)
     const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
     if (human && r.room.isOwner) await r.room.setApp(human, { role: folder ? 'project' : 'chat', home: folder ? { device: this.device.ref, name: this.cfg.deviceName } : null }).catch(() => {})
+    if (r.room.isOwner) this.#manifest(r.room, folder ? 'project' : 'chat').catch(() => {})
     r.room.emit('changed')
     this.emit('rooms-changed')
     return this.list().find((x) => x.topic === topic)
@@ -419,6 +430,7 @@ export class App extends EventEmitter {
     this.cfg.rooms.push(rcfg)
     saveConfig(this.cfg)
     const room = await this.#open(rcfg)
+    this.#manifest(room, 'chat').catch((err) => console.error(`[${name}] manifest:`, err.message))
     for (const m of members.filter((m) => !this.participants[m])) {
       try { await this.addMember(room.topic, m) } catch (err) { console.error(`[${name}] couldn't add ${m}:`, err.message) }
     }

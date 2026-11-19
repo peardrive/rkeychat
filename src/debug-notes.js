@@ -16,9 +16,11 @@ import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 
 import { join, dirname } from 'node:path'
 import { decodeShareLink } from 'pearcore/src/utils/sharelink.utils.js'
 import { dataDir } from './config.js'
+import { writeManifest, APP_ID } from './app-space.js'
 
 const EXT = (type) => /ogg/.test(type) ? 'ogg' : /mp4|m4a|aac/.test(type) ? 'm4a' : /wav/.test(type) ? 'wav' : 'webm'
-const SPACE = 'rkeychat-debug'
+const SPACE = 'rkeychat-debug' // the old name of the space ("rkeychat-debug:<device>"); links to it still pull
+const NAME = (device) => `rKeyChat Debug Notes (${device})` // the standard name: PearDrive files it under rKeyChat
 
 export class DebugNotes {
   constructor (app) {
@@ -32,8 +34,9 @@ export class DebugNotes {
   async open () {
     if (this.space) return this.space
     const me = this.app.device.ref.slice(8)
-    const name = `${SPACE}:${me.slice(0, 16)}`
-    const existing = (await this.app.core.space.list()).find((s) => s.spaceName === name)
+    const name = NAME(this.app.cfg.deviceName)
+    const spaces = await this.app.core.space.list()
+    const existing = spaces.find((s) => s.spaceName === name) ?? spaces.find((s) => s.spaceName === `${SPACE}:${me.slice(0, 16)}`)
     this.space = existing ?? await this.app.core.space.create({
       spaceName: name,
       permissionRead: true,
@@ -41,6 +44,19 @@ export class DebugNotes {
       broadcastWhitelist: [me]
     })
     mkdirSync(join(this.dir, 'notes'), { recursive: true })
+    // what the space is, for readers (space.json, as PearDrive and pearcast write it) and for PearDrive's filing
+    // (the manifest and icon of app-spaces-standard.md); announced once, re-announced with the notes
+    if (!this.manifested) {
+      this.manifested = true
+      try {
+        const sj = join(this.dir, 'space.json')
+        if (!existsSync(sj)) writeFileSync(sj, JSON.stringify({ app: APP_ID, kind: 'debug-notes', version: 1, name, readme: 'Debug notes recorded in rKeyChat: notes/<id>/note.<audio>, trace.jsonl, note.json. Pull them with: rkeychat notes pull <link>', layout: { notes: 'notes/<id>/{note.*,trace.jsonl,note.json}' }, written: new Date().toISOString() }, null, 2))
+        const drive = this.app.core.drives.get(this.space)
+        const entry = await drive.addFile('space.json', sj)
+        await new Promise((resolve, reject) => { entry.onError(reject); entry.onComplete(resolve) })
+        await writeManifest(this.app.core, this.space, { kind: 'debug-notes', name })
+      } catch (err) { console.error('[debug] manifest:', err.message) }
+    }
     return this.space
   }
 
@@ -76,8 +92,12 @@ export class DebugNotes {
     link = String(link ?? '').trim()
     let d = null
     try { d = decodeShareLink(link) } catch {}
-    const [kind, host] = String(d?.spaceName ?? '').split(':')
-    if (!d || kind !== SPACE || !host) throw new Error(`that isn't a debug-notes link${d?.spaceName ? ` (it names "${d.spaceName}")` : ''}`)
+    // either spelling of the name: the standard "rKeyChat Debug Notes (<device>)" or the old "rkeychat-debug:<device>"
+    const sn = String(d?.spaceName ?? '')
+    const std = sn.match(/^rKeyChat Debug Notes \((.+)\)$/i)
+    const [kind, old] = sn.split(':')
+    const host = std ? std[1] : (kind === SPACE ? old : null)
+    if (!d || !host) throw new Error(`that isn't a debug-notes link${sn ? ` (it names "${sn}")` : ''}`)
     const core = this.app.core
     let space = (await core.space.list()).find((s) => s.sharelink === link || s.spaceName === d.spaceName)
     if (!space) space = await core.space.join(link)
