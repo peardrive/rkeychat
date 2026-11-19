@@ -1,5 +1,5 @@
 // Screenshots of the mock app (npm run dev:mock on :5180) at desktop and phone sizes → app/screens/.
-// Usage: node scripts/screens.mjs [baseUrl]
+// Each shot also exercises a flow and throws when something expected is missing. Usage: node scripts/screens.mjs [baseUrl]
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -16,89 +16,129 @@ async function shot(name, { width, height, scheme = 'dark', before, mobile = fal
   const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: scheme, deviceScaleFactor: 2, isMobile: mobile, hasTouch: mobile });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: console ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: console ${m.text().slice(0, 200)}`); });
   await page.goto(base, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(900);
-  if (before) await before(page);
+  await page.waitForTimeout(1700); // the mock's feed events (an approval, a mention) arrive within 1.5 s
+  try {
+    if (before) await before(page);
+  } catch (e) {
+    errors.push(`${name}: ${e.message.split('\n')[0]}`);
+  }
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(out, `${name}.png`) });
   await ctx.close();
   console.log('saved', name);
 }
 
-const openRedesign = async (page) => {
-  await page.getByText('Redesign the share row').first().click();
+const must = async (page, locator, what) => {
+  if (!(await locator.count())) throw new Error(`missing: ${what}`);
+};
+const openRedesign = async (page, tap = false) => {
+  const row = page.getByText('Redesign the share row').first();
+  await (tap ? row.tap() : row.click());
   await page.waitForTimeout(700);
 };
 
-await shot('desktop-dark', { width: 1280, height: 800, before: openRedesign });
-await shot('desktop-light', { width: 1280, height: 800, scheme: 'light', before: openRedesign });
-await shot('desktop-empty-conversation', {
-  width: 1280, height: 800,
+const desktop = { width: 1280, height: 800 };
+const phone = { width: 390, height: 844, mobile: true };
+
+await shot('desktop-home', { ...desktop, before: async (page) => { await must(page, page.getByText('wants to log in'), 'the approval in the feed'); await must(page, page.getByText('mentioned you'), 'the mention in the feed'); } });
+await shot('desktop-dark', { ...desktop, before: openRedesign });
+await shot('desktop-light', { ...desktop, scheme: 'light', before: openRedesign });
+await shot('desktop-message-actions', {
+  ...desktop,
   before: async (page) => {
-    await page.getByText('New conversation').first().click();
-    await page.waitForTimeout(700);
+    await openRedesign(page);
+    await page.getByRole('button', { name: /Actions$/ }).last().click();
+    await page.waitForTimeout(300);
+    await must(page, page.getByRole('button', { name: 'React 👍' }), 'the emoji row on a tapped message');
+  },
+});
+await shot('desktop-files', {
+  ...desktop,
+  before: async (page) => {
+    await openRedesign(page);
+    await page.getByRole('button', { name: 'Files' }).first().click();
+    await page.waitForTimeout(600);
+    await must(page, page.getByText('share-row.png'), 'a file in the files list');
   },
 });
 await shot('desktop-menu', {
-  width: 1280, height: 800,
+  ...desktop,
   before: async (page) => {
-    await openRedesign(page);
-    await page.getByRole('button', { name: 'Conversation' }).first().click();
+    await page.getByRole('button', { name: 'PearDrive actions' }).click();
     await page.waitForTimeout(300);
+    await must(page, page.getByRole('menuitem', { name: 'Move to organization…' }), 'the project menu');
   },
 });
 await shot('desktop-new-project', {
-  width: 1280, height: 800,
+  ...desktop,
   before: async (page) => {
-    await page.getByText('New project').click();
-    await page.getByRole('textbox', { name: 'Name' }).fill('Notes app');
-    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'New project' }).click();
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Notes app');
+    await page.getByRole('button', { name: 'Anjou', exact: true }).click();
+    await page.waitForTimeout(300);
   },
 });
-// Phone: a touch device. A project row taps open and closed; a conversation row opens the conversation page.
-const phone = { width: 390, height: 844, mobile: true };
-await shot('phone-list', {
-  ...phone,
+await shot('desktop-profile', {
+  ...desktop,
   before: async (page) => {
-    await page.getByRole('button', { name: 'pearcast', exact: true }).tap();
-    await page.waitForTimeout(300);
-    if (await page.getByText('Chapter markers').count()) throw new Error('pearcast did not collapse on tap');
-    await page.getByRole('button', { name: 'pearcast', exact: true }).tap();
-    await page.waitForTimeout(300);
-    if (!(await page.getByText('Chapter markers').count())) throw new Error('pearcast did not expand on tap');
+    await openRedesign(page);
+    await page.getByRole('button', { name: '@rkeychat' }).first().click();
+    await page.waitForTimeout(500);
+    await must(page, page.getByText('Role in this project'), 'the bot profile');
   },
 });
+await shot('desktop-settings', {
+  ...desktop,
+  before: async (page) => {
+    await page.getByRole('link', { name: 'Settings' }).click();
+    await page.waitForTimeout(700);
+    await must(page, page.getByText('Workspace folder'), 'the settings page');
+  },
+});
+
+await shot('phone-home', { ...phone, before: async (page) => { await must(page, page.getByText('wants to log in'), 'the approval on the phone home'); } });
 await shot('phone-conversation', {
   ...phone,
   before: async (page) => {
-    await page.getByText('Redesign the share row').first().tap();
-    await page.waitForTimeout(700);
-    if (!(await page.getByRole('button', { name: 'Back' }).count())) throw new Error('no back control on the conversation page');
+    await openRedesign(page, true);
+    await must(page, page.getByRole('button', { name: 'Back' }), 'a back control on the conversation page');
+    await must(page, page.getByRole('button', { name: 'Files' }), 'the glass bar');
   },
 });
 await shot('phone-project', {
   ...phone,
   before: async (page) => {
-    await page.getByText('Redesign the share row').first().tap();
-    await page.waitForTimeout(700);
-    await page.getByRole('button', { name: 'Show project' }).first().tap();
+    await openRedesign(page, true);
+    await page.getByRole('button', { name: 'Project' }).first().tap();
     await page.waitForTimeout(500);
-    if (!(await page.getByRole('button', { name: 'Back' }).count())) throw new Error('no back control on the project page');
+    await must(page, page.getByRole('button', { name: 'Back' }), 'a back control on the project sheet');
   },
 });
 await shot('phone-new-project', {
   ...phone,
   before: async (page) => {
-    await page.getByText('New project').tap();
-    await page.getByRole('textbox', { name: 'Name' }).fill('From the phone');
+    await page.getByRole('button', { name: 'New', exact: true }).tap();
+    await page.getByRole('menuitem', { name: 'New project' }).tap();
+    await page.getByRole('textbox', { name: 'Name', exact: true }).fill('From the phone');
     await page.waitForTimeout(400);
+  },
+});
+await shot('phone-profile', {
+  ...phone,
+  before: async (page) => {
+    await openRedesign(page, true);
+    await page.getByText('@rkeychat is thinking').first().tap();
+    await page.waitForTimeout(500);
+    await must(page, page.getByText('Role in this project'), 'the bot profile from the thinking line');
   },
 });
 
 await browser.close();
 if (errors.length) {
-  console.log('\nPage errors:');
+  console.log('\nProblems:');
   for (const e of errors) console.log(' -', e);
   process.exitCode = 1;
 }
