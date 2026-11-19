@@ -2,10 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- an app, not a page: no pinch or double-tap zoom on the interface (viewers zoom their own content) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>rKeyChat</title>
     <style>
       html, body, #root { height: 100%; margin: 0; background: #09080d; overflow: hidden; }
+      html { touch-action: manipulation; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+      body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+      /* text people may want to copy stays selectable */
+      [data-selectable], [data-selectable] * { -webkit-user-select: text; user-select: text; }
       /* react-native-web layouts are flexbox all the way down */
       #root { display: flex; flex-direction: column; }
     </style>

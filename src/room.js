@@ -322,7 +322,11 @@ export class Room extends EventEmitter {
   // { app, role, name, icon } or null. (PearDrive files the space under that app.)
   appInfo () {
     let a = null
-    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'app' && r.app) a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : 'chat', name: r.name ?? this.cfg.name, home: r.home ?? null, ...(r.icon ? { icon: r.icon } : {}) }
+    for (const r of this.store.ordered) {
+      if (r.kind !== 'control' || r.action !== 'app' || !r.app) continue
+      // each note carries what it says; what it leaves out stays as it was (an 'org' change does not forget the home)
+      a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : (a?.role ?? 'chat'), name: r.name ?? a?.name ?? this.cfg.name, home: r.home !== undefined ? r.home : (a?.home ?? null), org: r.org !== undefined ? r.org : (a?.org ?? null), ...(r.icon ? { icon: r.icon } : a?.icon ? { icon: a.icon } : {}) }
+    }
     return a
   }
 
@@ -1036,16 +1040,16 @@ export class Room extends EventEmitter {
   }
 
   // Say which app this room belongs to and what it is to it (see proto.js 'app'). Owner-side, once per change.
-  async setApp (name, { app = 'rkeychat', role = 'chat', title, icon, home } = {}) {
-    if (!APP_ROLES.includes(role)) throw new Error(`role must be one of ${APP_ROLES.join(', ')}`)
-    return this.control(name, 'app', { app, role, name: title ?? this.cfg.name, icon, home })
+  async setApp (name, { app = 'rkeychat', role, title, icon, home, org } = {}) {
+    if (role !== undefined && !APP_ROLES.includes(role)) throw new Error(`role must be one of ${APP_ROLES.join(', ')}`)
+    return this.control(name, 'app', { app, role, name: title, icon, home, org })
   }
 
   // Ask one of the owner's devices to make a project (docs/projects-home-and-sync.md §1): a signed, account-gated
   // 'project' control carried by this room; the home device acts on it when it sees it.
-  async requestProject (name, { title, home, prompt } = {}) {
+  async requestProject (name, { title, home, prompt, org } = {}) {
     if (!home?.device) throw new Error('which device should hold the project?')
-    return this.control(name, 'project', { name: title, home, text: prompt })
+    return this.control(name, 'project', { name: title, home, text: prompt, org })
   }
 
   // The owner's devices as this room's chain knows them: [{ ref, name, online, here }]. A device is the owner's
@@ -1059,7 +1063,9 @@ export class Room extends EventEmitter {
     const now = Date.now()
     return members.filter((m) => m.label?.startsWith('device:') && names.has(m.label.slice(7))).map((m) => {
       const p = this.presence.get(m.ref)
-      return { ref: m.ref, name: m.label.slice(7), online: !!(p && now - p.ts < PRESENCE_STALE) || m.ref === this.device?.ref, here: m.ref === this.device?.ref }
+      // a device is online when its presence was heard lately; the window is wider than the room's own (a phone
+      // asking about its Mac has often just reconnected and seen one presence, minutes old)
+      return { ref: m.ref, name: m.label.slice(7), online: !!(p && now - p.ts < 5 * PRESENCE_STALE) || m.ref === this.device?.ref, here: m.ref === this.device?.ref }
     })
   }
 
