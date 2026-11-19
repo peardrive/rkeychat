@@ -19,6 +19,14 @@ import { dataDir } from './config.js'
 import { writeManifest, APP_ID } from './app-space.js'
 
 const EXT = (type) => /ogg/.test(type) ? 'ogg' : /mp4|m4a|aac/.test(type) ? 'm4a' : /wav/.test(type) ? 'wav' : 'webm'
+// add a file to a space's registry; one that is already there is fine (a second open, a re-save)
+export async function addFileOnce (drive, spacePath, localPath) {
+  try {
+    const entry = await drive.addFile(spacePath, localPath)
+    await new Promise((resolve, reject) => { entry.onError(reject); entry.onComplete(resolve) })
+  } catch (err) { if (!/already exists/i.test(String(err?.message ?? err))) throw err }
+}
+
 const SPACE = 'rkeychat-debug' // the old name of the space ("rkeychat-debug:<device>"); links to it still pull
 const NAME = (device) => `rKeyChat Debug Notes (${device})` // the standard name: PearDrive files it under rKeyChat
 
@@ -44,6 +52,7 @@ export class DebugNotes {
       broadcastWhitelist: [me]
     })
     mkdirSync(join(this.dir, 'notes'), { recursive: true })
+    this.#listen()
     // what the space is, for readers (space.json, as PearDrive and pearcast write it) and for PearDrive's filing
     // (the manifest and icon of app-spaces-standard.md); announced once, re-announced with the notes
     if (!this.manifested) {
@@ -51,11 +60,10 @@ export class DebugNotes {
       try {
         const sj = join(this.dir, 'space.json')
         if (!existsSync(sj)) writeFileSync(sj, JSON.stringify({ app: APP_ID, kind: 'debug-notes', version: 1, name, readme: 'Debug notes recorded in rKeyChat: notes/<id>/note.<audio>, trace.jsonl, note.json. Pull them with: rkeychat notes pull <link>', layout: { notes: 'notes/<id>/{note.*,trace.jsonl,note.json}' }, written: new Date().toISOString() }, null, 2))
-        const drive = this.app.core.drives.get(this.space)
-        const entry = await drive.addFile('space.json', sj)
-        await new Promise((resolve, reject) => { entry.onError(reject); entry.onComplete(resolve) })
+        await addFileOnce(this.app.core.drives.get(this.space), 'space.json', sj)
         await writeManifest(this.app.core, this.space, { kind: 'debug-notes', name })
       } catch (err) { console.error('[debug] manifest:', err.message) }
+      this.announce()
     }
     return this.space
   }
@@ -151,9 +159,34 @@ export class DebugNotes {
   async #announce (id, files) {
     const space = await this.open()
     const drive = this.app.core.drives.get(space)
-    for (const f of files) {
-      const entry = await drive.addFile(`notes/${id}/${f}`, join(this.dir, 'notes', id, f))
-      await new Promise((resolve, reject) => { entry.onError(reject); entry.onComplete(resolve) })
-    }
+    for (const f of files) await addFileOnce(drive, `notes/${id}/${f}`, join(this.dir, 'notes', id, f))
+  }
+
+  // Re-broadcast every file this device holds in the notes space, so a reader that joined after a note was
+  // saved hears of it (pearcore only lists files during a space sync). Runs on every connection to the space.
+  announce () {
+    try {
+      const topic = this.space?.topicHash; if (!topic) return
+      const me = this.app.device.ref.slice(8)
+      const files = this.app.core.managers.spaceFileList.get(topic) ?? {}
+      const b = this.app.core.managers.spaceFiles.fileEventBroadcaster
+      let n = 0
+      for (const [path, variants] of Object.entries(files)) {
+        for (const [rootHash, v] of Object.entries(variants)) {
+          const mine = v.peers?.[me]; if (!mine) continue
+          b.add('add', { topic, path, publicKey: me, timestamp: mine.timestamp, rootHash, signature: mine.signature }); n++
+        }
+      }
+      if (n && process.env.RKEYCHAT_DEBUG) console.error('[debug] re-announced', n, 'note files')
+    } catch (err) { console.error('[debug] announce:', err.message) }
+  }
+
+  #listen () {
+    if (this.listening) return
+    this.listening = true
+    const em = this.app.core.emitter
+    const onTopic = ({ topics }) => { if (this.space && topics?.includes(this.space.topicHash)) this.announce() }
+    em.on('Connection', onTopic)
+    em.on('SpaceHashList', onTopic)
   }
 }
