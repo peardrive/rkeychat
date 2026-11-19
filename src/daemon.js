@@ -3,6 +3,9 @@
 
 import { join, resolve, basename } from 'node:path'
 
+// can this device hold project folders and run seats? (the phone runs on Bare: no)
+const canHost = () => typeof Bare === 'undefined'
+
 // a seat name from a folder name: lower case, letters digits - _ only
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project'
 import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs'
@@ -235,6 +238,7 @@ export class App extends EventEmitter {
   // folder, driven over ACP unless said otherwise) and the signed note that says what the room is.
   // One gesture from the shell: drop a folder, and the room, the chain, the seat and the note exist.
   async createProject ({ folder, name, agent, via = 'acp' } = {}) {
+    if (!canHost()) throw new Error('this device cannot hold a project; pick one of your computers')
     folder = resolve(String(folder ?? '').trim())
     if (!folder || !existsSync(folder)) throw new Error(`no such folder: ${folder}`)
     const base = basename(folder)
@@ -298,6 +302,8 @@ export class App extends EventEmitter {
       out.set(d.ref, cur ? { ...cur, online: cur.online || d.online } : d)
     }
     if (!out.has(this.device.ref)) out.set(this.device.ref, { ref: this.device.ref, name: this.cfg.deviceName, online: true, here: true })
+    // a phone holds no folders and runs no seats: projects live on a computer
+    for (const d of out.values()) if (d.here) d.canHost = canHost()
     return [...out.values()].sort((a, b) => (b.here - a.here) || (b.online - a.online) || a.name.localeCompare(b.name))
   }
 

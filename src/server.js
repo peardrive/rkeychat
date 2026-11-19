@@ -197,7 +197,7 @@ export function serve ({ app }) {
       const r = app.find(url.searchParams.get('room'))
       const conv = convArg(url)
       return {
-        device: { name: cfg.deviceName, ref: device.ref, root: cfg.root ? app.root().ref : null, participants: Object.entries(cfg.participants).map(([name, p]) => ({ name, role: p.role, ref: p.ref, bridge: p.bridge?.kind })), desktop: !!process.versions?.electron },
+        device: { name: cfg.deviceName, ref: device.ref, root: cfg.root ? app.root().ref : null, participants: Object.entries(cfg.participants).map(([name, p]) => ({ name, role: p.role, ref: p.ref, bridge: p.bridge?.kind })), desktop: !!process.versions?.electron, canHost: typeof Bare === 'undefined' },
         rooms: app.list(),
         canTranscribe: canTranscribe(cfg),
         current: r ? snapshot(r.room, conv) : null
