@@ -5,7 +5,7 @@
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { rkc, type TextInputRef } from '../hooks';
-import { DropZone, IconButton, MenuButton, OrgTabs, SearchField, SegmentedControl, Sidebar, SidebarContent, SidebarHeader, SidebarSpacer, SidebarToggle, WindowControls, useSidebar, useToast, type DroppedItem, type MenuItem } from '../kit';
+import { ALL_ORGS, DropZone, IconButton, MenuButton, OrgTabs, SearchField, SegmentedControl, Sidebar, SidebarContent, SidebarHeader, SidebarSpacer, SidebarToggle, WindowControls, useSidebar, useToast, type DroppedItem, type MenuItem } from '../kit';
 import { useStore } from '../store/context';
 import { feedUnread } from '../store/feed';
 import { filterByOrg, orgTabs, writeOrgFilter, type DockPage, type OrgFilter } from '../store/nav';
@@ -146,7 +146,7 @@ function Body({ tab, query, setQuery, searchRef, tabs, current, onOrgFilter, onN
         </View>
         <MenuButton icon="add" items={plusItems} size="sm" variant="subtle" tooltip="New project or organization" accessibilityLabel="New" />
       </View>
-      <OrgTabs size="sm" className="-mx-2.5" items={tabs.map((t) => ({ key: t.key, name: t.name, count: t.count, avatar: t.key === 'all' || t.key === 'none' ? null : undefined }))} value={current} onChange={onOrgFilter} onAdd={onNewOrg} />
+      <OrgTabs size="sm" className="-mx-2.5" items={tabs.filter((t) => t.key !== 'all').map((t) => ({ key: t.key, name: t.name, count: t.count, avatar: { seed: `org:${t.key}` } }))} value={current === 'all' ? ALL_ORGS : current} onChange={(k) => onOrgFilter(k === ALL_ORGS ? 'all' : k)} onAdd={onNewOrg} />
       <SidebarContent className="pb-3 pt-1">
         <ProjectList rooms={shown} query={query} grouped={current === 'all'} onProjectAction={onProjectAction} />
       </SidebarContent>

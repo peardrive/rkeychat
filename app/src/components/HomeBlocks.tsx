@@ -49,8 +49,8 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
   const unread = feedUnread(state.feed);
 
   return (
-    <HomeGrid>
-      <HomeBlock title="Needs you" icon="alert-circle" count={needs.length} action={unread ? { label: `Activity · ${unread}`, onPress: onOpenActivity } : undefined}>
+    <HomeGrid columns={compact ? 1 : undefined}>
+      <HomeBlock title="Needs you" icon="alert-circle" size="wide" count={needs.length || undefined} action={unread ? { label: `Activity · ${unread}`, onPress: onOpenActivity } : undefined}>
         {needs.length ? (
           <ActivityFeed items={needsItems} onOpen={openItem} compact groupByDay={false} showWhere={!compact} />
         ) : (
@@ -60,7 +60,7 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
         )}
       </HomeBlock>
 
-      <HomeBlock title="Recent" icon="message" action={{ label: 'Projects', onPress: () => onOpenProjects() }}>
+      <HomeBlock title="Recent" icon="message" size="wide" action={{ label: 'Projects', onPress: () => onOpenProjects() }}>
         {recent.length ? (
           <View className="-mx-1 gap-px">
             {recent.map((r) => (
@@ -86,7 +86,7 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
         )}
       </HomeBlock>
 
-      <HomeBlock title="Organizations" icon="grid-1" size={compact ? 'full' : 'half'} action={{ label: 'All', onPress: () => onOpenProjects() }}>
+      <HomeBlock title="Organizations" icon="grid-1" action={{ label: 'All', onPress: () => onOpenProjects() }}>
         {orgs.length ? (
           <View className="flex-row flex-wrap gap-x-3 gap-y-2">
             {orgs.map((o) => (
@@ -108,8 +108,8 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
         )}
       </HomeBlock>
 
-      <HomeBlock title="Online" icon="people" size={compact ? 'full' : 'half'}>
-        <PresenceRow people={online} max={compact ? 6 : 10} onPress={onOpenProfile ? (p) => onOpenProfile(p.name) : undefined} />
+      <HomeBlock title="Online" icon="people">
+        <PresenceRow people={online.map((p) => ({ ...p, avatar: { seed: p.id } }))} max={compact ? 6 : 10} size={36} onPress={onOpenProfile ? (id) => onOpenProfile(id) : undefined} />
       </HomeBlock>
 
       <ApprovalDialog item={approval} onClose={() => setApproval(null)} onGrant={grant} onDeny={deny} />

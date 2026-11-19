@@ -164,7 +164,7 @@ await shot('phone-new-project', {
 await shot('phone-profile', {
   ...phone,
   before: async (page) => {
-    await page.getByRole('button', { name: 'rkeychat', exact: true }).first().tap();
+    await page.getByRole('button', { name: /^rkeychat, / }).first().tap();
     await page.waitForTimeout(500);
     await must(page, page.getByText('Role in this project'), 'the bot profile from Online');
   },

@@ -5,7 +5,7 @@
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { SAFE_TOP, isTouch, rkc, useSwipe } from '../hooks';
-import { DropZone, MenuButton, OrgTabs, Pane, PaneBody, PaneHeader, SearchField, WindowControls, useToast, type DroppedItem, type MenuItem } from '../kit';
+import { ALL_ORGS, DropZone, MenuButton, OrgTabs, Pane, PaneBody, PaneHeader, SearchField, WindowControls, useToast, type DroppedItem, type MenuItem } from '../kit';
 import { useStore } from '../store/context';
 import { filterByOrg, neighbourTab, orgTabs, writeOrgFilter, type OrgFilter } from '../store/nav';
 import { folderName, orderedRooms } from '../store/selectors';
@@ -92,7 +92,7 @@ export function ProjectsPage({ phone, orgFilter, onOrgFilter, onNewProject, onNe
   return (
     <Pane glow>
       <PaneHeader title="Projects" size={phone ? 'display' : 'title'} style={headerStyle(phone)} dragRegion={!phone} actions={<View className="flex-row items-center gap-1"><DebugButton /><MenuButton icon="add" items={plusItems} size="sm" variant="subtle" tooltip={touch ? undefined : 'New project or organization'} accessibilityLabel="New" /></View>} />
-      <OrgTabs items={tabs.map((t) => ({ key: t.key, name: t.name, count: t.count, avatar: t.key === 'all' || t.key === 'none' ? null : undefined }))} value={current} onChange={(k) => { onOrgFilter(k); writeOrgFilter(k); }} onAdd={onNewOrg} />
+      <OrgTabs items={tabs.filter((t) => t.key !== 'all').map((t) => ({ key: t.key, name: t.name, count: t.count, avatar: { seed: `org:${t.key}` } }))} value={current === 'all' ? ALL_ORGS : current} onChange={(k) => { const f = k === ALL_ORGS ? 'all' : k; onOrgFilter(f); writeOrgFilter(f); }} onAdd={onNewOrg} />
       <View className="px-3 pb-1 pt-1">
         <SearchField value={query} onChangeText={setQuery} placeholder="Search projects and conversations" />
       </View>

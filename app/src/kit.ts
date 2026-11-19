@@ -5,7 +5,7 @@
  *
  * 2026-11-19: everything from rounds 1 and 2 (Chat, Menu, Toast, DropZone, Toggle, SegmentedControl, MarkdownText,
  * ActivityFeed, GlassBar, EmojiPicker, ProfileCard, SettingsBlock) is used from PearKit directly.
- * Still stand-ins: the two-line sidebar rows and the file rows.
+ * Dock, OrgTabs and the Home blocks came with cfe787f. Still stand-ins: the two-line sidebar rows and the file rows.
  */
 export {
   ActivityFeed,
@@ -18,6 +18,7 @@ export {
   CountBadge,
   DangerZone,
   DebugNotesButton,
+  Dock,
   Dialog,
   Divider,
   DropZone,
@@ -26,6 +27,8 @@ export {
   EmptyState,
   GlassBar,
   GlassBarButton,
+  HomeBlock,
+  HomeGrid,
   Icon,
   IconButton,
   Kbd,
@@ -35,9 +38,11 @@ export {
   MenuButton,
   MessageList,
   MessageRow,
+  OrgTabs,
   Pane,
   PaneBody,
   PaneHeader,
+  PresenceRow,
   ProfileCard,
   SearchField,
   SectionLabel,
@@ -63,6 +68,7 @@ export {
   WindowControls,
   cn,
   copyToClipboard,
+  ALL_ORGS,
   DEFAULT_QUICK_EMOJI,
   fileKindFromName,
   formatBytes,
@@ -74,15 +80,7 @@ export {
   useToast,
   withAlpha,
 } from 'pearkit';
-export type { ActivityItem, ActivityKind, ChatAttachment, ChatMessage, ColorToken, DroppedItem, IconName, IconSource, MenuItem, PaneHeaderAction, ProfileSection, StatusTone, ToastOptions } from 'pearkit';
-
-// Pending in PearKit (being written): the dock, organization tabs, home blocks.
-export { Dock, DockButton } from './pending-pearkit/Dock';
-export type { DockItem } from './pending-pearkit/Dock';
-export { OrgTabs } from './pending-pearkit/OrgTabs';
-export type { OrgTabItem } from './pending-pearkit/OrgTabs';
-export { HomeBlock, HomeGrid, PresenceRow } from './pending-pearkit/HomeBlocks';
-export type { PresencePerson } from './pending-pearkit/HomeBlocks';
+export type { ActivityItem, ActivityKind, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, ToastOptions } from 'pearkit';
 
 // Pending in PearKit: the file rows of a project (projects-home-and-sync.md §3).
 export { FileList, FileRow } from './pending-pearkit/FileList';
