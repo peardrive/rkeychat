@@ -236,21 +236,24 @@ export function serve ({ app }) {
 
     // ---- projects: a room bound to a folder, with its own seat ----
     'POST /api/projects': async (req) => {
-      const { folder, name, agent, via, home, prompt } = await body(req)
+      const { folder, name, agent, via, home, prompt, org } = await body(req)
       // on another of the owner's devices: ask it (a signed, account-gated control); here: make it now
-      if (home && home !== device.ref && home !== cfg.deviceName) return { pending: true, ...(await app.requestProject({ name, home, prompt })) }
+      if (home && home !== device.ref && home !== cfg.deviceName) return { pending: true, ...(await app.requestProject({ name, home, prompt, org })) }
       if (!String(folder ?? '').trim()) {
         need(String(name ?? '').trim(), 'a project needs a folder or a name')
         const dir = join(app.workspace(), String(name).trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'project')
         mkdirSync(dir, { recursive: true })
-        return app.createProject({ folder: dir, name, agent, via })
+        return app.createProject({ folder: dir, name, agent, via, org })
       }
-      return app.createProject({ folder, name, agent, via })
+      return app.createProject({ folder, name, agent, via, org })
     },
     // the owner's devices, for "where should this project live?": [{ ref, name, online, here }]
     'GET /api/devices': () => app.devices(),
     'GET /api/workspace': () => ({ workspace: app.workspace() }),
     'POST /api/workspace': async (req) => { const { workspace } = await body(req); need(String(workspace ?? '').trim(), 'a folder'); return { workspace: saveSettings({ workspace: resolvePath(String(workspace).trim()) }).workspace } },
+    // take a room off this device (its seat and local records go; the folder on disk stays)
+    'POST /api/rooms/org': async (req) => { const { room: key, org } = await body(req); need(key, 'which room?'); return app.setRoomOrg(key, org) },
+    'POST /api/rooms/remove': async (req) => { const { room: key } = await body(req); need(key, 'which room?'); return app.removeRoom(key) },
     'POST /api/rooms/folder': async (req) => {
       const { room: key, folder } = await body(req)
       const { room } = pick(key)

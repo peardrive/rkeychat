@@ -53,6 +53,7 @@ agents
   rkeychat send --conv ID TEXT...          post into one conversation of the room (default: the one the answered message is in, else main)
   rkeychat convs [--room R]                the room's conversations; rkeychat convs new TITLE | rename ID TITLE | archive ID | unarchive ID
   rkeychat project init [DIR] [--name N] [--agent SEAT]   a folder becomes a project: a room bound to it, with its own seat over ACP
+  rkeychat room remove NAME                take a room off this device (its seat and records go; the folder stays)
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
@@ -248,6 +249,11 @@ switch (cmd) {
   }
   case 'room': {
     const sub = pos.shift()
+    if (sub === 'remove') {
+      const r = await api('POST', '/api/rooms/remove', { room: pos.join(' ') || opt.room })
+      console.log(`removed "${r.removed}"${r.seats.length ? ` and its seat @${r.seats.join(', @')}` : ''}${r.folder ? `; the folder stays: ${r.folder}` : ''}`)
+      break
+    }
     if (sub === 'create') {
       const r = await api('POST', '/api/rooms', { name: pos.join(' ') || die('usage: rkeychat room create NAME') })
       console.log(`created "${r.name}". Invite others: rkeychat invite --room "${r.name}"`)

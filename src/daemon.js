@@ -8,7 +8,7 @@ const canHost = () => typeof Bare === 'undefined'
 
 // a seat name from a folder name: lower case, letters digits - _ only
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project'
-import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs'
+import { existsSync, readFileSync, appendFileSync, mkdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { loadSettings } from './glossary.js'
 import { EventEmitter } from 'node:events'
@@ -99,7 +99,8 @@ export class App extends EventEmitter {
     // the control is account-gated in #admits, so arriving here means the owner's own key signed it
     room.on('record', (rec) => {
       if (rec.kind !== 'control' || rec.action !== 'project' || rec.home?.device !== this.device.ref) return
-      this.#projectRequested(rec, room).catch((err) => console.error(`[${rcfg.name}] project request:`, err.message))
+      // the event carries the viewed record, whose `name` is the author; the project's name is on the signed one
+      this.#projectRequested(room.store.get(rec.id) ?? rec, room).catch((err) => console.error(`[${rcfg.name}] project request:`, err.message))
     })
     room.on('invite', async ({ code, from }) => {
       try {
@@ -237,7 +238,7 @@ export class App extends EventEmitter {
   // A project: a room bound to a folder on this device, with its own seat (a project agent in that
   // folder, driven over ACP unless said otherwise) and the signed note that says what the room is.
   // One gesture from the shell: drop a folder, and the room, the chain, the seat and the note exist.
-  async createProject ({ folder, name, agent, via = 'acp' } = {}) {
+  async createProject ({ folder, name, agent, via = 'acp', org } = {}) {
     if (!canHost()) throw new Error('this device cannot hold a project; pick one of your computers')
     folder = resolve(String(folder ?? '').trim())
     if (!folder || !existsSync(folder)) throw new Error(`no such folder: ${folder}`)
@@ -249,11 +250,13 @@ export class App extends EventEmitter {
     rcfg.folder = folder
     saveConfig(this.cfg)
     const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
-    if (human) await room.setApp(human, { role: 'project', title: name, home: { device: this.device.ref, name: this.cfg.deviceName } }).catch((err) => console.error(`[${name}] app note:`, err.message))
+    if (human) await room.setApp(human, { role: 'project', title: name, home: { device: this.device.ref, name: this.cfg.deviceName }, org: org ?? undefined }).catch((err) => console.error(`[${name}] app note:`, err.message))
     // the seat: named after the folder unless taken, in the folder, in this room only
-    let seat = String(agent ?? '').trim() || slug(base)
+    let seat = String(agent ?? '').trim() || slug(name)
+    const isPerson = (n) => this.cfg.participants[n]?.role === 'human'
+    if (isPerson(seat)) seat = `${seat}-bot`
     if (this.cfg.participants[seat] && this.cfg.participants[seat].bridge?.dir !== folder) {
-      let i = 2; while (this.cfg.participants[`${seat}${i}`]) i++
+      let i = 2; while (this.cfg.participants[`${seat}${i}`] || isPerson(`${seat}${i}`)) i++
       seat = `${seat}${i}`
     }
     let seatInfo = null
@@ -272,11 +275,13 @@ export class App extends EventEmitter {
   }
 
   // Where new projects go on this device when nobody names a folder: the workspace root (a setting).
-  workspace () { return resolve(String(loadSettings().workspace || join(homedir(), 'Projects'))) }
+  // Not ~/Projects: that is often a person's own folder of work (it is Guy's), and a tool must not drop folders into it unasked.
+  workspace () { return resolve(String(loadSettings().workspace || join(homedir(), 'rKeyChat'))) }
 
   // A 'project' control that names this device as home: make the folder under the workspace root and the
   // project. Once per request record; a name already in use here is left alone and said so.
   async #projectRequested (rec, via) {
+    const org = rec.org ?? undefined
     const done = this.cfg.projectRequests ??= []
     if (done.includes(rec.id)) return
     done.push(rec.id); if (done.length > 200) done.splice(0, done.length - 200)
@@ -285,7 +290,7 @@ export class App extends EventEmitter {
     const folder = join(this.workspace(), slug(name))
     if (this.cfg.rooms.some((r) => r.folder === folder || r.name === name)) { console.error(`[project] "${name}" already exists here; ignoring the request from ${via.cfg.name}`); return }
     mkdirSync(folder, { recursive: true })
-    const out = await this.createProject({ folder, name })
+    const out = await this.createProject({ folder, name, org })
     if (rec.text) { // the prompt the requester wrote, as the room's charter
       const room = this.rooms.get(out.room.topic)?.room
       const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
@@ -309,7 +314,7 @@ export class App extends EventEmitter {
 
   // Ask another of the owner's devices to make the project: a signed 'project' control through a room both are
   // in (the owner's human must be able to write controls there). Returns where it was asked.
-  async requestProject ({ name, home, prompt } = {}) {
+  async requestProject ({ name, home, prompt, org } = {}) {
     name = String(name ?? '').trim(); if (!name) throw new Error('a project needs a name')
     const dev = this.devices().find((d) => d.ref === home || d.name === home)
     if (!dev) throw new Error(`not one of your devices: ${home}`)
@@ -318,8 +323,47 @@ export class App extends EventEmitter {
     if (!human) throw new Error('only a person can ask for a project')
     const carrier = [...this.rooms.values()].map((r) => r.room).find((room) => room.chain && room.isOwnerKey(room.local[human]?.signer.ref) && room.ownDevices().some((d) => d.ref === dev.ref))
     if (!carrier) throw new Error(`no room shared with ${dev.name} where you can ask`)
-    const rec = await carrier.requestProject(human, { title: name, home: { device: dev.ref, name: dev.name }, prompt })
+    const rec = await carrier.requestProject(human, { title: name, home: { device: dev.ref, name: dev.name }, prompt, org })
     return { asked: dev.name, via: carrier.cfg.name, id: rec.id, online: dev.online }
+  }
+
+  // Take a room off this device: its seat (when it lives only here), its runners, its local records. A room
+  // someone else owns is left first (our keys self-revoke). The project folder on disk is never touched.
+  async removeRoom (key) {
+    const r = this.find(key)
+    if (!r) throw new Error(`no room "${key}"`)
+    const { room, runners } = r
+    const topic = room.topic
+    if (!room.isOwner && room.chain) {
+      for (const [name, p] of Object.entries(this.participants)) if (room.local[name] && room.state?.isActive(p.signer.ref)) await room.leave(name).catch(() => {})
+      await room.leave().catch(() => {})
+    }
+    for (const runner of runners.values()) runner.stop?.()
+    room.stop()
+    this.rooms.delete(topic)
+    const rcfg = this.cfg.rooms.find((x) => x.topic === topic)
+    this.cfg.rooms = this.cfg.rooms.filter((x) => x.topic !== topic)
+    // a seat made for this project (its folder is the room's) that sits in no other room goes too
+    const seats = []
+    for (const [name, p] of Object.entries(this.cfg.participants)) {
+      if (p.role !== 'agent' || p.bridge?.kind !== 'claude' || !rcfg?.folder || p.bridge.dir !== rcfg.folder) continue
+      const elsewhere = [...this.rooms.values()].some(({ room: o }) => o.local[name] && o.state?.isActive(this.participants[name]?.signer.ref))
+      if (!elsewhere) { delete this.cfg.participants[name]; delete this.participants[name]; seats.push(name) }
+    }
+    saveConfig(this.cfg)
+    if (rcfg?.dir) rmSync(join(dataDir(), rcfg.dir), { recursive: true, force: true })
+    this.emit('rooms-changed')
+    return { removed: room.cfg.name, topic, seats, folder: rcfg?.folder ?? null }
+  }
+
+  // Put a room in an organization (or take it out: org null). Owner only; the note is signed and shared.
+  async setRoomOrg (key, org) {
+    const r = this.find(key); if (!r) throw new Error(`no room "${key}"`)
+    if (!r.room.isOwner) throw new Error('only the owner can move a project between organizations')
+    const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+    await r.room.setApp(human, { org: org == null || String(org).trim() === '' ? null : String(org).trim() })
+    r.room.emit('changed'); this.emit('rooms-changed')
+    return this.list().find((x) => x.topic === r.room.topic)
   }
 
   // Bind (or rebind) a folder to a room on this device; the room becomes a project here.
