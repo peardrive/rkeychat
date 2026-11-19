@@ -43,8 +43,10 @@ export async function writeManifest (core, space, fields) {
   if (existsSync(icon)) { copyFileSync(icon, join(dir, 'app-icon.png')); files.push(['app-icon.png', null]) }
   const drive = core.drives.get(space)
   for (const [name] of files) {
-    const entry = await drive.addFile(`.pearmeta/${name}`, join(dir, name))
-    await new Promise((resolve, reject) => { entry.onError(reject); entry.onComplete(resolve) })
+    try {
+      const entry = await drive.addFile(`.pearmeta/${name}`, join(dir, name))
+      await new Promise((resolve, reject) => { entry.onError(reject); entry.onComplete(resolve) })
+    } catch (err) { if (!/already exists/i.test(String(err?.message ?? err))) throw err } // already registered: fine
   }
   return m
 }

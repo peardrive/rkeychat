@@ -374,6 +374,15 @@ export function serve ({ app }) {
 
     // Debug notes (src/debug-notes.js): the mic button in the UI saves one here.
     'GET /api/debug/space': async () => notes.info(),
+    // what this device sees of any space it has joined (debugging a pull): its files, peers; ?name= or ?topic=
+    'GET /api/debug/space/files': async (req, res, url) => {
+      const q = url.searchParams.get('name') ?? ''; const t = url.searchParams.get('topic') ?? ''
+      const sp = (await app.core.space.list()).find((s) => s.spaceName === q || (t && s.topicHash.startsWith(t)))
+      need(sp, 'no such space here', 404)
+      const list = app.core.managers.spaceFileList.get(sp.topicHash) ?? {}
+      let peers = 0; try { peers = app.core.managers.sockets.getConnectedSockets({ topics: [sp.topicHash] }).length } catch {}
+      return { name: sp.spaceName, topic: sp.topicHash, isSync: sp.isSync, peers, files: Object.entries(list).map(([p, v]) => ({ path: p, versions: Object.keys(v).length, providers: Object.values(v).map((x) => Object.keys(x.peers ?? {}).length) })) }
+    },
     'GET /api/debug/notes': async () => ({ ...(await notes.info()), notes: notes.list() }),
     'POST /api/debug/note': async (req) => {
       const n = JSON.parse(await rawBody(req, MAX_BLOB) || '{}')
