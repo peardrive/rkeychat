@@ -24,6 +24,16 @@ export const isOurs = (payload) => payload && typeof payload === 'object' && pay
 
 const newId = () => randomBytes(12).toString('hex')
 
+// Conversations: a room holds many. A record's `conv` names the one it belongs to; records
+// without one (everything before 2026-11-18) belong to the default conversation, MAIN. The
+// field is signed like any other, and old daemons verify and store it unchanged (verifyBody
+// covers every field), they just show every conversation as one.
+export const MAIN = 'main'
+export const isConvId = (s) => s === MAIN || /^[0-9a-f]{8,32}$/.test(String(s ?? ''))
+export const newConvId = () => randomBytes(8).toString('hex')
+// what goes into a signed body: nothing for the default conversation, so old records and new ones agree
+const convField = (conv) => conv && conv !== MAIN ? String(conv) : undefined
+
 // Strip undefined fields: pearcore's canonicalStringify writes them as a bare
 // `undefined` (invalid JSON), and the receiver then silently drops the whole
 // message. rKey's canonical() already ignores them, so signatures don't change.
@@ -44,8 +54,8 @@ function verifyBody (domain, obj) {
 // many agent hops it is from the last human message (humans are always 0).
 // `via: 'voice'` marks a dictated message (signed, so agents can trust the flag).
 // `att` lists attachments by content hash: [{ hash, mime, size, duration, peaks, transcript }].
-export async function makeMessage (signer, { room, text, mentions = [], re = [], depth = 0, via, att, ts = Date.now() }) {
-  return signBody('rkeychat-msg', signer, { kind: 'msg', id: newId(), room, ts, text, mentions, re, depth, via, att })
+export async function makeMessage (signer, { room, text, mentions = [], re = [], depth = 0, via, att, conv, ts = Date.now() }) {
+  return signBody('rkeychat-msg', signer, { kind: 'msg', id: newId(), room, ts, text, mentions, re, depth, via, att, conv: convField(conv) })
 }
 
 // A control: budget and pause changes. Only admins' controls count.
@@ -56,6 +66,11 @@ export async function makeMessage (signer, { room, text, mentions = [], re = [],
 // { [name]: { role, wake, backupFor } } where wake is 'order' (in the turn order),
 // 'mention' (only when named or replied to) or 'backup' (silent until backupFor is
 // quiet past its window or offline, then plays its part)) and 'rename'.
+// Conversations and apps: 'conv' (conv = its id; text = title; archived; runtime) describes one
+// conversation of the room, latest record per field wins; 'app' (app = which app made this
+// room, role = what the room is to it: 'chat' | 'project', name, icon) is the signed note
+// PearDrive's "My Apps" asks for, so a space can say which app it belongs to.
+export const APP_ROLES = ['chat', 'project']
 export const WAKE_MODES = ['order', 'mention', 'backup']
 export function cleanAgentRules (agents) {
   if (!agents || typeof agents !== 'object') return undefined
@@ -72,13 +87,22 @@ export function cleanAgentRules (agents) {
   }
   return out
 }
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, ts = Date.now() }) {
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
     order: Array.isArray(order) ? order.map(String).slice(0, 32) : undefined,
     agents: cleanAgentRules(agents),
-    name: name === undefined ? undefined : String(name).trim().slice(0, 80)
+    name: name === undefined ? undefined : String(name).trim().slice(0, 80),
+    // a 'conv' control names its conversation outright (MAIN included: the default one can be renamed)
+    conv: conv === undefined ? undefined : String(conv).slice(0, 32),
+    archived: archived === undefined ? undefined : !!archived,
+    runtime: runtime === undefined ? undefined : runtime === null ? null : String(runtime).slice(0, 80),
+    app: app === undefined ? undefined : String(app).slice(0, 40),
+    role: role === undefined ? undefined : String(role).slice(0, 20),
+    icon: icon === undefined ? undefined : String(icon).slice(0, 20000),
+    // the device a project lives on: { device: <device key ref>, name: 'macbook' } (app and project controls)
+    home: home === undefined ? undefined : home === null ? null : { device: String(home.device).slice(0, 140), name: String(home.name ?? '').slice(0, 80) }
   })
 }
 
@@ -96,8 +120,8 @@ export const cleanUsage = (u) => {
   const out = { model: String(u.model ?? '').slice(0, 60), in: n(u.in), out: n(u.out), cacheRead: n(u.cacheRead), cacheWrite: n(u.cacheWrite) }
   return (out.in + out.out + out.cacheRead + out.cacheWrite) > 0 ? out : undefined
 }
-export async function makeActivity (signer, { room, text, claim, usage, ts = Date.now() }) {
-  return signBody('rkeychat-activity', signer, { kind: 'activity', id: newId(), room, ts, text: String(text).slice(0, 2000), claim: Array.isArray(claim) && claim.length ? claim.map(String).slice(0, 64) : undefined, usage: cleanUsage(usage) })
+export async function makeActivity (signer, { room, text, claim, usage, conv, ts = Date.now() }) {
+  return signBody('rkeychat-activity', signer, { kind: 'activity', id: newId(), room, ts, text: String(text).slice(0, 2000), claim: Array.isArray(claim) && claim.length ? claim.map(String).slice(0, 64) : undefined, usage: cleanUsage(usage), conv: convField(conv) })
 }
 
 // A reaction: an emoji on a message, toggled on or off. Never wakes anyone.

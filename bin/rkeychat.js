@@ -45,10 +45,14 @@ agents
   rkeychat agent init NAME [--dir DIR]         a project agent: this folder gets its own seat (key in DIR/.rkeychat, a Claude Code conversation per room, run by the daemon)
   rkeychat agent list                          project and device agents, with their rooms and session ids
   rkeychat agent tools NAME lab|none|RULES     what a project agent may do without asking (default lab: git, npm, node, rkeychat, read-only shell, reading the folders beside it)
+  rkeychat agent via NAME acp|cli              how the daemon drives it: acp (Agent Client Protocol: permissions answered from the tool list, a person interrupts a turn) or cli (claude -p); init takes --acp
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
+  rkeychat send --conv ID TEXT...          post into one conversation of the room (default: the one the answered message is in, else main)
+  rkeychat convs [--room R]                the room's conversations; rkeychat convs new TITLE | rename ID TITLE | archive ID | unarchive ID
+  rkeychat project init [DIR] [--name N] [--agent SEAT]   a folder becomes a project: a room bound to it, with its own seat over ACP
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
@@ -73,6 +77,9 @@ const { values: opt, positionals: pos } = parseArgs({
     dir: { type: 'string' },
     permission: { type: 'string' },
     tools: { type: 'string' },
+    acp: { type: 'boolean' },
+    conv: { type: 'string' },
+    agent: { type: 'string' },
     create: { type: 'string' },
     as: { type: 'string' },
     room: { type: 'string' },
@@ -167,9 +174,10 @@ switch (cmd) {
       const name = pos[1] ?? die('usage: rkeychat agent init NAME [--dir DIR] [--permission acceptEdits|plan|default] [--tools Read,Edit,Bash] [--model M]')
       const dir = resolve(opt.dir ?? process.cwd())
       if (!(await running())) die('the daemon isn\'t running. Start it: rkeychat start --background')
-      const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model })
+      const r = await api('POST', '/api/agents', { name, dir, permissionMode: opt.permission, tools: opt.tools, model: opt.model, via: opt.acp ? 'acp' : undefined })
       console.log(`@${r.name} lives in ${r.dir}\n  key: ${r.keyFile}\n  session key ${r.ref.slice(0, 24)}… · account ${r.account?.slice(0, 24) ?? '—'}…`)
       console.log(`  ${r.tools}   (change it: rkeychat agent tools ${r.name} lab|none|RULE,RULE…)`)
+      console.log(`  driven via ${r.via}${r.via === 'acp' ? ' (Agent Client Protocol: permissions answered from the tool list, a person\'s message interrupts a turn)' : ' (claude -p; switch: rkeychat agent via ' + r.name + ' acp)'}`)
       console.log(r.enrolled.length ? `  signed into: ${r.enrolled.join(', ')}` : '  no rooms owned on this device; for others: rkeychat request --room ROOM, then the owner approves')
       console.log(`  mention @${r.name} in a room and that folder answers. Open its conversation by hand: cd ${r.dir} && claude --resume <session id from rkeychat agent list>`)
       break
@@ -179,7 +187,7 @@ switch (cmd) {
       const agents = await api('GET', '/api/agents')
       if (!agents.length) { console.log('no agents on this device. rkeychat agent init NAME (project) or rkeychat add NAME (device)'); break }
       for (const a of agents) {
-        console.log(`@${a.name.padEnd(18)} ${a.bridge.padEnd(7)} ${a.dir ?? ''}`)
+        console.log(`@${a.name.padEnd(18)} ${(a.via ? `${a.bridge}/${a.via}` : a.bridge).padEnd(10)} ${a.dir ?? ''}`)
         if (a.tools) console.log(`    ${a.tools}`)
         for (const r of a.rooms) console.log(`    ${r.name.padEnd(18)} ${r.enrolled ? 'enrolled' : 'not enrolled'}  ${r.state}${a.sessions[r.topic] ? `  session ${a.sessions[r.topic]}` : ''}`)
       }
@@ -192,7 +200,14 @@ switch (cmd) {
       console.log(`@${r.name}: ${r.tools}\n  in effect from its next turn`)
       break
     }
-    die('usage: rkeychat agent init NAME [--dir DIR] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES')
+    if (sub === 'via') {
+      // how the daemon drives the seat's Claude Code; the conversation is kept either way
+      const name = pos[1] ?? die('usage: rkeychat agent via NAME acp|cli')
+      const r = await api('POST', '/api/agents/via', { name, via: pos[2] ?? die('usage: rkeychat agent via NAME acp|cli') })
+      console.log(`@${r.name}: driven via ${r.via} from its next turn (same conversation, resumed by session id)`)
+      break
+    }
+    die('usage: rkeychat agent init NAME [--dir DIR] [--acp] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES | rkeychat agent via NAME acp|cli')
   }
   case 'start': {
     if (await running()) {
@@ -301,9 +316,32 @@ switch (cmd) {
   case 'send': {
     // --file PATH shares a file from this device by hash (no copy; the original is the source)
     const att = opt.file ? [await api('POST', '/api/share', { room: opt.room, path: resolve(opt.file) })] : undefined
-    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined, att })
+    const out = await api('POST', '/api/send', { room: opt.room, as: opt.as, text: pos.join(' '), pass: !!opt.pass, via: opt.voice ? 'voice' : undefined, att, conv: opt.conv })
     console.log(out.passed ? `passed (${out.room})` : fmt(out))
     if (out.fixes?.length) console.log(`  fixed: ${out.fixes.map(([a, b]) => `${a} → ${b}`).join(', ')}`)
+    break
+  }
+  case 'convs': {
+    // conversations of one room: list, or new | rename | archive | unarchive
+    const sub = pos[0]
+    if (!sub) {
+      const convs = await api('GET', '/api/convs?room=' + encodeURIComponent(opt.room ?? ''))
+      for (const c of convs) console.log(`${c.conv.padEnd(18)} ${c.title.padEnd(32)} ${String(c.count).padStart(4)} msgs${c.archived ? '  archived' : ''}${c.busy.length ? '  thinking: ' + c.busy.join(', ') : ''}${c.last ? '  last ' + new Date(c.last.ts).toLocaleString() : ''}`)
+      if (!convs.length) console.log('no conversations')
+      break
+    }
+    if (sub === 'new') { const c = await api('POST', '/api/convs', { room: opt.room, title: pos.slice(1).join(' ') || 'New conversation' }); console.log(`${c.conv}  ${c.title}`); break }
+    if (sub === 'rename') { const c = await api('POST', '/api/convs/rename', { room: opt.room, conv: pos[1], title: pos.slice(2).join(' ') }); console.log(`${c.conv}  ${c.title}`); break }
+    if (sub === 'archive' || sub === 'unarchive') { const c = await api('POST', '/api/convs/archive', { room: opt.room, conv: pos[1], archived: sub === 'archive' }); console.log(`${c.conv}  ${c.title}${c.archived ? '  archived' : ''}`); break }
+    die('usage: rkeychat convs [--room R] | convs new TITLE | convs rename ID TITLE | convs archive ID | convs unarchive ID')
+  }
+  case 'project': {
+    // a folder becomes a project: a room bound to it, the app note, and a seat in that folder
+    if (pos[0] !== 'init') die('usage: rkeychat project init [DIR] [--name N] [--agent SEAT]')
+    if (!(await running())) die("the daemon isn't running. Start it: rkeychat start --background")
+    const folder = resolve(pos[1] ?? opt.dir ?? process.cwd())
+    const r = await api('POST', '/api/projects', { folder, name: opt.name, agent: opt.agent, via: 'acp' })
+    console.log(`project "${r.room.name}" → ${folder}\n  seat @${r.seat.name}${r.seat.existing ? ' (already in this folder)' : ''} · talk to it: rkeychat send --room "${r.room.name}" "@${r.seat.name} hi"`)
     break
   }
   case 'control': {

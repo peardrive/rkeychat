@@ -9,7 +9,7 @@ import { EventEmitter } from 'node:events'
 import * as fsSync from 'node:fs'
 import { extname } from 'node:path'
 import { Chain, enroll, revoke, unban, consent } from 'rkey'
-import { SCOPES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
+import { SCOPES, MAIN, isConvId, newConvId, APP_ROLES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
 import { windowOf } from './feed-window.js'
 import { RoomSearch } from './search.js'
@@ -17,6 +17,8 @@ import { RoomSearch } from './search.js'
 // record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
 // messages they point at; invites are addressed to one device)
 export const FEED_SKIP = ['react', 'redact', 'invite']
+// controls only the owner's own keys may write (see #admits)
+export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -51,6 +53,7 @@ export class Room extends EventEmitter {
     this.pending = store.readJSON('pending.json', [])
     this.presence = new Map() // deviceRef -> { ts, participants: [{ name, state }] }
     this.agentState = new Map() // name -> 'idle' | 'thinking' | ...
+    this.agentConv = new Map() // name -> the conversation its current/last turn was in
     // name -> Set of record ids it chose not to answer; kept on disk so a restart doesn't re-offer them
     this.passed = new Map(Object.entries(store.readJSON('passed.json', {})).map(([n, ids]) => [n, new Set(ids)]))
     this.fetching = new Map() // root -> in-flight fetch
@@ -107,7 +110,7 @@ export class Room extends EventEmitter {
 
   // Search results as the page shows them: newest first, with who wrote each.
   find (q, opts) {
-    return this.search.find(q, opts).map((r) => ({ ...r, name: this.view(this.store.get(r.id)).name }))
+    return this.search.find(q, opts).map((r) => { const rec = this.store.get(r.id); return { ...r, name: this.view(rec).name, conv: this.store.convOf(rec) } })
   }
 
   async space () {
@@ -247,7 +250,7 @@ export class Room extends EventEmitter {
     // control's own `name` (the room's new one). Keep that where a reader can
     // still find it, or a rename renders as "guy · rename" and says nothing.
     const roomName = rec.kind === 'control' && rec.action === 'rename' ? rec.name : undefined
-    return { ...rec, name: node ? nameOf(node.label) : rec.author.slice(0, 16), device: node ? deviceOf(node.label) : '', human: scope.includes(SCOPES.admin), ...(roomName ? { roomName } : {}) }
+    return { ...rec, name: node ? nameOf(node.label) : rec.author.slice(0, 16), device: node ? deviceOf(node.label) : '', human: scope.includes(SCOPES.admin), conv: this.store.convOf(rec), ...(roomName ? { roomName } : {}) }
   }
 
   // What admins removed: message ids and blocked content hashes.
@@ -262,20 +265,70 @@ export class Room extends EventEmitter {
     return { ids, hashes }
   }
 
-  log () {
+  // The room's log as agents and the budget read it. With `conv`, one conversation's: its messages plus the
+  // room-wide controls (store.inConv). Without, everything, as before conversations existed.
+  log (conv) {
     const { ids } = this.blocked()
-    return this.store.ordered.map((r) => this.#viewLogged(r, ids))
+    return (conv ? this.store.inConv(conv) : this.store.ordered).map((r) => this.#viewLogged(r, ids))
   }
 
   // One window of what the feed shows (see feed-window.js): { log, hasOlder, hasNewer }, or null when the
-  // named message is not in this room. Decorates only the records it returns.
-  page ({ before, after, around, limit } = {}, skip = FEED_SKIP) {
-    const list = this.store.ordered.filter((r) => !skip.includes(r.kind))
+  // named message is not in this room. Decorates only the records it returns. With `conv`, that conversation's
+  // feed; the notes that describe conversations and the app ('conv'/'app' controls) are never feed lines.
+  page ({ before, after, around, limit, conv } = {}, skip = FEED_SKIP) {
+    const all = conv ? this.store.inConv(conv) : this.store.ordered
+    const list = all.filter((r) => !skip.includes(r.kind) && !(r.kind === 'control' && (r.action === 'conv' || r.action === 'app')))
     const w = windowOf(list, { before, after, around, limit })
     if (!w) return null
     const { ids } = this.blocked()
     return { log: list.slice(w.start, w.end).map((r) => this.decorate(this.#viewLogged(r, ids), ids)), hasOlder: w.hasOlder, hasNewer: w.hasNewer }
   }
+
+  // ---------- conversations ----------
+
+  // Every conversation of this room, from the signed 'conv' notes and the messages: the default one
+  // (MAIN, "General" unless renamed) first, then the rest in the order they were made. Each:
+  // { conv, title, created, archived, runtime, last, count, busy }. Archived ones are included, flagged.
+  conversations () {
+    const out = new Map()
+    const ensure = (conv, ts) => {
+      let c = out.get(conv)
+      if (!c) { c = { conv, title: conv === MAIN ? 'General' : 'New conversation', created: ts, archived: false, runtime: null, last: null, count: 0, busy: [] }; out.set(conv, c) }
+      return c
+    }
+    ensure(MAIN, this.store.ordered[0]?.ts ?? Date.now())
+    const { ids } = this.blocked()
+    for (const r of this.store.ordered) {
+      if (r.kind === 'control' && r.action === 'conv' && isConvId(r.conv)) {
+        const c = ensure(r.conv, r.ts)
+        if (r.text !== undefined && String(r.text).trim()) c.title = String(r.text).trim().slice(0, 120)
+        if (r.archived !== undefined) c.archived = !!r.archived
+        if (r.runtime !== undefined) c.runtime = r.runtime
+        continue
+      }
+      if (r.kind !== 'msg' || ids.has(r.id)) continue
+      const c = ensure(this.store.convOf(r), r.ts)
+      c.count++
+      const v = this.view(r)
+      c.last = { ts: r.ts, name: v.name, text: r.text || (r.att?.some((a) => a.kind === 'file') ? `📎 ${r.att.find((a) => a.kind === 'file').name}` : r.att?.length ? 'Voice memo' : '') }
+    }
+    for (const [name, conv] of this.agentConv) if (out.has(conv) && this.agentState.get(name) === 'thinking') out.get(conv).busy.push(name)
+    return [...out.values()]
+  }
+
+  conversation (conv) { return this.conversations().find((c) => c.conv === conv) ?? null }
+
+  // Which app this room belongs to and what it is to that app, from the latest signed 'app' note:
+  // { app, role, name, icon } or null. (PearDrive files the space under that app.)
+  appInfo () {
+    let a = null
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'app' && r.app) a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : 'chat', name: r.name ?? this.cfg.name, home: r.home ?? null, ...(r.icon ? { icon: r.icon } : {}) }
+    return a
+  }
+
+  // The device a project's folder lives on (docs/projects-home-and-sync.md §1), or null for a chat.
+  home () { return this.appInfo()?.home ?? null }
+  get isHome () { return !!this.device && this.home()?.device === this.device.ref }
 
   // What a feed line needs from outside the window the page holds: the preview of the message a reply answers
   // (withQuote), and for a rename or a settings change, what it changed from (withBefore).
@@ -317,12 +370,12 @@ export class Room extends EventEmitter {
     return { ...v, q: { id: r.id, name: q.name, text: text.slice(0, 160) } }
   }
 
-  // The newest message that was not removed, as log() would show it, or null.
-  lastMessage () {
+  // The newest message that was not removed, as log() would show it, or null. With `conv`, in that conversation.
+  lastMessage (conv) {
     const { ids } = this.blocked()
     const all = this.store.ordered
     for (let i = all.length - 1; i >= 0; i--) {
-      if (all[i].kind === 'msg' && !ids.has(all[i].id)) return this.view(all[i])
+      if (all[i].kind === 'msg' && !ids.has(all[i].id) && (!conv || this.store.convOf(all[i]) === conv)) return this.view(all[i])
     }
     return null
   }
@@ -334,7 +387,8 @@ export class Room extends EventEmitter {
     return { ...v, text: '', att: undefined, mentions: [], redacted: { by: this.view(red).name, ts: red.ts } }
   }
 
-  budget () { return budget(this.log()) }
+  // The round budget: room-wide controls, and the human reset counted inside one conversation when given.
+  budget (conv) { return budget(this.log(conv)) }
 
   #admitReason (rec) {
     const s = this.state
@@ -351,6 +405,10 @@ export class Room extends EventEmitter {
     if (!s.trustedAt(rec.author, rec.ts)) return false
     const need = rec.kind === 'control' || rec.kind === 'redact' || rec.kind === 'invite' ? SCOPES.admin : SCOPES.chat
     if (!s.scopeOf(rec.author).includes(need)) return false
+    // Account-gated controls (docs/projects-home-and-sync.md §4): making a project on a device, moving its home,
+    // starting or configuring a seat, connecting a folder. Only the room owner's own keys may say so: the root,
+    // or a key enrolled directly under it (the owner's devices). An admin member is not enough.
+    if (rec.kind === 'control' && ACCOUNT_GATED.includes(rec.action) && !this.isOwnerKey(rec.author)) return false
     // a hash the room removed can't come back in a new message
     if (rec.kind === 'msg' && (rec.att ?? []).some((a) => this.blocked().hashes.has(a.hash))) return false
     return true
@@ -493,14 +551,20 @@ export class Room extends EventEmitter {
   }
 
   // request = { device: { ref, name, consent }, participants: [{ ref, name, role, consent }] }
-  async approve (request) {
+  // `asOwner`: this request is the owner's own device logging in (the login handover, or the owner enrolling
+  // their other devices), so a human named like the owner is the owner's device. Any other path (an invite to a
+  // room, a pasted request code) may not take the owner's name: audit 2026-11-15, H1 — before this, any invite
+  // let a stranger's daemon ask for { name: 'guy', role: 'human' } and be enrolled as the owner with admin.
+  async approve (request, { asOwner = false } = {}) {
     if (!this.isOwner) throw new Error('only the room owner can approve')
     const root = this.chain.root
     const taken = new Set(this.members().filter((m) => m.status !== 'revoked' && !m.device).map((m) => m.name))
     const ops = []
     const d = request.device
-    // a device already in the room may roll its keys under the same names; a new device may not take a name in use
-    const rolling = !!(d && this.state.isActive(d.ref))
+    // a device already in the room may roll its keys under the names it already holds here, and only those
+    // (audit H1, second door: "rolling" used to lift the name check for every name)
+    const held = new Set(d && this.state.isActive(d.ref) ? this.members().filter((m) => m.status !== 'revoked' && m.device === d.name).map((m) => m.name) : [])
+    const rolling = (name) => held.has(name)
     if (d && !this.state.isActive(d.ref) && !this.#burned(d.ref)) {
       ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, consentAfter: d.after, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
     }
@@ -511,18 +575,19 @@ export class Room extends EventEmitter {
       const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
       // the owner's own name arriving from another device is the owner's device: a key under
       // the owner's root, not a second account (that's how a phone becomes "you")
-      const ownDevice = p.role === 'human' && this.local[name]?.role === 'human'
+      const ownDevice = asOwner && p.role === 'human' && this.local[name]?.role === 'human'
+      if (!ownDevice && p.role === 'human' && this.local[name]?.role === 'human' && p.account?.ref !== root) throw new Error(`name already in use: ${name} (that is the owner; a device logs in as the owner through the login code, not a room invite)`)
       const a = ownDevice ? null : p.account
       if (a && a.ref !== root) {
         // an account root: same account joining from another device is fine, a different account with a taken name is not
         const existing = this.state.get(a.ref)
-        if (!existing && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (!existing && taken.has(name) && !rolling(name)) throw new Error(`name already in use: ${name}`)
         if (existing?.revoked && this.#burned(a.ref)) continue
         if (!existing || existing.revoked) ops.push(await enroll(this.rootSigner, { root, key: a.ref, consent: a.consent, consentAfter: a.after, scope: ['bind', SCOPES.chat, role, 'delegate'], label: name }))
         if (a.enroll?.key === p.ref) ops.push(a.enroll) // the account enrolls its own session key (signed by it)
       } else {
         // a key under this room's own root: another device of the owner (label name@device), or a legacy key
-        if (!ownDevice && a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (!ownDevice && a?.ref !== root && taken.has(name) && !rolling(name)) throw new Error(`name already in use: ${name}`)
         ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, consentAfter: p.after, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
       }
       taken.add(name)
@@ -618,10 +683,10 @@ export class Room extends EventEmitter {
 
   // ---------- activity (people can watch it; agents never read it) ----------
 
-  async activity (name, text, { claim, usage } = {}) {
+  async activity (name, text, { claim, usage, conv } = {}) {
     const p = this.local[name]
     if (!p || !this.state?.can(p.signer.ref, SCOPES.chat)) return null
-    const rec = await makeActivity(p.signer, { room: this.topic, text, claim, usage })
+    const rec = await makeActivity(p.signer, { room: this.topic, text, claim, usage, conv })
     this.store.addActivity(rec)
     this.emit('activity', this.view(rec))
     this.#busyTick()
@@ -676,10 +741,13 @@ export class Room extends EventEmitter {
 
   // ---------- posting ----------
 
-  async post (name, text, { re = [], via, att } = {}) {
+  async post (name, text, { re = [], via, att, conv } = {}) {
     const p = this.local[name]
     if (!p) throw new Error(`${name} is not hosted on this device`)
     text = String(text ?? '').trim()
+    // a reply stays in the conversation of what it answers; otherwise the one asked for, else the default
+    conv = conv || (re.length ? this.store.convOf(this.store.get(re[0])) : MAIN)
+    if (!isConvId(conv)) throw new Error('not a conversation id')
     // signed statements are integer-only: durations in ms, peaks 0-100
     att = Array.isArray(att) && att.length
       ? att.slice(0, 4).map((a) => ({
@@ -701,8 +769,9 @@ export class Room extends EventEmitter {
     const human = p.role === 'human'
     // an agent speaking without answering anything continues the current thread
     const mirror = via === 'mirror' || via === 'note'
-    const depth = human || mirror ? 0 : triggers.length ? replyDepth(triggers) : this.budget().used + 1
-    if (!human && !mirror && !this.budget().allows(depth, name)) throw new Error('not allowed to post right now (paused, limited, or out of rounds) — waiting for a human')
+    const b = this.budget(conv)
+    const depth = human || mirror ? 0 : triggers.length ? replyDepth(triggers) : b.used + 1
+    if (!human && !mirror && !b.allows(depth, name)) throw new Error('not allowed to post right now (paused, limited, or out of rounds) — waiting for a human')
     const rec = await makeMessage(p.signer, {
       room: this.topic,
       text,
@@ -710,7 +779,8 @@ export class Room extends EventEmitter {
       re: triggers.map((t) => t.id),
       depth,
       via: via === 'voice' || via === 'mirror' || via === 'note' ? via : undefined,
-      att
+      att,
+      conv
     })
     if (!this.#ingest(rec)) throw new Error('your key is not an active chat member of this room')
     await this.#send('rec', { rec })
@@ -944,9 +1014,60 @@ export class Room extends EventEmitter {
     return rec
   }
 
-  // Unanswered messages addressed to `name`, oldest first, since its last post.
-  triggersFor (name) {
-    const log = this.log()
+  // Is this key the room owner's own: the root, or a key enrolled directly under it (one of the owner's devices)?
+  isOwnerKey (ref) {
+    const s = this.state
+    if (!s || !this.chain) return false
+    if (ref === this.chain.root) return true
+    const n = s.get(ref)
+    if (!n || n.parent !== this.chain.root || !s.isActive(ref)) return false
+    const scope = s.scopeOf(ref)
+    // a person on one of the owner's devices: admin, and not an account root of someone else (those carry delegate)
+    return scope.includes(SCOPES.admin) && !scope.includes('delegate')
+  }
+
+  // Describe a conversation: a signed 'conv' note by a local human. Fields left undefined are unchanged.
+  // `conv` absent: a new conversation (its id comes back in the record).
+  async setConversation (name, { conv, title, archived, runtime } = {}) {
+    conv = conv ?? newConvId()
+    if (!isConvId(conv)) throw new Error('not a conversation id')
+    const rec = await this.control(name, 'conv', { conv, text: title, archived, runtime })
+    return this.conversation(conv) ?? { conv, title: title ?? 'New conversation', created: rec.ts, archived: !!archived, runtime: runtime ?? null, last: null, count: 0, busy: [] }
+  }
+
+  // Say which app this room belongs to and what it is to it (see proto.js 'app'). Owner-side, once per change.
+  async setApp (name, { app = 'rkeychat', role = 'chat', title, icon, home } = {}) {
+    if (!APP_ROLES.includes(role)) throw new Error(`role must be one of ${APP_ROLES.join(', ')}`)
+    return this.control(name, 'app', { app, role, name: title ?? this.cfg.name, icon, home })
+  }
+
+  // Ask one of the owner's devices to make a project (docs/projects-home-and-sync.md §1): a signed, account-gated
+  // 'project' control carried by this room; the home device acts on it when it sees it.
+  async requestProject (name, { title, home, prompt } = {}) {
+    if (!home?.device) throw new Error('which device should hold the project?')
+    return this.control(name, 'project', { name: title, home, text: prompt })
+  }
+
+  // The owner's devices as this room's chain knows them: [{ ref, name, online, here }]. A device is the owner's
+  // when the owner's human key is enrolled on it (label name@device).
+  ownDevices () {
+    const s = this.state
+    if (!s) return []
+    const human = Object.entries(this.local).find(([, p]) => p.role === 'human')?.[0]
+    const members = this.members().filter((m) => m.status !== 'revoked')
+    const names = new Set(members.filter((m) => m.name === human && m.device).map((m) => m.device))
+    const now = Date.now()
+    return members.filter((m) => m.label?.startsWith('device:') && names.has(m.label.slice(7))).map((m) => {
+      const p = this.presence.get(m.ref)
+      return { ref: m.ref, name: m.label.slice(7), online: !!(p && now - p.ts < PRESENCE_STALE) || m.ref === this.device?.ref, here: m.ref === this.device?.ref }
+    })
+  }
+
+  // Unanswered messages addressed to `name`, oldest first, since its last post. With `conv`, within that
+  // conversation only: an agent's turn is one conversation at a time, and what it said elsewhere does not
+  // count as having answered here.
+  triggersFor (name, conv) {
+    const log = this.log(conv)
     let lastOwn = -1
     log.forEach((r, i) => { if (r.kind === 'msg' && r.name === name) lastOwn = i })
     const answered = new Set(log.filter((r) => r.name === name).flatMap((r) => r.re ?? []))
@@ -1019,8 +1140,11 @@ export class Room extends EventEmitter {
     try { this.store.writeJSON('passed.json', out) } catch {}
   }
 
-  setAgentState (name, state) {
+  // `conv`: where the agent is working right now (the conversation list shows who is thinking where).
+  setAgentState (name, state, conv) {
     this.agentState.set(name, state)
+    if (conv) this.agentConv.set(name, conv)
+    this.emit('agent-state', { name, state, conv: conv ?? this.agentConv.get(name) ?? MAIN })
     this.emit('presence')
     this.#sendPresence()
   }

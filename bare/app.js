@@ -38,7 +38,16 @@ if (assets.jsqr) write('ui/jsQR.js', assets.jsqr)
 for (const [rel, text] of Object.entries(assets.migrations)) write(path.join('migrations', rel), text)
 process.env.RKEYCHAT_UI = path.join(assetDir, 'ui', 'index.html')
 process.env.PEARCORE_MIGRATIONS_PATH = path.join(assetDir, 'migrations')
-mark('assets written')
+// the projects shell (served at /app/ by the daemon), when the bundle carries it
+const shell = !!(assets.app && assets.app['index.html'])
+if (shell) {
+  for (const [rel, f] of Object.entries(assets.app)) {
+    const p = path.join(assetDir, 'app', rel); fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, f.b64 ? Buffer.from(f.b64, 'base64') : f.text)
+  }
+  process.env.RKEYCHAT_APP = path.join(assetDir, 'app')
+}
+mark(`assets written${shell ? ' (with the shell)' : ''}`)
 
 const ipc = typeof BareKit !== 'undefined' ? BareKit.IPC : null
 const tell = (msg) => { try { ipc?.write(Buffer.from(JSON.stringify(msg) + '\n')) } catch {} ; console.log('[rkeychat]', JSON.stringify(msg)) }
@@ -59,7 +68,8 @@ try {
   mark('daemon imported; starting')
   await runDaemon({})
   mark('daemon up')
-  tell({ event: 'ready', url: `http://127.0.0.1:${loadConfig().port}` })
+  // the phone opens the projects shell when the bundle has it, the room page otherwise
+  tell({ event: 'ready', url: `http://127.0.0.1:${loadConfig().port}${shell ? '/app/' : ''}` })
 } catch (err) {
   mark(`ERROR ${err?.stack ?? err}`)
   tell({ event: 'error', message: String(err?.stack ?? err) })

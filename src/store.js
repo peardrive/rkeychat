@@ -4,6 +4,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { MAIN } from './proto.js'
 
 const ACTIVITY_KEEP = 2000
 
@@ -46,6 +47,36 @@ export class RoomStore {
 
   since (ts, limit = 500) {
     return this.ordered.filter((r) => r.ts > ts).slice(0, limit)
+  }
+
+  // Which conversation a record belongs to. Messages, activity and 'conv' controls say so
+  // themselves (absent: the default, MAIN). A reaction or a removal belongs where its target
+  // is. Room-wide controls (budget, pause, charter, rename…) belong to no conversation and
+  // are reported as MAIN so that old readers see them where they always did.
+  convOf (rec) {
+    if (!rec) return MAIN
+    if (rec.conv) return rec.conv
+    if ((rec.kind === 'react' || rec.kind === 'redact') && rec.target) {
+      const t = this.records.get(rec.target)
+      if (t && t.id !== rec.id) return this.convOf(t)
+    }
+    return MAIN
+  }
+
+  // The records of one conversation, in order. Room-wide controls (no `conv`, and not the
+  // 'conv'/'app' notes) are included in every conversation: the budget and the charter apply
+  // everywhere. The default conversation also carries the 'conv'/'app' notes themselves.
+  inConv (conv) {
+    return this.ordered.filter((r) => this.#belongs(r, conv))
+  }
+
+  #belongs (r, conv) {
+    if (r.kind === 'control') {
+      if (r.action === 'conv' || r.action === 'app') return conv === MAIN // notes about conversations live in the default one
+      if (!r.conv) return true // a room-wide control: in every conversation
+      return r.conv === conv
+    }
+    return this.convOf(r) === conv
   }
 
   get lastTs () { return this.ordered.at(-1)?.ts ?? 0 }

@@ -297,9 +297,11 @@ export class Login {
       // meant for is someone looking at this and saying yes.
       if (this.approve !== 'auto' && !o.granted) {
         if (!o.asked) {
-          o.asked = { device, deviceName: content.request?.device?.name ?? 'a device', room: o.roomName, action: o.room ? 'room' : 'login', at: Date.now() }
+          // what the request asks for, by name and role: the person approving must see it (audit H1)
+          const names = (content.request?.participants ?? []).map((p) => ({ name: String(p.name ?? '?').slice(0, 80), role: p.role === 'human' ? 'human' : 'agent' }))
+          o.asked = { device, deviceName: content.request?.device?.name ?? 'a device', names, room: o.roomName, action: o.room ? 'room' : 'login', at: Date.now() }
           this.app.emit('login-ask', { ...o.asked, topic })
-          console.log(`[login] ${o.asked.deviceName} (${device.slice(8, 20)}…) wants ${o.roomName ? `into "${o.roomName}"` : 'to log in'} — waiting for you`)
+          console.log(`[login] ${o.asked.deviceName} (${device.slice(8, 20)}…) wants ${o.roomName ? `into "${o.roomName}"` : 'to log in'} as ${names.map((n) => `${n.name} (${n.role})`).join(', ') || 'nobody'} — waiting for you`)
         }
         return // nothing is granted until the host grants it
       }
@@ -307,7 +309,8 @@ export class Login {
       const owned = [...this.app.rooms.values()].filter(({ room }) => room.isOwner && (!o.room || room.topic === o.room))
       if (o.room && !owned.length) return this.#refuse(o, 'that room is gone')
       for (const { room } of owned) {
-        try { await room.approve(content.request); invites.push(encodeInvite(room.cfg)) } catch (err) { console.error(`[login] ${room.cfg.name}:`, err.message) }
+        // a login code says "this device is me"; a room invite says "this device may join this room", nothing more
+        try { await room.approve(content.request, { asOwner: !o.room }); invites.push(encodeInvite(room.cfg)) } catch (err) { console.error(`[login] ${room.cfg.name}:`, err.message) }
       }
       const first = !o.used
       o.used = device

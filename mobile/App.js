@@ -104,7 +104,9 @@ export default function App () {
 function isChatPage (candidate, home) {
   try {
     const a = new URL(candidate); const b = new URL(home)
-    return a.origin === b.origin && (a.pathname === '/' || a.pathname === b.pathname) && !a.search.includes('dl=1')
+    // the room page at /, or the projects shell under /app/ (it routes inside that prefix)
+    const shell = b.pathname.startsWith('/app')
+    return a.origin === b.origin && (a.pathname === '/' || a.pathname === b.pathname || (shell && a.pathname.startsWith('/app'))) && !a.search.includes('dl=1')
   } catch { return false }
 }
 

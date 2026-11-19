@@ -16,7 +16,9 @@ import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
-import { agentSession } from './config.js'
+import { MAIN } from './proto.js'
+import { agentSession, sessionKeyOf } from './config.js'
+import { AcpProcess } from './acp.js'
 import { resolveTools } from './tools.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
@@ -35,14 +37,18 @@ const fmtTime = (ts) => new Date(ts).toTimeString().slice(0, 5)
 
 const fmtSize = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`
 
-export function renderTurn (room, name, { intro = false } = {}) {
-  const log = room.log()
-  const triggers = room.triggersFor(name)
+// One turn's text for an agent: the standing rules (intro), the room's purpose, and the messages since it
+// last spoke. Scoped to one conversation (`conv`, default the room's main one): what it said in another
+// conversation is not "having answered" here, and it only reads this conversation's messages.
+export function renderTurn (room, name, { intro = false, conv = MAIN } = {}) {
+  const log = room.log(conv)
+  const triggers = room.triggersFor(name, conv)
   let lastOwn = -1
   log.forEach((r, i) => { if (r.kind === 'msg' && r.name === name) lastOwn = i })
   const fresh = log.slice(lastOwn + 1).filter((r) => r.kind === 'msg' && !r.redacted).slice(-40)
   const others = room.participantsList().filter((p) => p.name !== name && p.status === 'active')
-  const b = room.budget()
+  const b = room.budget(conv)
+  const convo = conv === MAIN ? null : room.conversation(conv)
   const depth = replyDepth(triggers)
   const left = b.remaining === Infinity ? 'unlimited' : Math.max(0, b.limit - depth)
 
@@ -57,6 +63,8 @@ export function renderTurn (room, name, { intro = false } = {}) {
       'Messages marked (dictated) were spoken and transcribed. Expect misheard words, especially project names (pearcore, PearDrive, Kimi, Hermes, Hyperbee, rKey). Read by context and meaning, not spelling. A dictated message can also catch a stray sentence that was said to someone else in the room; if part of it clearly isn\'t addressed to this conversation, ignore that part rather than act on it.',
       ''
     )
+    if (room.cfg.folder) lines.push(`This room is a project: its folder is ${room.cfg.folder}. The project's files, code and notes live there; that is where work happens.`, '')
+    lines.push('A room holds several conversations. You are in one of them; its messages are all you see here, and what you say lands in it. People start a new conversation for each new piece of work so that contexts stay separate.', '')
   }
   const charter = room.charter()
   if (charter.text) lines.push(`Room purpose (set by the room's owner):\n${charter.text}`, '')
@@ -68,7 +76,7 @@ export function renderTurn (room, name, { intro = false } = {}) {
   lines.push(room.style() === 'verbose'
     ? '(This room is set to verbose: full detail is welcome here.)'
     : '(This room is set to concise: keep messages short and put detail behind files or Thinking. Other agents pay for every token you post.)')
-  lines.push(`[room ${room.cfg.name} · you are @${name} · others: ${others.map((p) => `@${p.name}${p.role === 'human' ? ' (human)' : ''}${p.online ? '' : ' (offline)'}`).join(', ')} · rounds left after your reply: ${left}]`)
+  lines.push(`[room ${room.cfg.name}${convo ? ` · conversation: ${convo.title}` : ''} · you are @${name} · others: ${others.map((p) => `@${p.name}${p.role === 'human' ? ' (human)' : ''}${p.online ? '' : ' (offline)'}`).join(', ')} · rounds left after your reply: ${left}]`)
   lines.push('')
   // reactions since this agent last spoke, compact: they're cheap context, never a wake-up
   const reacts = log.slice(lastOwn + 1).filter((r) => r.kind === 'react' && r.on && r.name !== name)
@@ -98,20 +106,53 @@ export class AgentRunner {
   constructor (room, name, bridge) {
     this.room = room
     this.name = name
-    this.bridge = bridge // { kind: 'hermes', url, key } | { kind: 'stream' }
-    this.busy = false
+    this.bridge = bridge // { kind: 'hermes', url, key } | { kind: 'stream' } | { kind: 'claude', dir, via?, … }
     this.introduced = false
     this.listeners = new Set() // for stream bridges
+    // One turn at a time per conversation: conv -> { busy, offered, offeredAt, offerTimer, proc }.
+    // A claude seat holds one process (one Claude Code session) per conversation it has been
+    // woken in; a stream seat (one listener) takes one turn at a time across the room.
+    this.turns = new Map()
     this.room.on('record', () => this.poke())
     this.room.on('changed', () => this.poke())
     // a stream agent isn't listening until something connects to /api/wait
     if (bridge.kind === 'stream') this.room.agentState.set(name, 'offline')
   }
 
-  due () { return this.why().triggers }
+  #turn (conv) {
+    let t = this.turns.get(conv)
+    if (!t) { t = { conv, busy: false, offered: null, offeredAt: 0, offerTimer: null, proc: null }; this.turns.set(conv, t) }
+    return t
+  }
 
-  // Why this agent would or wouldn't be woken right now (rkeychat debug agent NAME).
-  why () {
+  // A turn is out somewhere in this room (the server routes an agent's reply to the room it is busy in).
+  get busy () { return [...this.turns.values()].some((t) => t.busy) }
+  #busyTurn () { return [...this.turns.values()].find((t) => t.busy) ?? null }
+  // The ids the newest outstanding turn covers: what a stream agent's reply answers when it names none.
+  get offered () { return this.#latestOffered()?.offered ?? null }
+  #latestOffered () {
+    let best = null
+    for (const t of this.turns.values()) if (t.offered && (!best || t.offeredAt > best.offeredAt)) best = t
+    return best
+  }
+
+  // the conversations this agent can be woken in: the open ones
+  #convs () { return this.room.conversations().filter((c) => !c.archived).map((c) => c.conv) }
+
+  due () { return this.dueTurns()[0]?.triggers ?? null }
+
+  // Every conversation with something for this agent to answer: [{ conv, triggers }].
+  dueTurns () {
+    const out = []
+    for (const conv of this.#convs()) {
+      const { triggers } = this.why(conv)
+      if (triggers) out.push({ conv, triggers })
+    }
+    return out
+  }
+
+  // Why this agent would or wouldn't be woken right now in one conversation (rkeychat debug agent NAME).
+  why (conv = MAIN) {
     const p = this.room.local[this.name]
     const me = p?.signer.ref
     if (!me) return { triggers: null, reason: 'no local signer for this name' }
@@ -126,98 +167,131 @@ export class AgentRunner {
         : 'the config key isn\'t the enrolled one; approve a new request, or rkeychat readopt'
       return { triggers: null, reason: `this device's key for ${this.name} (${me.slice(0, 24)}…) is ${st} in this room: ${fix}`, key: me }
     }
-    const triggers = this.room.triggersFor(this.name)
-    if (!triggers.length) return { triggers: null, reason: 'nothing addressed to me that I haven\'t answered or passed on', key: me }
+    const triggers = this.room.triggersFor(this.name, conv)
+    if (!triggers.length) return { triggers: null, reason: 'nothing addressed to me that I haven\'t answered or passed on', key: me, conv }
     const depth = replyDepth(triggers)
-    if (!this.room.budget().allows(depth, this.name)) return { triggers: null, reason: `budget refuses depth ${depth} (paused, per-agent limit, or out of rounds)`, key: me, waiting: triggers.map((t) => t.id) }
-    return { triggers, reason: 'due', key: me }
+    if (!this.room.budget(conv).allows(depth, this.name)) return { triggers: null, reason: `budget refuses depth ${depth} (paused, per-agent limit, or out of rounds)`, key: me, conv, waiting: triggers.map((t) => t.id) }
+    return { triggers, reason: 'due', key: me, conv }
   }
 
   poke () {
-    if (!this.due()) return
+    for (const { conv, triggers } of this.dueTurns()) this.#pokeConv(conv, triggers)
+  }
+
+  #pokeConv (conv, triggers) {
+    const t = this.#turn(conv)
+    const now = Date.now()
     // Busy means a turn is already out. An agent talking to itself can wait — but a
     // person cannot be made to. If a human has said something the outstanding turn
     // doesn't cover, supersede it: the turn is re-rendered (now carrying both) and
     // pushed again, so the agent answers once rather than twice. Without this, a
     // follow-up sits unseen until the agent happens to finish.
-    const now = Date.now()
-    const pending = this.bridge.kind === 'stream' ? this.room.triggersFor(this.name) : []
-    const fresh = pending.filter((t) => !this.offered?.includes(t.id))
-    if (this.busy) {
-      if (this.bridge.kind !== 'stream' || !this.listeners.size) return
+    const fresh = triggers.filter((x) => !t.offered?.includes(x.id))
+    if (this.bridge.kind === 'stream') {
+      // one listener: one turn at a time across the whole room
+      if (this.busy) {
+        if (!this.listeners.size || !fresh.some((x) => x.human)) return
+        const cur = this.#busyTurn()
+        clearTimeout(cur.offerTimer); cur.busy = false
+        this.room.setAgentState(this.name, 'idle', cur.conv)
+      } else if (!fresh.length && t.offered?.length && now - t.offeredAt < REOFFER) {
+        // This exact turn was handed over moments ago and is being worked on. A
+        // listener that reconnects straight away (one turn per process, so it does)
+        // must not be given it again, or it loops. After REOFFER we assume whoever
+        // took it is gone and hand it to the next listener.
+        return
+      }
+      return this.#offer(t)
+    }
+    if (t.busy) {
       // Only a person preempts. An agent answering an agent can wait its turn.
-      if (!fresh.some((t) => t.human)) return
-      this.room.setAgentState(this.name, 'idle')
-      this.busy = false
-    } else if (this.bridge.kind === 'stream' && !fresh.length && this.offered?.length && now - (this.offeredAt ?? 0) < REOFFER) {
-      // This exact turn was handed over moments ago and is being worked on. A
-      // listener that reconnects straight away (one turn per process, so it does)
-      // must not be given it again, or it loops. After REOFFER we assume whoever
-      // took it is gone and hand it to the next listener.
+      if (!fresh.some((x) => x.human)) return
+      // ACP: the running turn is cancelled; when it comes back cancelled, #runClaude renders a
+      // turn carrying both messages and asks again. The cli path takes the message as the next turn.
+      if (this.bridge.kind === 'claude' && this.bridge.via === 'acp') t.proc?.cancel()
       return
     }
-    if (this.bridge.kind === 'hermes') this.#runHermes().catch((err) => this.#fail(err))
-    if (this.bridge.kind === 'claude') this.#runClaude().catch((err) => this.#fail(err))
-    if (this.bridge.kind === 'stream') this.#offer()
+    if (this.bridge.kind === 'hermes') this.#runHermes(t).catch((err) => this.#fail(err, t))
+    if (this.bridge.kind === 'claude') this.#runClaude(t).catch((err) => this.#fail(err, t))
   }
 
   // ---- claude bridge (a project agent) ----
 
-  async #runClaude () {
-    this.busy = true
-    this.room.setAgentState(this.name, 'thinking')
-    const turn = renderTurn(this.room, this.name, { intro: false })
-    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}`, { claim: turn.triggers.map((t) => t.id) }).catch(() => {})
-    if (!this.proc) {
-      this.proc = new ClaudeProcess({
+  async #runClaude (t) {
+    t.busy = true
+    this.room.setAgentState(this.name, 'thinking', t.conv)
+    const turn = renderTurn(this.room, this.name, { intro: false, conv: t.conv })
+    this.room.activity(this.name, `woken by ${turn.triggers.map((x) => x.name).join(', ')}`, { claim: turn.triggers.map((x) => x.id), conv: t.conv }).catch(() => {})
+    t.offered = turn.triggers.map((x) => x.id); t.offeredAt = Date.now() // what this turn covers; a newer human message preempts it (ACP)
+    if (!t.proc) {
+      const Proc = this.bridge.via === 'acp' ? AcpProcess : ClaudeProcess
+      t.proc = new Proc({
         name: this.name,
         room: this.room,
+        conv: t.conv,
         participant: this.room.local[this.name],
         bridge: this.bridge,
         // the standing rules go in once, as system prompt; turns arrive as messages
-        system: renderTurn(this.room, this.name, { intro: true }).text.split('\n[room ')[0],
-        onActivity: (text, extra) => this.room.activity(this.name, text, extra).catch(() => {})
+        system: renderTurn(this.room, this.name, { intro: true, conv: t.conv }).text.split('\n[room ')[0],
+        onActivity: (text, extra) => this.room.activity(this.name, text, { ...extra, conv: t.conv }).catch(() => {})
       })
     }
-    const { reply, usage } = await this.proc.prompt(turn.text)
-    if (usage) await this.room.activity(this.name, 'answered', { usage }).catch(() => {})
-    await this.#deliver(reply, turn.triggers.map((t) => t.id))
+    const { reply, usage, cancelled } = await t.proc.prompt(turn.text)
+    if (usage) await this.room.activity(this.name, cancelled ? 'interrupted' : 'answered', { usage, conv: t.conv }).catch(() => {})
+    if (cancelled) {
+      // a person spoke mid-turn: nothing is posted; the next poke renders a turn with both
+      t.busy = false
+      this.room.setAgentState(this.name, 'idle', t.conv)
+      setImmediate(() => this.poke())
+      return
+    }
+    await this.#deliver(reply, turn.triggers.map((x) => x.id), t)
   }
 
-  stop () { this.proc?.stop() }
+  stop () { for (const t of this.turns.values()) t.proc?.stop() }
 
-  // The bridge's tool list changed (rkeychat agent tools): the flags are fixed at spawn,
-  // so the process is retired — now if it is idle, after its turn if one is in flight.
+  // The bridge's tool list (or how it is driven) changed: the flags are fixed at spawn, so each
+  // process is retired — now if it is idle, after its turn if one is in flight.
   reconfigured () {
-    if (!this.proc) return
-    if (this.busy) this.proc.retireAfterTurn = true
-    else this.proc.stop('idle')
+    for (const t of this.turns.values()) {
+      if (!t.proc) continue
+      if (t.busy) t.proc.retireAfterTurn = true
+      else { t.proc.stop('idle'); t.proc = null }
+    }
   }
 
-  #fail (err) {
-    this.busy = false
-    this.room.setAgentState(this.name, 'error')
-    this.room.emit('agent-error', { name: this.name, error: String(err?.message ?? err) })
+  // A conversation's runtime changed: that one process goes, the next turn starts the new kind.
+  retire (conv) {
+    const t = this.turns.get(conv)
+    if (!t?.proc) return
+    if (t.busy) t.proc.retireAfterTurn = true
+    else { t.proc.stop('idle'); t.proc = null }
+  }
+
+  #fail (err, t) {
+    if (t) t.busy = false
+    this.room.setAgentState(this.name, 'error', t?.conv)
+    this.room.emit('agent-error', { name: this.name, error: String(err?.message ?? err), conv: t?.conv })
   }
 
   // ---- stream bridge (Claude Code) ----
 
-  #offer () {
+  #offer (t) {
     if (!this.listeners.size) {
-      this.room.setAgentState(this.name, 'waiting')
+      this.room.setAgentState(this.name, 'waiting', t.conv)
       return
     }
-    const turn = renderTurn(this.room, this.name, { intro: !this.introduced })
+    const turn = renderTurn(this.room, this.name, { intro: !this.introduced, conv: t.conv })
     this.introduced = true
-    this.busy = true
-    this.room.setAgentState(this.name, 'thinking')
-    this.offered = turn.triggers.map((t) => t.id)
-    this.offeredAt = Date.now()
-    this.room.activity(this.name, `got a turn: ${turn.triggers.map((t) => `${t.name}'s message`).join(', ')}`, { claim: this.offered }).catch(() => {})
-    for (const fn of this.listeners) fn({ name: this.name, re: this.offered, prompt: turn.text })
+    t.busy = true
+    this.room.setAgentState(this.name, 'thinking', t.conv)
+    t.offered = turn.triggers.map((x) => x.id)
+    t.offeredAt = Date.now()
+    this.room.activity(this.name, `got a turn: ${turn.triggers.map((x) => `${x.name}'s message`).join(', ')}`, { claim: t.offered, conv: t.conv }).catch(() => {})
+    for (const fn of this.listeners) fn({ name: this.name, re: t.offered, conv: t.conv, prompt: turn.text })
     // if nobody answers within the window, free the slot so newer turns flow
-    clearTimeout(this.offerTimer)
-    this.offerTimer = setTimeout(() => { this.busy = false; this.room.setAgentState(this.name, 'idle'); this.poke() }, 15 * 60_000)
+    clearTimeout(t.offerTimer)
+    t.offerTimer = setTimeout(() => { t.busy = false; this.room.setAgentState(this.name, 'idle', t.conv); this.poke() }, 15 * 60_000)
   }
 
   listen (fn) {
@@ -233,34 +307,36 @@ export class AgentRunner {
       // back now, not in fifteen minutes: until the slot is free nothing newer is
       // offered, so the agent looks alive and ignores everything said to it. The
       // triggers are still unanswered in the log, so the next listener gets them.
-      if (this.busy) { clearTimeout(this.offerTimer); this.busy = false } // `offered` stays: it suppresses an instant re-offer
+      for (const t of this.turns.values()) if (t.busy) { clearTimeout(t.offerTimer); t.busy = false } // `offered` stays: it suppresses an instant re-offer
     }
   }
 
-  // called after the stream agent posts (or passes)
-  answered ({ passed = false } = {}) {
-    if (passed && this.offered) this.room.markPassed(this.name, this.offered)
-    clearTimeout(this.offerTimer)
-    this.offered = null; this.offeredAt = 0
-    this.busy = false
-    this.room.setAgentState(this.name, 'idle')
+  // called after the stream agent posts (or passes); `conv` says which turn, else the newest one offered
+  answered ({ passed = false, conv } = {}) {
+    const t = (conv && this.turns.get(conv)) || this.#latestOffered() || this.#busyTurn()
+    if (!t) return
+    if (passed && t.offered) this.room.markPassed(this.name, t.offered)
+    clearTimeout(t.offerTimer)
+    t.offered = null; t.offeredAt = 0
+    t.busy = false
+    this.room.setAgentState(this.name, 'idle', t.conv)
     setImmediate(() => this.poke())
   }
 
   // ---- hermes bridge ----
 
-  async #runHermes () {
-    this.busy = true
-    this.room.setAgentState(this.name, 'thinking')
-    const turn = renderTurn(this.room, this.name, { intro: !this.introduced })
-    this.room.activity(this.name, `woken by ${turn.triggers.map((t) => t.name).join(', ')}; asking Hermes`, { claim: turn.triggers.map((t) => t.id) }).catch(() => {})
+  async #runHermes (t) {
+    t.busy = true
+    this.room.setAgentState(this.name, 'thinking', t.conv)
+    const turn = renderTurn(this.room, this.name, { intro: !this.introduced, conv: t.conv })
+    this.room.activity(this.name, `woken by ${turn.triggers.map((x) => x.name).join(', ')}; asking Hermes`, { claim: turn.triggers.map((x) => x.id), conv: t.conv }).catch(() => {})
     const { url = 'http://127.0.0.1:8642', key, model = 'hermes-agent' } = this.bridge
     const res = await fetch(`${url.replace(/\/$/, '')}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         ...(key ? { authorization: `Bearer ${key}` } : {}),
-        'x-hermes-session-id': `rkeychat-${this.room.topic.slice(0, 12)}-${this.name}`
+        'x-hermes-session-id': `rkeychat-${this.room.topic.slice(0, 12)}-${this.name}${t.conv === MAIN ? '' : '-' + t.conv}`
       },
       body: JSON.stringify({ model, stream: false, messages: [{ role: 'user', content: turn.text }] }),
       signal: AbortSignal.timeout(20 * 60_000)
@@ -271,6 +347,7 @@ export class AgentRunner {
     const u = body?.usage
     if (u) {
       await this.room.activity(this.name, 'answered', {
+        conv: t.conv,
         usage: {
           model: body.model ?? model,
           in: u.prompt_tokens ?? u.input_tokens,
@@ -281,16 +358,16 @@ export class AgentRunner {
       }).catch(() => {})
     }
     const reply = body?.choices?.[0]?.message?.content ?? ''
-    await this.#deliver(reply, turn.triggers.map((t) => t.id))
+    await this.#deliver(reply, turn.triggers.map((x) => x.id), t)
   }
 
-  async #deliver (reply, re) {
+  async #deliver (reply, re, t) {
     try {
-      if (reply && !PASS.test(reply)) await this.room.post(this.name, reply, { re })
-      else { this.room.markPassed(this.name, re); this.room.activity(this.name, 'decided to stay quiet (PASS)').catch(() => {}) }
+      if (reply && !PASS.test(reply)) await this.room.post(this.name, reply, { re, conv: t.conv })
+      else { this.room.markPassed(this.name, re); this.room.activity(this.name, 'decided to stay quiet (PASS)', { conv: t.conv }).catch(() => {}) }
     } finally {
-      this.busy = false
-      this.room.setAgentState(this.name, 'idle')
+      t.busy = false
+      this.room.setAgentState(this.name, 'idle', t.conv)
       setImmediate(() => this.poke())
     }
   }
@@ -315,9 +392,10 @@ const IDLE_MS = 30 * 60_000
 const TURN_TIMEOUT_MS = 20 * 60_000
 
 export class ClaudeProcess {
-  constructor ({ name, room, participant, bridge, system, onActivity }) {
+  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity }) {
     this.name = name
     this.room = room
+    this.conv = conv
     this.p = participant
     this.bridge = bridge // { kind: 'claude', dir, permissionMode?, tools?: [] , model? }
     this.system = system
@@ -330,11 +408,13 @@ export class ClaudeProcess {
     this.sessionId = null
   }
 
+  // the saved session id is kept per room, and per conversation beyond the default one
+  get sessionKey () { return sessionKeyOf(this.room.topic, this.conv) }
+
   #spawn () {
-    const topic = this.room.topic
-    let sessionId = agentSession(this.p, topic)
+    let sessionId = agentSession(this.p, this.sessionKey)
     const fresh = !sessionId
-    if (fresh) { sessionId = randomUUID(); agentSession(this.p, topic, sessionId) }
+    if (fresh) { sessionId = randomUUID(); agentSession(this.p, this.sessionKey, sessionId) }
     this.sessionId = sessionId
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
       '--permission-mode', this.bridge.permissionMode ?? 'acceptEdits',
@@ -367,7 +447,7 @@ export class ClaudeProcess {
       let ev
       try { ev = JSON.parse(line) } catch { continue }
       if (ev.type === 'system' && ev.subtype === 'init' && ev.session_id && ev.session_id !== this.sessionId) {
-        this.sessionId = ev.session_id; agentSession(this.p, this.room.topic, ev.session_id)
+        this.sessionId = ev.session_id; agentSession(this.p, this.sessionKey, ev.session_id)
       }
       if (ev.type === 'assistant') {
         for (const b of ev.message?.content ?? []) {
@@ -397,7 +477,7 @@ export class ClaudeProcess {
     clearTimeout(pend.timer)
     // a session that cannot be resumed (moved machine, wiped ~/.claude) starts over once
     if (error && /No conversation found|session.*not found|could not resume/i.test(error) && !pend.retried) {
-      agentSession(this.p, this.room.topic, null)
+      agentSession(this.p, this.sessionKey, null)
       this.onActivity('the saved session is gone; starting a fresh one')
       pend.retried = true
       try { this.#send(pend.text, pend); return } catch (err) { error = err.message }
