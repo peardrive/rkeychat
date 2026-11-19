@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TextInput } from 'react-native';
 
 /** The instance type of a React Native TextInput (what `ref` gives). */
@@ -60,6 +60,26 @@ export function isTouch(): boolean {
 /** iOS safe areas inside a WebView with contentInsetAdjustmentBehavior='never'. CSS env() through RNW styles. */
 export const SAFE_TOP = 'env(safe-area-inset-top)';
 export const SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
+
+/** Horizontal swipe on a touch screen (web): `onSwipe(-1)` for right-to-left, `onSwipe(1)` for left-to-right. */
+export function useSwipe(onSwipe: (direction: 1 | -1) => void, minPx = 56) {
+  const start = useRef<{ x: number; y: number } | null>(null);
+  return {
+    onTouchStart: (e: { nativeEvent: { touches?: { pageX: number; pageY: number }[]; pageX?: number; pageY?: number } }) => {
+      const t = e.nativeEvent.touches?.[0] ?? e.nativeEvent;
+      start.current = t.pageX != null && t.pageY != null ? { x: t.pageX, y: t.pageY } : null;
+    },
+    onTouchEnd: (e: { nativeEvent: { changedTouches?: { pageX: number; pageY: number }[]; pageX?: number; pageY?: number } }) => {
+      const s = start.current;
+      start.current = null;
+      const t = e.nativeEvent.changedTouches?.[0] ?? e.nativeEvent;
+      if (!s || t.pageX == null || t.pageY == null) return;
+      const dx = t.pageX - s.x;
+      const dy = t.pageY - s.y;
+      if (Math.abs(dx) >= minPx && Math.abs(dx) > Math.abs(dy) * 1.5) onSwipe(dx < 0 ? -1 : 1);
+    },
+  };
+}
 
 /** Hidden until `ms` have passed: avoids flashing spinners on fast requests. */
 export function useDelayed(value: boolean, ms = 250) {

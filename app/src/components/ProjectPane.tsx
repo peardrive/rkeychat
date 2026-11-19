@@ -10,7 +10,7 @@ import { Avatar, Button, Chip, DangerZone, Divider, EmptyState, Icon, IconButton
 import { useStore } from '../store/context';
 import { archivedConvs, convTitle, homeOf, orgOf, selectedRoom, thinkingIn } from '../store/selectors';
 import type { AgentState, Seat } from '../types';
-import type { ProjectAction } from './HomeList';
+import type { ProjectAction } from './ProjectList';
 
 export interface ProjectPaneProps {
   width?: number;

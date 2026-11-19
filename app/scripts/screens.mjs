@@ -34,6 +34,8 @@ const must = async (page, locator, what) => {
   if (!(await locator.count())) throw new Error(`missing: ${what}`);
 };
 const openRedesign = async (page, tap = false) => {
+  const projects = page.getByRole('radio', { name: 'Projects' });
+  if (await projects.count()) { await projects.click(); await page.waitForTimeout(400); }
   const row = page.getByText('Redesign the share row').first();
   await (tap ? row.tap() : row.click());
   await page.waitForTimeout(700);
@@ -42,7 +44,8 @@ const openRedesign = async (page, tap = false) => {
 const desktop = { width: 1280, height: 800 };
 const phone = { width: 390, height: 844, mobile: true };
 
-await shot('desktop-home', { ...desktop, before: async (page) => { await must(page, page.getByText('wants to log in'), 'the approval in the feed'); await must(page, page.getByText('mentioned you'), 'the mention in the feed'); } });
+await shot('desktop-home', { ...desktop, before: async (page) => { await must(page, page.getByText('Needs you'), 'the Home blocks in the sidebar'); await must(page, page.getByText('wants to log in'), 'the approval in Needs you'); } });
+await shot('desktop-activity', { ...desktop, before: async (page) => { await page.getByRole('radio', { name: 'Activity' }).click(); await page.waitForTimeout(400); await must(page, page.getByText('mentioned you'), 'the mention in Activity'); } });
 await shot('desktop-dark', { ...desktop, before: openRedesign });
 await shot('desktop-light', { ...desktop, scheme: 'light', before: openRedesign });
 await shot('desktop-message-actions', {
@@ -66,6 +69,8 @@ await shot('desktop-files', {
 await shot('desktop-menu', {
   ...desktop,
   before: async (page) => {
+    await page.getByRole('radio', { name: 'Projects' }).click();
+    await page.waitForTimeout(400);
     await page.getByRole('button', { name: 'PearDrive actions' }).click();
     await page.waitForTimeout(300);
     await must(page, page.getByRole('menuitem', { name: 'Move to organization…' }), 'the project menu');
@@ -74,6 +79,8 @@ await shot('desktop-menu', {
 await shot('desktop-new-project', {
   ...desktop,
   before: async (page) => {
+    await page.getByRole('radio', { name: 'Projects' }).click();
+    await page.waitForTimeout(400);
     await page.getByRole('button', { name: 'New', exact: true }).click();
     await page.getByRole('menuitem', { name: 'New project' }).click();
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Notes app');
@@ -93,7 +100,7 @@ await shot('desktop-profile', {
 await shot('desktop-settings', {
   ...desktop,
   before: async (page) => {
-    await page.getByRole('link', { name: 'Settings' }).click();
+    await page.getByRole('radio', { name: 'Settings' }).click();
     await page.waitForTimeout(700);
     await must(page, page.getByText('Workspace folder'), 'the settings page');
   },
@@ -111,18 +118,33 @@ await shot('desktop-debug-note', {
   },
 });
 
-await shot('phone-home', { ...phone, before: async (page) => { await must(page, page.getByText('wants to log in'), 'the approval on the phone home'); } });
+const dockTo = async (page, name) => { await page.getByRole('tab', { name }).tap(); await page.waitForTimeout(600); };
+await shot('phone-home', { ...phone, before: async (page) => { await must(page, page.getByText('Needs you'), 'the Needs-you block'); await must(page, page.getByText('wants to log in'), 'the approval in Needs you'); await must(page, page.getByRole('tab', { name: 'Projects' }), 'the dock'); } });
+await shot('phone-activity', { ...phone, before: async (page) => { await dockTo(page, 'Activity'); await must(page, page.getByText('mentioned you'), 'the mention in Activity'); } });
+await shot('phone-projects', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    await page.getByRole('tab', { name: 'Anjou' }).tap();
+    await page.waitForTimeout(400);
+    if (await page.getByText('Family', { exact: true }).count()) throw new Error('the Anjou filter still shows Family');
+    await must(page, page.getByText('PearDrive', { exact: true }), 'PearDrive under Anjou');
+  },
+});
+await shot('phone-settings', { ...phone, before: async (page) => { await dockTo(page, 'Settings'); await must(page, page.getByText('Workspace folder'), 'the settings page'); } });
 await shot('phone-conversation', {
   ...phone,
   before: async (page) => {
+    await dockTo(page, 'Projects');
     await openRedesign(page, true);
     await must(page, page.getByRole('button', { name: 'Back' }), 'a back control on the conversation page');
-    await must(page, page.getByRole('button', { name: 'Files' }), 'the glass bar');
+    if (await page.getByRole('tab', { name: 'Projects' }).count()) throw new Error('the dock is still showing over a conversation');
   },
 });
 await shot('phone-project', {
   ...phone,
   before: async (page) => {
+    await dockTo(page, 'Projects');
     await openRedesign(page, true);
     await page.getByRole('button', { name: 'Project' }).first().tap();
     await page.waitForTimeout(500);
@@ -132,6 +154,7 @@ await shot('phone-project', {
 await shot('phone-new-project', {
   ...phone,
   before: async (page) => {
+    await dockTo(page, 'Projects');
     await page.getByRole('button', { name: 'New', exact: true }).tap();
     await page.getByRole('menuitem', { name: 'New project' }).tap();
     await page.getByRole('textbox', { name: 'Name', exact: true }).fill('From the phone');
@@ -141,10 +164,9 @@ await shot('phone-new-project', {
 await shot('phone-profile', {
   ...phone,
   before: async (page) => {
-    await openRedesign(page, true);
-    await page.getByText('@rkeychat is thinking').first().tap();
+    await page.getByRole('button', { name: 'rkeychat', exact: true }).first().tap();
     await page.waitForTimeout(500);
-    await must(page, page.getByText('Role in this project'), 'the bot profile from the thinking line');
+    await must(page, page.getByText('Role in this project'), 'the bot profile from Online');
   },
 });
 

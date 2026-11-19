@@ -2,7 +2,7 @@
  * What a debug note is stamped with: where the app is (`where`) and what a click hit (`describe`).
  * Pure functions, so they can be tested without a DOM or the store.
  */
-export type DebugPage = 'home' | 'conversation' | 'files' | 'project' | 'profile' | 'settings';
+export type DebugPage = 'home' | 'activity' | 'projects' | 'conversation' | 'files' | 'project' | 'profile' | 'settings';
 
 export interface WhereInput {
   page: DebugPage;
@@ -23,7 +23,7 @@ export function whereFrom(input: WhereInput): Where {
   const out: Where = { page: input.page };
   if (input.org) out.org = input.org;
   if (input.project) out.project = input.project;
-  if (input.conversation && input.page !== 'home' && input.page !== 'settings') out.conversation = input.conversation;
+  if (input.conversation && !['home', 'activity', 'projects', 'settings'].includes(input.page)) out.conversation = input.conversation;
   return out;
 }
 

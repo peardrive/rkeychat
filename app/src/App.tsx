@@ -1,26 +1,32 @@
 /**
- * The shell. Desktop: Home list (feed + projects) on the left, the view in the middle (home, a conversation, a
- * profile, settings), the project on the right. Phone: the same as pages.
+ * The shell. Phone: four pages behind the dock (Home, Activity, Projects, Settings); a conversation, the project
+ * sheet and a profile open on top with the dock hidden. Desktop: the sidebar carries the same four as tabs and
+ * the middle shows the conversation, a profile or Settings; the project on the right.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View } from 'react-native';
 import { ConversationPane } from './components/ConversationPane';
-import { HomeList, type ProjectAction } from './components/HomeList';
-import { HomePage } from './components/HomePage';
+import { DesktopSidebar } from './components/DesktopSidebar';
+import { ActivityPage, HomePage, ProjectsPage } from './components/HomePage';
 import { NewProjectDialog, type NewProjectSubmit } from './components/NewProjectDialog';
 import { ProfilePage } from './components/ProfilePage';
 import { MoveToOrgDialog, NewOrgDialog, RemoveProjectDialog, RenameProjectDialog } from './components/ProjectDialogs';
+import { type ProjectAction } from './components/ProjectList';
 import { ProjectPane } from './components/ProjectPane';
 import { SettingsPage } from './components/SettingsPage';
-import { rkc, useShortcuts, useViewport, type TextInputRef } from './hooks';
-import { AppWindow, ThemeProvider, ToastProvider, useToast } from './kit';
-import { StoreProvider, useStore } from './store/context';
-import { convTitle, orgNames, orderedRooms, selectedConv, selectedRoom } from './store/selectors';
 import { getConversationTab, setDebugWhere } from './debugNotes';
+import { SAFE_BOTTOM, rkc, useShortcuts, useViewport, type TextInputRef } from './hooks';
+import { AppWindow, Dock, EmptyState, Pane, PaneHeader, ThemeProvider, ToastProvider, useToast, type DockItem } from './kit';
+import { StoreProvider, useStore } from './store/context';
+import { feedUnread } from './store/feed';
+import { readDock, readOrgFilter, writeDock, type DockPage, type OrgFilter } from './store/nav';
+import { convTitle, orgNames, orderedRooms, selectedConv, selectedRoom } from './store/selectors';
 
 const PROJECT_WIDTH = 332;
 const PROJECT_OPEN_KEY = 'rkc.app.project-open';
 
-type View = { kind: 'home' } | { kind: 'conversation' } | { kind: 'profile'; topic: string; name: string } | { kind: 'settings' };
+/** What sits on top of the dock pages. */
+type Overlay = { kind: 'none' } | { kind: 'conversation' } | { kind: 'project' } | { kind: 'profile'; topic: string; name: string };
 
 export function App() {
   return (
@@ -37,10 +43,10 @@ export function App() {
 function Shell() {
   const { state, actions } = useStore();
   const { toast } = useToast();
-  const { width, phone, narrow } = useViewport();
-  const [view, setView] = useState<View>({ kind: 'home' });
-  // Phone: the home list is its own page under the view; the project is a sheet over a conversation.
-  const [phonePage, setPhonePage] = useState<'home' | 'view' | 'project'>('home');
+  const { phone, narrow } = useViewport();
+  const [dock, setDockState] = useState<DockPage>(readDock);
+  const [orgFilter, setOrgFilter] = useState<OrgFilter>(readOrgFilter);
+  const [overlay, setOverlay] = useState<Overlay>({ kind: 'none' });
   const [projectOpen, setProjectOpen] = useState(() => {
     const saved = localStorage.getItem(PROJECT_OPEN_KEY);
     return saved ? saved === '1' : window.innerWidth >= 1040;
@@ -51,49 +57,51 @@ function Shell() {
   const searchRef = useRef<TextInputRef>(null);
   const composerRef = useRef<TextInputRef>(null);
 
+  const setDock = useCallback((p: DockPage) => {
+    setDockState(p);
+    writeDock(p);
+    setOverlay({ kind: 'none' });
+  }, []);
+
   useEffect(() => {
     if (narrow && !localStorage.getItem(PROJECT_OPEN_KEY)) setProjectOpen(false);
   }, [narrow]);
 
   // Debug notes are stamped with where the app is.
-  const whereRef = useRef({ state, view, phonePage, phone });
-  whereRef.current = { state, view, phonePage, phone };
+  const whereRef = useRef({ state, dock, overlay, phone });
+  whereRef.current = { state, dock, overlay, phone };
   useEffect(() => {
     setDebugWhere(() => {
-      const { state: s, view: v, phonePage: pp, phone: ph } = whereRef.current;
+      const { state: s, dock: d, overlay: o } = whereRef.current;
       const room = selectedRoom(s);
       const conv = selectedConv(s);
-      const page = ph && pp === 'home' ? 'home' : ph && pp === 'project' ? 'project' : v.kind === 'conversation' ? (getConversationTab() === 'files' ? 'files' : 'conversation') : v.kind;
+      const page = o.kind === 'conversation' ? (getConversationTab() === 'files' ? 'files' : 'conversation') : o.kind === 'project' ? 'project' : o.kind === 'profile' ? 'profile' : d;
       return { page, org: room?.app?.org ?? null, project: room?.name ?? null, conversation: conv ? convTitle(conv) : null };
     });
   }, []);
 
+  // A conversation got selected: show it on top.
+  const lastConv = useRef<string | null>(null);
+  useEffect(() => {
+    const key = state.selected.topic && state.selected.conv ? `${state.selected.topic}/${state.selected.conv}` : null;
+    if (key && key !== lastConv.current && lastConv.current !== null) setOverlay({ kind: 'conversation' });
+    if (key && lastConv.current === null && !phone) setOverlay({ kind: 'conversation' });
+    lastConv.current = key;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.selected]);
+
+  const goConversation = useCallback(() => setOverlay({ kind: 'conversation' }), []);
+  const closeOverlay = useCallback(() => setOverlay({ kind: 'none' }), []);
+
   const toggleProject = useCallback(() => {
     if (phone) {
-      setPhonePage((p) => (p === 'project' ? 'view' : 'project'));
+      setOverlay((o) => (o.kind === 'project' ? { kind: 'conversation' } : { kind: 'project' }));
       return;
     }
     setProjectOpen((o) => {
       localStorage.setItem(PROJECT_OPEN_KEY, o ? '0' : '1');
       return !o;
     });
-  }, [phone]);
-
-  // A conversation got selected: show it.
-  const lastConv = useRef<string | null>(null);
-  useEffect(() => {
-    const key = state.selected.topic && state.selected.conv ? `${state.selected.topic}/${state.selected.conv}` : null;
-    if (key && key !== lastConv.current) {
-      if (lastConv.current !== null || view.kind !== 'home') setView({ kind: 'conversation' });
-      if (phone && lastConv.current !== null) setPhonePage('view');
-    }
-    lastConv.current = key;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.selected, phone]);
-
-  const goConversation = useCallback(() => {
-    setView({ kind: 'conversation' });
-    if (phone) setPhonePage('view');
   }, [phone]);
 
   const createProject = useCallback(
@@ -108,7 +116,6 @@ function Shell() {
     },
     [actions, toast, goConversation],
   );
-
   const newProject = useCallback((prefill?: { name?: string; org?: string }) => setDialog({ mode: 'create', prefill }), []);
 
   const changeFolder = useCallback(async () => {
@@ -146,35 +153,29 @@ function Shell() {
   const shortcuts = useMemo(
     () => [
       { key: 'n', mod: true, handler: (e: KeyboardEvent) => { e.preventDefault(); void newConversation(); } },
-      { key: 'k', mod: true, handler: (e: KeyboardEvent) => { e.preventDefault(); if (phone) setPhonePage('home'); searchRef.current?.focus(); } },
+      { key: 'k', mod: true, handler: (e: KeyboardEvent) => { e.preventDefault(); setDock('projects'); setTimeout(() => searchRef.current?.focus(), 30); } },
       { key: 'i', mod: true, handler: (e: KeyboardEvent) => { e.preventDefault(); toggleProject(); } },
     ],
-    [newConversation, toggleProject, phone],
+    [newConversation, toggleProject, setDock],
   );
   useShortcuts(shortcuts);
 
   const openProfile = useCallback(
     (name: string) => {
-      const topic = state.selected.topic;
+      const topic = state.selected.topic ?? state.roomOrder.find((t) => (state.details[t]?.participants ?? []).some((p) => p.name === name)) ?? state.roomOrder[0];
       if (!topic) return;
-      setView({ kind: 'profile', topic, name });
-      if (phone) setPhonePage('view');
+      setOverlay({ kind: 'profile', topic, name });
     },
-    [state.selected.topic, phone],
+    [state.selected.topic, state.roomOrder, state.details],
   );
-  const openSettings = useCallback(() => {
-    setView({ kind: 'settings' });
-    if (phone) setPhonePage('view');
-  }, [phone]);
-  const openHome = useCallback(() => {
-    setView({ kind: 'home' });
-    if (phone) setPhonePage('home');
-  }, [phone]);
-  const backToConversation = useCallback(() => {
-    if (state.selected.topic && state.selected.conv) setView({ kind: 'conversation' });
-    else setView({ kind: 'home' });
-    if (phone && !(state.selected.topic && state.selected.conv)) setPhonePage('home');
-  }, [state.selected, phone]);
+  const onProjectAction = useCallback((action: ProjectAction, topic: string) => setProjectDialog({ action, topic }), []);
+  const openProjects = useCallback(
+    (org?: string) => {
+      if (org) setOrgFilter(org);
+      setDock('projects');
+    },
+    [setDock],
+  );
 
   const projectDialogRoom = projectDialog ? state.rooms[projectDialog.topic] : null;
   const dialogs = (
@@ -192,25 +193,8 @@ function Shell() {
         }}
       />
       <NewOrgDialog open={orgDialog} onClose={() => setOrgDialog(false)} onSubmit={(org) => setDialog({ mode: 'create', prefill: { org } })} />
-      <RenameProjectDialog
-        open={projectDialog?.action === 'rename'}
-        name={projectDialogRoom?.name ?? ''}
-        onClose={() => setProjectDialog(null)}
-        onSubmit={async (name) => {
-          await actions.renameRoom(projectDialog!.topic, name);
-          toast({ title: 'Renamed', description: name, tone: 'success' });
-        }}
-      />
-      <MoveToOrgDialog
-        open={projectDialog?.action === 'org'}
-        current={projectDialogRoom?.app?.org ?? null}
-        orgs={orgNames(orderedRooms(state))}
-        onClose={() => setProjectDialog(null)}
-        onSubmit={async (org) => {
-          await actions.setRoomOrg(projectDialog!.topic, org);
-          toast({ title: org ? `Moved to ${org}` : 'Removed from its organization', tone: 'success' });
-        }}
-      />
+      <RenameProjectDialog open={projectDialog?.action === 'rename'} name={projectDialogRoom?.name ?? ''} onClose={() => setProjectDialog(null)} onSubmit={async (name) => { await actions.renameRoom(projectDialog!.topic, name); toast({ title: 'Renamed', description: name, tone: 'success' }); }} />
+      <MoveToOrgDialog open={projectDialog?.action === 'org'} current={projectDialogRoom?.app?.org ?? null} orgs={orgNames(orderedRooms(state))} onClose={() => setProjectDialog(null)} onSubmit={async (org) => { await actions.setRoomOrg(projectDialog!.topic, org); toast({ title: org ? `Moved to ${org}` : 'Removed from its organization', tone: 'success' }); }} />
       <RemoveProjectDialog
         open={projectDialog?.action === 'remove'}
         name={projectDialogRoom?.name ?? ''}
@@ -219,42 +203,72 @@ function Shell() {
         onSubmit={async () => {
           await actions.removeRoom(projectDialog!.topic);
           toast({ title: 'Removed from this device', description: projectDialogRoom?.folder ? 'The folder stays on disk.' : undefined });
-          openHome();
+          setOverlay({ kind: 'none' });
         }}
       />
     </>
   );
 
-  const onProjectAction = useCallback((action: ProjectAction, topic: string) => setProjectDialog({ action, topic }), []);
+  const unread = feedUnread(state.feed);
+  const dockItems: DockItem[] = [
+    { key: 'home', icon: 'grid-1', label: 'Home' },
+    { key: 'activity', icon: 'message', label: 'Activity', badge: unread || undefined },
+    { key: 'projects', icon: 'folder', label: 'Projects' },
+    { key: 'settings', icon: 'setting-2-bold', label: 'Settings' },
+  ];
 
-  const middle =
-    view.kind === 'home' ? (
-      <HomePage onNavigate={goConversation} />
-    ) : view.kind === 'profile' ? (
-      <ProfilePage topic={view.topic} name={view.name} phone={phone} onBack={backToConversation} />
-    ) : view.kind === 'settings' ? (
-      <SettingsPage phone={phone} onBack={backToConversation} />
+  const pageNode = (dockPage: DockPage) =>
+    dockPage === 'home' ? (
+      <HomePage phone={phone} onOpenProjects={openProjects} onOpenActivity={() => setDock('activity')} onOpenProfile={openProfile} onNavigate={goConversation} />
+    ) : dockPage === 'activity' ? (
+      <ActivityPage phone={phone} onNavigate={goConversation} />
+    ) : dockPage === 'projects' ? (
+      <ProjectsPage phone={phone} orgFilter={orgFilter} onOrgFilter={setOrgFilter} onNewProject={newProject} onNewOrg={() => setOrgDialog(true)} onProjectAction={onProjectAction} onNavigate={goConversation} />
     ) : (
-      <ConversationPane phone={phone} projectOpen={phone ? phonePage === 'project' : projectOpen} onToggleProject={toggleProject} onBack={phone ? () => setPhonePage('home') : undefined} onOpenProfile={openProfile} composerRef={composerRef} />
+      <SettingsPage phone={phone} dock />
     );
 
-  const list = <HomeList onNewProject={newProject} onNewOrg={() => setOrgDialog(true)} onOpenSettings={openSettings} onOpenHome={openHome} onProjectAction={onProjectAction} searchRef={searchRef} fullWidth={phone ? width : undefined} onNavigate={phone ? goConversation : undefined} homeActive={view.kind === 'home'} />;
+  const overlayNode =
+    overlay.kind === 'conversation' ? (
+      <ConversationPane phone={phone} projectOpen={phone ? false : projectOpen} onToggleProject={toggleProject} onBack={phone ? closeOverlay : undefined} onOpenProfile={openProfile} composerRef={composerRef} />
+    ) : overlay.kind === 'project' ? (
+      <ProjectPane phone onClose={() => setOverlay({ kind: 'conversation' })} onChangeFolder={changeFolder} onProjectAction={onProjectAction} onOpenProfile={openProfile} />
+    ) : overlay.kind === 'profile' ? (
+      <ProfilePage topic={overlay.topic} name={overlay.name} phone={phone} onBack={() => setOverlay(state.selected.topic && state.selected.conv && !phone ? { kind: 'conversation' } : { kind: 'none' })} />
+    ) : null;
 
   if (phone) {
-    const page = phonePage === 'home' || (phonePage === 'view' && view.kind === 'home') ? 'home' : phonePage;
     return (
       <AppWindow>
-        {page === 'home' ? list : page === 'project' ? <ProjectPane phone onClose={() => setPhonePage('view')} onChangeFolder={changeFolder} onProjectAction={onProjectAction} onOpenProfile={openProfile} /> : middle}
+        <View className="relative min-h-0 flex-1">
+          {overlayNode ?? pageNode(dock)}
+          {overlay.kind === 'none' ? <Dock items={dockItems} value={dock} onChange={(k) => setDock(k as DockPage)} inset={`calc(10px + ${SAFE_BOTTOM})`} /> : null}
+        </View>
         {dialogs}
       </AppWindow>
     );
   }
 
+  // Desktop: the sidebar's tab is the dock page; Settings and a profile take the middle; otherwise the conversation.
+  const middle =
+    dock === 'settings' ? (
+      <SettingsPage phone={false} onBack={() => setDock(state.selected.conv ? 'projects' : 'home')} />
+    ) : overlay.kind === 'profile' ? (
+      overlayNode
+    ) : state.selected.topic && state.selected.conv ? (
+      <ConversationPane phone={false} projectOpen={projectOpen} onToggleProject={toggleProject} onOpenProfile={openProfile} composerRef={composerRef} />
+    ) : (
+      <Pane glow>
+        <PaneHeader title="rKeyChat" subtitle={state.ready ? 'Pick a conversation' : 'Connecting…'} dragRegion />
+        <EmptyState icon="message" title={state.roomOrder.length ? 'Pick a conversation' : 'Start with a project'} description={state.roomOrder.length ? 'Choose one under Projects, or press ⌘N.' : 'Press + under Projects, or drop a folder on the sidebar.'} />
+      </Pane>
+    );
+
   return (
     <AppWindow>
-      {list}
+      <DesktopSidebar tab={dock} onTab={setDock} orgFilter={orgFilter} onOrgFilter={setOrgFilter} onNewProject={newProject} onNewOrg={() => setOrgDialog(true)} onProjectAction={onProjectAction} onOpenProfile={openProfile} searchRef={searchRef} />
       {middle}
-      {projectOpen && view.kind === 'conversation' ? <ProjectPane width={PROJECT_WIDTH} phone={false} onClose={toggleProject} onChangeFolder={changeFolder} onProjectAction={onProjectAction} onOpenProfile={openProfile} /> : null}
+      {projectOpen && dock !== 'settings' && overlay.kind !== 'profile' && state.selected.topic && state.selected.conv ? <ProjectPane width={PROJECT_WIDTH} phone={false} onClose={toggleProject} onChangeFolder={changeFolder} onProjectAction={onProjectAction} onOpenProfile={openProfile} /> : null}
       {dialogs}
     </AppWindow>
   );

@@ -15,7 +15,7 @@ import { shortTime } from '../time';
 
 const WIKI_KEY = 'rkc.app.wiki';
 
-export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => void }) {
+export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?: () => void; dock?: boolean }) {
   const { state } = useStore();
   const { toast } = useToast();
   const [workspace, setWorkspace] = useState('');
@@ -84,17 +84,23 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
 
   return (
     <Pane glow>
-      <PaneHeader title="Settings" size={phone ? 'display' : 'title'} style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined} leading={<IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1" />} actions={<DebugButton />} />
+      <PaneHeader title="Settings" size={phone ? 'display' : 'title'} style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined} leading={onBack ? <IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1" /> : undefined} actions={<DebugButton />} />
       <PaneBody contentClassName="gap-3 px-4 pb-8 pt-1">
         <View className="w-full max-w-[720px] gap-3 self-center">
           <SettingsBlock icon="setting-2-bold" title="This device" description="its name, where projects go">
             <SettingsRow label="Name" control={value(state.me?.device ?? '—')} />
-            <SettingsRow label="Workspace folder" hint="New projects made here get a folder in it." control={<View className="w-[260px] max-w-full"><TextField mono size="sm" value={workspace} onChangeText={setWorkspace} onSubmitEditing={saveWorkspace} placeholder="~/rKeyChat" disabled={!canHost} trailing={<Button size="sm" variant="primary" label="Save" disabled={!canHost || workspace.trim() === saved || !workspace.trim()} loading={busy} onPress={saveWorkspace} />} /></View>} />
+            <SettingsRow label="Workspace folder" hint="New projects made here get a folder in it." divider={false} />
+            <View className="px-1 pb-3">
+              <TextField mono size="sm" value={workspace} onChangeText={setWorkspace} onSubmitEditing={saveWorkspace} placeholder="~/rKeyChat" disabled={!canHost} trailing={<Button size="sm" variant="primary" label="Save" disabled={!canHost || workspace.trim() === saved || !workspace.trim()} loading={busy} onPress={saveWorkspace} />} />
+            </View>
             <SettingsRow label="Can hold projects" hint={canHost ? 'Folders and seats live here.' : 'A phone: projects live on one of your computers.'} control={<Toggle value={canHost} onValueChange={() => {}} disabled />} divider={false} />
           </SettingsBlock>
 
           <SettingsBlock icon="document" title="Wiki" description="one space every agent reads">
-            <SettingsRow label="Space link" hint="Markdown synced by PearDrive: where things live, what we learned. Kept on this device until the daemon takes it next round." control={<View className="w-[260px] max-w-full"><TextField mono size="sm" value={wiki} onChangeText={saveWiki} placeholder="peardrive://…" /></View>} />
+            <SettingsRow label="Space link" hint="Markdown synced by PearDrive: where things live, what we learned. Kept on this device until the daemon takes it next round." divider={false} />
+            <View className="px-1 pb-3">
+              <TextField mono size="sm" value={wiki} onChangeText={saveWiki} placeholder="peardrive://…" />
+            </View>
             <SettingsRow
               label={wiki ? 'In every seat’s prompt' : 'No wiki yet'}
               hint={wiki ? 'the wiki is at this space; read its index when you need something outside the folder' : 'Make an empty one; the index fills itself in.'}
@@ -172,6 +178,7 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
             </Text>
             <Button size="sm" variant="ghost" label="Classic page" onPress={() => window.location.assign('/')} />
           </View>
+          {dock ? <View style={{ height: 92 }} /> : null}
         </View>
       </PaneBody>
     </Pane>

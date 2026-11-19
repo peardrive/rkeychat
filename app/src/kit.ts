@@ -76,6 +76,14 @@ export {
 } from 'pearkit';
 export type { ActivityItem, ActivityKind, ChatAttachment, ChatMessage, ColorToken, DroppedItem, IconName, IconSource, MenuItem, PaneHeaderAction, ProfileSection, StatusTone, ToastOptions } from 'pearkit';
 
+// Pending in PearKit (being written): the dock, organization tabs, home blocks.
+export { Dock, DockButton } from './pending-pearkit/Dock';
+export type { DockItem } from './pending-pearkit/Dock';
+export { OrgTabs } from './pending-pearkit/OrgTabs';
+export type { OrgTabItem } from './pending-pearkit/OrgTabs';
+export { HomeBlock, HomeGrid, PresenceRow } from './pending-pearkit/HomeBlocks';
+export type { PresencePerson } from './pending-pearkit/HomeBlocks';
+
 // Pending in PearKit: the file rows of a project (projects-home-and-sync.md §3).
 export { FileList, FileRow } from './pending-pearkit/FileList';
 export type { FileState } from './pending-pearkit/FileList';
