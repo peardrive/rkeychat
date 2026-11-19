@@ -2200,6 +2200,7 @@ function renderAsk () {
   if (!asking) return
   el.innerHTML = `<h4>Let ${esc(asking.deviceName)} in?</h4>
     <div class="ask-body">${asking.room ? `They would join <b>${esc(asking.room)}</b>, and nothing else.` : 'They would log in as you on a new device.'}<br>
+      ${(asking.names ?? []).length ? `As: <b>${asking.names.map((n) => `${esc(n.name)} (${n.role})`).join(', ')}</b>.<br>` : ''}
       Their key starts <span class="ask-key">${esc(asking.device.replace(/^\w+:/, '').slice(0, 12))}</span> — check it matches their screen.</div>
     <div class="ask-row"><button class="btn btn-primary btn-sm" data-ask-grant="${esc(asking.topic)}">Let them in</button>
       <button class="btn btn-soft btn-sm is-stop" data-ask-deny="${esc(asking.topic)}">No</button></div>`

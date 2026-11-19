@@ -87,7 +87,7 @@ export function cleanAgentRules (agents) {
   }
   return out
 }
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, ts = Date.now() }) {
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
@@ -100,7 +100,9 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
     runtime: runtime === undefined ? undefined : runtime === null ? null : String(runtime).slice(0, 80),
     app: app === undefined ? undefined : String(app).slice(0, 40),
     role: role === undefined ? undefined : String(role).slice(0, 20),
-    icon: icon === undefined ? undefined : String(icon).slice(0, 20000)
+    icon: icon === undefined ? undefined : String(icon).slice(0, 20000),
+    // the device a project lives on: { device: <device key ref>, name: 'macbook' } (app and project controls)
+    home: home === undefined ? undefined : home === null ? null : { device: String(home.device).slice(0, 140), name: String(home.name ?? '').slice(0, 80) }
   })
 }
 

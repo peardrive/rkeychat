@@ -17,6 +17,8 @@ import { RoomSearch } from './search.js'
 // record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
 // messages they point at; invites are addressed to one device)
 export const FEED_SKIP = ['react', 'redact', 'invite']
+// controls only the owner's own keys may write (see #admits)
+export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -320,9 +322,13 @@ export class Room extends EventEmitter {
   // { app, role, name, icon } or null. (PearDrive files the space under that app.)
   appInfo () {
     let a = null
-    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'app' && r.app) a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : 'chat', name: r.name ?? this.cfg.name, ...(r.icon ? { icon: r.icon } : {}) }
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'app' && r.app) a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : 'chat', name: r.name ?? this.cfg.name, home: r.home ?? null, ...(r.icon ? { icon: r.icon } : {}) }
     return a
   }
+
+  // The device a project's folder lives on (docs/projects-home-and-sync.md §1), or null for a chat.
+  home () { return this.appInfo()?.home ?? null }
+  get isHome () { return !!this.device && this.home()?.device === this.device.ref }
 
   // What a feed line needs from outside the window the page holds: the preview of the message a reply answers
   // (withQuote), and for a rename or a settings change, what it changed from (withBefore).
@@ -399,6 +405,10 @@ export class Room extends EventEmitter {
     if (!s.trustedAt(rec.author, rec.ts)) return false
     const need = rec.kind === 'control' || rec.kind === 'redact' || rec.kind === 'invite' ? SCOPES.admin : SCOPES.chat
     if (!s.scopeOf(rec.author).includes(need)) return false
+    // Account-gated controls (docs/projects-home-and-sync.md §4): making a project on a device, moving its home,
+    // starting or configuring a seat, connecting a folder. Only the room owner's own keys may say so: the root,
+    // or a key enrolled directly under it (the owner's devices). An admin member is not enough.
+    if (rec.kind === 'control' && ACCOUNT_GATED.includes(rec.action) && !this.isOwnerKey(rec.author)) return false
     // a hash the room removed can't come back in a new message
     if (rec.kind === 'msg' && (rec.att ?? []).some((a) => this.blocked().hashes.has(a.hash))) return false
     return true
@@ -541,14 +551,20 @@ export class Room extends EventEmitter {
   }
 
   // request = { device: { ref, name, consent }, participants: [{ ref, name, role, consent }] }
-  async approve (request) {
+  // `asOwner`: this request is the owner's own device logging in (the login handover, or the owner enrolling
+  // their other devices), so a human named like the owner is the owner's device. Any other path (an invite to a
+  // room, a pasted request code) may not take the owner's name: audit 2026-11-15, H1 — before this, any invite
+  // let a stranger's daemon ask for { name: 'guy', role: 'human' } and be enrolled as the owner with admin.
+  async approve (request, { asOwner = false } = {}) {
     if (!this.isOwner) throw new Error('only the room owner can approve')
     const root = this.chain.root
     const taken = new Set(this.members().filter((m) => m.status !== 'revoked' && !m.device).map((m) => m.name))
     const ops = []
     const d = request.device
-    // a device already in the room may roll its keys under the same names; a new device may not take a name in use
-    const rolling = !!(d && this.state.isActive(d.ref))
+    // a device already in the room may roll its keys under the names it already holds here, and only those
+    // (audit H1, second door: "rolling" used to lift the name check for every name)
+    const held = new Set(d && this.state.isActive(d.ref) ? this.members().filter((m) => m.status !== 'revoked' && m.device === d.name).map((m) => m.name) : [])
+    const rolling = (name) => held.has(name)
     if (d && !this.state.isActive(d.ref) && !this.#burned(d.ref)) {
       ops.push(await enroll(this.rootSigner, { root, key: d.ref, consent: d.consent, consentAfter: d.after, scope: ['bind', SCOPES.host], label: `device:${d.name}` }))
     }
@@ -559,18 +575,19 @@ export class Room extends EventEmitter {
       const role = p.role === 'human' ? SCOPES.admin : SCOPES.agent
       // the owner's own name arriving from another device is the owner's device: a key under
       // the owner's root, not a second account (that's how a phone becomes "you")
-      const ownDevice = p.role === 'human' && this.local[name]?.role === 'human'
+      const ownDevice = asOwner && p.role === 'human' && this.local[name]?.role === 'human'
+      if (!ownDevice && p.role === 'human' && this.local[name]?.role === 'human' && p.account?.ref !== root) throw new Error(`name already in use: ${name} (that is the owner; a device logs in as the owner through the login code, not a room invite)`)
       const a = ownDevice ? null : p.account
       if (a && a.ref !== root) {
         // an account root: same account joining from another device is fine, a different account with a taken name is not
         const existing = this.state.get(a.ref)
-        if (!existing && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (!existing && taken.has(name) && !rolling(name)) throw new Error(`name already in use: ${name}`)
         if (existing?.revoked && this.#burned(a.ref)) continue
         if (!existing || existing.revoked) ops.push(await enroll(this.rootSigner, { root, key: a.ref, consent: a.consent, consentAfter: a.after, scope: ['bind', SCOPES.chat, role, 'delegate'], label: name }))
         if (a.enroll?.key === p.ref) ops.push(a.enroll) // the account enrolls its own session key (signed by it)
       } else {
         // a key under this room's own root: another device of the owner (label name@device), or a legacy key
-        if (!ownDevice && a?.ref !== root && taken.has(name) && !rolling) throw new Error(`name already in use: ${name}`)
+        if (!ownDevice && a?.ref !== root && taken.has(name) && !rolling(name)) throw new Error(`name already in use: ${name}`)
         ops.push(await enroll(this.rootSigner, { root, key: p.ref, consent: p.consent, consentAfter: p.after, scope: ['bind', SCOPES.chat, role], label: d?.name ? `${name}@${d.name}` : name }))
       }
       taken.add(name)
@@ -997,6 +1014,18 @@ export class Room extends EventEmitter {
     return rec
   }
 
+  // Is this key the room owner's own: the root, or a key enrolled directly under it (one of the owner's devices)?
+  isOwnerKey (ref) {
+    const s = this.state
+    if (!s || !this.chain) return false
+    if (ref === this.chain.root) return true
+    const n = s.get(ref)
+    if (!n || n.parent !== this.chain.root || !s.isActive(ref)) return false
+    const scope = s.scopeOf(ref)
+    // a person on one of the owner's devices: admin, and not an account root of someone else (those carry delegate)
+    return scope.includes(SCOPES.admin) && !scope.includes('delegate')
+  }
+
   // Describe a conversation: a signed 'conv' note by a local human. Fields left undefined are unchanged.
   // `conv` absent: a new conversation (its id comes back in the record).
   async setConversation (name, { conv, title, archived, runtime } = {}) {
@@ -1007,9 +1036,31 @@ export class Room extends EventEmitter {
   }
 
   // Say which app this room belongs to and what it is to it (see proto.js 'app'). Owner-side, once per change.
-  async setApp (name, { app = 'rkeychat', role = 'chat', title, icon } = {}) {
+  async setApp (name, { app = 'rkeychat', role = 'chat', title, icon, home } = {}) {
     if (!APP_ROLES.includes(role)) throw new Error(`role must be one of ${APP_ROLES.join(', ')}`)
-    return this.control(name, 'app', { app, role, name: title ?? this.cfg.name, icon })
+    return this.control(name, 'app', { app, role, name: title ?? this.cfg.name, icon, home })
+  }
+
+  // Ask one of the owner's devices to make a project (docs/projects-home-and-sync.md §1): a signed, account-gated
+  // 'project' control carried by this room; the home device acts on it when it sees it.
+  async requestProject (name, { title, home, prompt } = {}) {
+    if (!home?.device) throw new Error('which device should hold the project?')
+    return this.control(name, 'project', { name: title, home, text: prompt })
+  }
+
+  // The owner's devices as this room's chain knows them: [{ ref, name, online, here }]. A device is the owner's
+  // when the owner's human key is enrolled on it (label name@device).
+  ownDevices () {
+    const s = this.state
+    if (!s) return []
+    const human = Object.entries(this.local).find(([, p]) => p.role === 'human')?.[0]
+    const members = this.members().filter((m) => m.status !== 'revoked')
+    const names = new Set(members.filter((m) => m.name === human && m.device).map((m) => m.device))
+    const now = Date.now()
+    return members.filter((m) => m.label?.startsWith('device:') && names.has(m.label.slice(7))).map((m) => {
+      const p = this.presence.get(m.ref)
+      return { ref: m.ref, name: m.label.slice(7), online: !!(p && now - p.ts < PRESENCE_STALE) || m.ref === this.device?.ref, here: m.ref === this.device?.ref }
+    })
   }
 
   // Unanswered messages addressed to `name`, oldest first, since its last post. With `conv`, within that

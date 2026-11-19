@@ -5,7 +5,9 @@ import { join, resolve, basename } from 'node:path'
 
 // a seat name from a folder name: lower case, letters digits - _ only
 const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project'
-import { existsSync, readFileSync, appendFileSync } from 'node:fs'
+import { existsSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { loadSettings } from './glossary.js'
 import { EventEmitter } from 'node:events'
 import { createCore } from 'pearcore/src/core.js'
 import { Chain, generate, consent, enroll } from 'rkey'
@@ -90,6 +92,12 @@ export class App extends EventEmitter {
     room.on('fork', (f) => console.error(`[${rcfg.name}] rKey chain FORK at seq`, f.seq))
     room.on('renamed', () => { saveConfig(this.cfg); this.emit('room-renamed', this.rooms.get(rcfg.topic)) })
     // an owner we already trust signed this device into another room: join it
+    // another of the owner's devices asks this one to hold a project (docs/projects-home-and-sync.md §1):
+    // the control is account-gated in #admits, so arriving here means the owner's own key signed it
+    room.on('record', (rec) => {
+      if (rec.kind !== 'control' || rec.action !== 'project' || rec.home?.device !== this.device.ref) return
+      this.#projectRequested(rec, room).catch((err) => console.error(`[${rcfg.name}] project request:`, err.message))
+    })
     room.on('invite', async ({ code, from }) => {
       try {
         const inv = decodeInvite(code)
@@ -237,7 +245,7 @@ export class App extends EventEmitter {
     rcfg.folder = folder
     saveConfig(this.cfg)
     const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
-    if (human) await room.setApp(human, { role: 'project', title: name }).catch((err) => console.error(`[${name}] app note:`, err.message))
+    if (human) await room.setApp(human, { role: 'project', title: name, home: { device: this.device.ref, name: this.cfg.deviceName } }).catch((err) => console.error(`[${name}] app note:`, err.message))
     // the seat: named after the folder unless taken, in the folder, in this room only
     let seat = String(agent ?? '').trim() || slug(base)
     if (this.cfg.participants[seat] && this.cfg.participants[seat].bridge?.dir !== folder) {
@@ -259,6 +267,55 @@ export class App extends EventEmitter {
     return { room: this.list().find((r) => r.topic === room.topic), seat: seatInfo }
   }
 
+  // Where new projects go on this device when nobody names a folder: the workspace root (a setting).
+  workspace () { return resolve(String(loadSettings().workspace || join(homedir(), 'Projects'))) }
+
+  // A 'project' control that names this device as home: make the folder under the workspace root and the
+  // project. Once per request record; a name already in use here is left alone and said so.
+  async #projectRequested (rec, via) {
+    const done = this.cfg.projectRequests ??= []
+    if (done.includes(rec.id)) return
+    done.push(rec.id); if (done.length > 200) done.splice(0, done.length - 200)
+    saveConfig(this.cfg)
+    const name = String(rec.name ?? '').trim() || 'New project'
+    const folder = join(this.workspace(), slug(name))
+    if (this.cfg.rooms.some((r) => r.folder === folder || r.name === name)) { console.error(`[project] "${name}" already exists here; ignoring the request from ${via.cfg.name}`); return }
+    mkdirSync(folder, { recursive: true })
+    const out = await this.createProject({ folder, name })
+    if (rec.text) { // the prompt the requester wrote, as the room's charter
+      const room = this.rooms.get(out.room.topic)?.room
+      const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+      if (room && human) await room.control(human, 'charter', { text: rec.text }).catch(() => {})
+    }
+    console.log(`[project] made "${name}" at ${folder}, asked from ${via.cfg.name}`)
+  }
+
+  // The owner's devices, merged across the rooms this device is in: [{ ref, name, online, here }].
+  devices () {
+    const out = new Map()
+    for (const { room } of this.rooms.values()) for (const d of room.ownDevices()) {
+      const cur = out.get(d.ref)
+      out.set(d.ref, cur ? { ...cur, online: cur.online || d.online } : d)
+    }
+    if (!out.has(this.device.ref)) out.set(this.device.ref, { ref: this.device.ref, name: this.cfg.deviceName, online: true, here: true })
+    return [...out.values()].sort((a, b) => (b.here - a.here) || (b.online - a.online) || a.name.localeCompare(b.name))
+  }
+
+  // Ask another of the owner's devices to make the project: a signed 'project' control through a room both are
+  // in (the owner's human must be able to write controls there). Returns where it was asked.
+  async requestProject ({ name, home, prompt } = {}) {
+    name = String(name ?? '').trim(); if (!name) throw new Error('a project needs a name')
+    const dev = this.devices().find((d) => d.ref === home || d.name === home)
+    if (!dev) throw new Error(`not one of your devices: ${home}`)
+    if (dev.here) throw new Error('that is this device; make the project here')
+    const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
+    if (!human) throw new Error('only a person can ask for a project')
+    const carrier = [...this.rooms.values()].map((r) => r.room).find((room) => room.chain && room.isOwnerKey(room.local[human]?.signer.ref) && room.ownDevices().some((d) => d.ref === dev.ref))
+    if (!carrier) throw new Error(`no room shared with ${dev.name} where you can ask`)
+    const rec = await carrier.requestProject(human, { title: name, home: { device: dev.ref, name: dev.name }, prompt })
+    return { asked: dev.name, via: carrier.cfg.name, id: rec.id, online: dev.online }
+  }
+
   // Bind (or rebind) a folder to a room on this device; the room becomes a project here.
   async setRoomFolder (topic, folder) {
     const r = this.rooms.get(topic)
@@ -270,7 +327,7 @@ export class App extends EventEmitter {
     if (!folder) delete rcfg.folder
     saveConfig(this.cfg)
     const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
-    if (human && r.room.isOwner) await r.room.setApp(human, { role: folder ? 'project' : 'chat' }).catch(() => {})
+    if (human && r.room.isOwner) await r.room.setApp(human, { role: folder ? 'project' : 'chat', home: folder ? { device: this.device.ref, name: this.cfg.deviceName } : null }).catch(() => {})
     r.room.emit('changed')
     this.emit('rooms-changed')
     return this.list().find((x) => x.topic === topic)
@@ -341,7 +398,7 @@ export class App extends EventEmitter {
         const session = source.chain.entries.map((x) => x.op).findLast((op) => op?.t === 'enroll' && op.label === `${human}@${devName}` && active(op) && op.parent === source.cfg.root)
         if (!session) continue
         try {
-          await target.approve({ device: { ref: d.key, name: devName, consent: d.consent }, participants: [{ ref: session.key, name: human, role: 'human', consent: session.consent }] })
+          await target.approve({ device: { ref: d.key, name: devName, consent: d.consent }, participants: [{ ref: session.key, name: human, role: 'human', consent: session.consent }] }, { asOwner: true })
           await source.sendInvite(d.key, encodeInvite(target.cfg), target.cfg.name)
           mine.add(d.key); added.push(devName)
         } catch (err) { console.error(`[${target.cfg.name}] ${devName}:`, err.message) }
