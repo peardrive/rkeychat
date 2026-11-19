@@ -216,7 +216,7 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
         ) : null}
         {invite ? (
           <View className="pt-2">
-            <LinkField value={invite} onCopy={() => { toast({ title: 'Invite copied', duration: 1500 }); }} />
+            <LinkField value={invite} onCopy={async (v) => { const ok = await copyToClipboard(v); toast({ title: ok ? 'Invite copied' : 'Could not copy; long-press the link', duration: 1500 }); }} />
             <Text variant="micro" tone="subtle" className="pt-1">
               Send this to someone to let them in; you approve their device when it knocks.
             </Text>

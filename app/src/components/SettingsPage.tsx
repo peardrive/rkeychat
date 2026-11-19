@@ -10,7 +10,7 @@ import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsB
 import { useStore } from '../store/context';
 import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person } from '../types';
 import { DebugButton } from './DebugButton';
-import { LinkField } from '../kit';
+import { LinkField, copyToClipboard } from '../kit';
 import { shortTime } from '../time';
 
 const WIKI_KEY = 'rkc.app.wiki';
@@ -120,7 +120,7 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
           </SettingsBlock>
 
           <SettingsBlock icon="microphone" title="Debug" description="voice notes with every step, for your agent">
-            <SettingsRow label="Notes space" hint="Your agent on the Mac pulls them with: rkeychat notes pull <link>" control={debug?.sharelink ? <View className="w-[260px] max-w-full"><LinkField value={debug.sharelink} onCopy={() => { toast({ title: 'Link copied', duration: 1500 }); }} /></View> : value(debug ? debug.error ?? 'no space yet' : 'loading…')} />
+            <SettingsRow label="Notes space" hint="Your agent on the Mac pulls them with: rkeychat notes pull <link>" control={debug?.sharelink ? <View className="w-[260px] max-w-full"><LinkField value={debug.sharelink} onCopy={async (v) => { const ok = await copyToClipboard(v); toast({ title: ok ? 'Link copied' : 'Could not copy; long-press the link', duration: 1500 }); }} /></View> : value(debug ? debug.error ?? 'no space yet' : 'loading…')} />
             <SettingsRow label="Notes" hint={debug?.dir || undefined} control={value(debug ? `${debug.count}` : '…')} divider={!!debug?.notes.length} />
             {debug?.notes.map((n, i) => {
               const w = n.where as { page?: string; project?: string; conversation?: string } | undefined;
