@@ -1,26 +1,36 @@
 /**
- * Middle column: one conversation. Header (rename inline, menu), the messages, who is thinking, the composer.
+ * A conversation: one glass bar at the top (chat · files · ⋯), the messages as bubbles, who is thinking, the
+ * composer. A tap on a message shows reply / copy / + and the six most-used emoji; selecting text offers a
+ * quote-reply of just the selection.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { SAFE_BOTTOM, SAFE_TOP, isTouch, rkc, type TextInputRef } from '../hooks';
-import { Button, Composer, Dialog, EmptyState, IconButton, MenuButton, MessageList, Pane, PaneHeader, SegmentedControl, StatusDot, Text, TextField, Toggle, useToast, type MenuItem } from '../kit';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
+import { SAFE_BOTTOM, SAFE_TOP, isTouch, type TextInputRef } from '../hooks';
+import { Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, useToast } from '../kit';
 import { useStore } from '../store/context';
+import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
 import { collapseActivity, mergeThread, toChatMessage } from '../store/mapping';
 import { convKey } from '../store/reducer';
 import { convTitle, selectedConv, selectedRoom, selectedThread, thinkingIn } from '../store/selectors';
+import { FilesView } from './FilesView';
+
+export type ConversationTab = 'chat' | 'files';
 
 export interface ConversationPaneProps {
   phone: boolean;
   projectOpen: boolean;
   onToggleProject: () => void;
   onBack?: () => void;
+  onOpenProfile: (name: string) => void;
   composerRef: React.RefObject<TextInputRef | null>;
 }
 
 const STEPS_KEY = 'rkc.app.all-steps';
+const BAR = 56;
 
-export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, composerRef }: ConversationPaneProps) {
+type Reply = { id: string; name: string; text: string; quote?: string };
+
+export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, onOpenProfile, composerRef }: ConversationPaneProps) {
   const { state, actions } = useStore();
   const { toast } = useToast();
   const room = selectedRoom(state);
@@ -29,20 +39,24 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
   const topic = state.selected.topic;
   const convId = state.selected.conv;
   const key = topic && convId ? convKey(topic, convId) : null;
+  const touch = isTouch();
 
+  const [tab, setTab] = useState<ConversationTab>('chat');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
-  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [reply, setReply] = useState<Reply | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [runtimeOpen, setRuntimeOpen] = useState(false);
   const [allSteps, setAllSteps] = useState(() => localStorage.getItem(STEPS_KEY) === '1');
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [emojiCounts, setEmojiCounts] = useState(readEmojiCounts);
   const drafts = useRef<Record<string, string>>({});
 
-  // One draft per conversation.
   useEffect(() => {
     setDraft(key ? drafts.current[key] ?? '' : '');
-    setReplyTo(null);
+    setReply(null);
     setRenaming(false);
+    setTab('chat');
   }, [key]);
   const changeDraft = (t: string) => {
     setDraft(t);
@@ -56,19 +70,32 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
     const merged = mergeThread(thread.items, activity ?? []);
     return (allSteps ? merged : collapseActivity(merged)).map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions }));
   }, [thread, key, topic, activity, state.details, state.me, allSteps]);
+  const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const hasSteps = !!activity?.length;
+  const favourites = useMemo(() => topEmoji(emojiCounts, 6), [emojiCounts]);
 
   const thinking = topic && convId ? thinkingIn(state, topic, convId) : [];
+
+  const react = (id: string, emoji: string) => {
+    const mine = byId.get(id)?.reactions?.find((r) => r.emoji === emoji)?.mine;
+    if (!mine) {
+      const next = bumpEmoji(emojiCounts, emoji);
+      setEmojiCounts(next);
+      saveEmojiCounts(next);
+    }
+    actions.react(topic!, id, emoji, !mine).catch((e) => toast({ title: 'Could not react', description: (e as Error).message, tone: 'danger' }));
+  };
 
   const send = async () => {
     const text = draft;
     if (!topic || !convId || !text.trim()) return;
     setSending(true);
-    const re = replyTo ? [replyTo] : undefined;
+    const body = reply?.quote ? `> ${reply.quote.replace(/\n/g, '\n> ')}\n\n${text}` : text;
+    const re = reply ? [reply.id] : undefined;
     changeDraft('');
-    setReplyTo(null);
+    setReply(null);
     try {
-      await actions.send(topic, convId, text, re);
+      await actions.send(topic, convId, body, re);
     } catch (e) {
       changeDraft(text);
       toast({ title: 'Could not send', description: (e as Error).message, tone: 'danger' });
@@ -97,38 +124,46 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
     if (!topic || !convId) return;
     try {
       await actions.archiveConversation(topic, convId, true);
-      toast({ title: 'Conversation archived', description: 'Find it under Archived in the project pane.', action: { label: 'Undo', onPress: () => void actions.archiveConversation(topic, convId, false) } });
+      toast({ title: 'Conversation archived', description: 'Find it under Archived in the project.', action: { label: 'Undo', onPress: () => void actions.archiveConversation(topic, convId, false) } });
       void actions.select(topic, 'main');
     } catch (e) {
       toast({ title: 'Could not archive', description: (e as Error).message, tone: 'danger' });
     }
   };
 
-  const bridge = rkc();
-  const menu: MenuItem[] = [
-    { key: 'rename', label: 'Rename', icon: 'document', onSelect: () => setRenaming(true) },
-    { key: 'archive', label: 'Archive', icon: 'import', disabled: convId === 'main', onSelect: archive },
-    { key: 'runtime', label: 'Switch runtime…', icon: 'refresh', onSelect: () => setRuntimeOpen(true) },
-    ...(bridge?.openFolder && room?.folder ? [{ key: 'sep', separator: true } as MenuItem, { key: 'open', label: 'Open folder', icon: 'folder-open', onSelect: () => void bridge.openFolder?.(room.folder!) } as MenuItem] : []),
-  ];
-
   const title = convTitle(conv);
-  const replyRec = replyTo ? thread?.items.find((x) => x.id === replyTo) : null;
-  const touch = isTouch();
-  // Phone: 44px targets (hitSlop grows the 30px buttons), the header under the status bar, the composer above the home indicator.
-  const slop = phone ? 8 : undefined;
-  const headerStyle = phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined;
   const composerStyle = phone ? ({ paddingBottom: `calc(12px + ${SAFE_BOTTOM})` } as never) : undefined;
-  const back = onBack ? <IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1 app-region-no-drag" /> : undefined;
+  // The glass bar is absolute inside a box of its own height, so it reads as a pinned bar under the safe area.
+  const barBox = phone ? ({ height: `calc(${BAR}px + ${SAFE_TOP})` } as never) : { height: BAR };
+  const back = onBack ? <IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 app-region-no-drag" /> : undefined;
+
+  const bar = (titleText: string, subtitle?: string, buttons?: React.ReactNode) => (
+    <View className="relative w-full" style={barBox}>
+      <GlassBar inset={phone ? SAFE_TOP : 0} className="app-region-drag">
+        {back}
+        <Pressable accessibilityRole="button" accessibilityLabel="Conversation" onPress={() => room && setRenaming(true)} className={`min-w-0 flex-1 app-region-no-drag ${Platform.OS === 'web' ? 'cursor-pointer' : ''}`}>
+          <Text variant={phone ? 'body-lg' : 'title'} numberOfLines={1}>
+            {titleText}
+          </Text>
+          {subtitle ? (
+            <Text variant="caption" tone="subtle" numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </Pressable>
+        <View className="flex-row items-center gap-1 app-region-no-drag">{buttons}</View>
+      </GlassBar>
+    </View>
+  );
 
   if (!room || !conv) {
     return (
       <Pane glow>
-        <PaneHeader title="rKeyChat" subtitle={state.ready ? (state.roomOrder.length ? 'Pick a conversation' : 'No projects yet') : 'Connecting…'} dragRegion leading={back} style={headerStyle} />
+        {bar('rKeyChat', state.ready ? (state.roomOrder.length ? 'Pick a conversation' : 'No projects yet') : 'Connecting…')}
         {state.error ? (
           <EmptyState icon="wifi-slash" title="The daemon is not answering" description={state.error} actions={<Button label="Retry" onPress={() => void actions.reload()} />} />
         ) : state.ready ? (
-          <EmptyState icon="message" title={state.roomOrder.length ? 'Pick a conversation' : 'Start with a project'} description={state.roomOrder.length ? 'Choose one on the left, or press ⌘N for a new one.' : 'Drop a folder on the sidebar, or press New project.'} />
+          <EmptyState icon="message" title={state.roomOrder.length ? 'Pick a conversation' : 'Start with a project'} description={state.roomOrder.length ? 'Choose one on the left, or press ⌘N for a new one.' : 'Press + on the left to start a project.'} />
         ) : (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator />
@@ -140,36 +175,45 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
 
   return (
     <Pane glow>
-      <PaneHeader
-        dragRegion
-        size={phone ? 'display' : 'title'}
-        title={renaming ? ' ' : title}
-        subtitle={renaming ? undefined : room.name}
-        leading={back}
-        style={headerStyle}
-        actions={
-          <View className="flex-row items-center gap-1">
-            {renaming ? (
-              <View className="w-[300px] app-region-no-drag">
-                <RenameField initial={title} onDone={rename} onCancel={() => setRenaming(false)} />
-              </View>
-            ) : (
-              <IconButton icon="document" size="sm" hitSlop={slop} tooltip="Rename" onPress={() => setRenaming(true)} className="app-region-no-drag" />
-            )}
-            <MenuButton items={menu} tooltip="Conversation" size="sm" className="app-region-no-drag" />
-            <IconButton icon="info-circle" size="sm" hitSlop={slop} active={projectOpen} tooltip={{ label: projectOpen ? 'Hide project' : 'Show project', shortcut: touch ? undefined : '⌘I' }} onPress={onToggleProject} className="app-region-no-drag" />
-          </View>
-        }
-      />
-      {!thread?.loaded ? (
+      {bar(
+        title,
+        room.name,
+        <>
+          <GlassBarButton icon="message" accessibilityLabel="Chat" active={tab === 'chat'} onPress={() => setTab('chat')} />
+          <GlassBarButton icon="document" accessibilityLabel="Files" active={tab === 'files'} onPress={() => setTab('files')} />
+          <GlassBarButton icon="more" accessibilityLabel="Project" active={projectOpen} onPress={onToggleProject} />
+        </>,
+      )}
+      {tab === 'files' ? (
+        <FilesView topic={topic!} />
+      ) : !thread?.loaded ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator />
         </View>
       ) : (
-        <>
+        <View className="min-h-0 flex-1">
           <MessageList
-            look="flat"
+            look="bubbles"
             messages={messages}
+            currentUserId={state.me?.human ?? undefined}
+            onReact={react}
+            quickReactions={favourites}
+            onMore={(m) => setPickerFor(m.id)}
+            onReply={(id) => {
+              const m = byId.get(id);
+              if (m) setReply({ id: m.id, name: m.author.name, text: m.text });
+              composerRef.current?.focus();
+            }}
+            onReplyToSelection={(m, text) => {
+              setReply({ id: m.id, name: m.author.name, text, quote: text });
+              composerRef.current?.focus();
+            }}
+            onCopy={(text) => {
+              void navigator.clipboard?.writeText(text);
+              toast({ title: 'Copied', duration: 1200 });
+            }}
+            onOpenAttachment={(a) => a.url && window.open(a.url, '_blank')}
+            onLinkPress={(url) => void window.open(url, '_blank')}
             header={
               !thread.hasOlder && messages.length ? (
                 <View className="items-center py-2">
@@ -181,58 +225,65 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
             }
             onReachTop={thread.hasOlder ? loadOlder : undefined}
             loadingOlder={thread.loadingOlder}
-            onLinkPress={(url) => void window.open(url, '_blank')}
-            currentUserId={state.me?.human ?? undefined}
-            onReact={(id, emoji) => {
-              const mine = messages.find((m) => m.id === id)?.reactions?.find((r) => r.emoji === emoji)?.mine;
-              actions.react(topic!, id, emoji, !mine).catch((e) => toast({ title: 'Could not react', description: (e as Error).message, tone: 'danger' }));
-            }}
-            onReply={(id) => {
-              setReplyTo(id);
-              composerRef.current?.focus();
-            }}
-            onOpenAttachment={(a) => a.url && window.open(a.url, '_blank')}
-            onCopy={(text) => void navigator.clipboard?.writeText(text)}
             emptyState={<EmptyState icon="message" title="New conversation." description="Say what you want to work on." />}
           />
-        </>
-      )}
-      <View className="gap-1.5 px-4 pb-4 pt-1" style={composerStyle}>
-        <View className="h-5 flex-row items-center gap-1.5 px-1">
-          {thinking.length ? (
-            <>
-              <StatusDot tone="primary" size={6} pulse />
-              <Text variant="micro" tone="subtle" numberOfLines={1} className="min-w-0 flex-1">
-                {thinking.map((n) => `@${n}`).join(', ')} {thinking.length === 1 ? 'is' : 'are'} thinking…
-              </Text>
-            </>
-          ) : (
-            <View className="flex-1" />
-          )}
-          {hasSteps ? (
-            <Toggle
-              size="sm"
-              label="All steps"
-              value={allSteps}
-              onValueChange={(v) => {
-                setAllSteps(v);
-                localStorage.setItem(STEPS_KEY, v ? '1' : '0');
-              }}
-            />
-          ) : null}
         </View>
-        <Composer
-          ref={composerRef}
-          value={draft}
-          onChangeText={changeDraft}
-          onSend={send}
-          sending={sending}
-          placeholder={`Message ${room.name}`}
-          replyTo={replyRec ? { name: replyRec.name, text: replyRec.text } : null}
-          onCancelReply={() => setReplyTo(null)}
-          disabled={!state.me?.human}
-        />
-      </View>
+      )}
+      {tab === 'chat' ? (
+        <View className="gap-1.5 px-3 pb-3 pt-1" style={composerStyle}>
+          <View className="h-5 flex-row items-center gap-1.5 px-1">
+            {thinking.length ? (
+              <>
+                <StatusDot tone="primary" size={6} pulse />
+                <Pressable onPress={() => onOpenProfile(thinking[0])} className="min-w-0 flex-1">
+                  <Text variant="micro" tone="subtle" numberOfLines={1}>
+                    {thinking.map((n) => `@${n}`).join(', ')} {thinking.length === 1 ? 'is' : 'are'} thinking…
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <View className="flex-1" />
+            )}
+            {hasSteps ? (
+              <Toggle
+                size="sm"
+                label="All steps"
+                value={allSteps}
+                onValueChange={(v) => {
+                  setAllSteps(v);
+                  localStorage.setItem(STEPS_KEY, v ? '1' : '0');
+                }}
+              />
+            ) : null}
+          </View>
+          <Composer
+            ref={composerRef}
+            value={draft}
+            onChangeText={changeDraft}
+            onSend={send}
+            sending={sending}
+            placeholder={`Message ${room.name}`}
+            replyTo={reply ? { name: reply.name, text: reply.quote ? `“${reply.quote}”` : reply.text } : null}
+            onCancelReply={() => setReply(null)}
+            disabled={!state.me?.human}
+          />
+        </View>
+      ) : null}
+      <EmojiPicker open={!!pickerFor} onClose={() => setPickerFor(null)} recent={favourites} onPick={(e) => pickerFor && react(pickerFor, e)} />
+      <Dialog
+        open={renaming}
+        onClose={() => setRenaming(false)}
+        icon="document"
+        title="Conversation"
+        actions={
+          <>
+            <Button label="Archive" variant="ghost" disabled={convId === 'main'} onPress={() => { setRenaming(false); void archive(); }} />
+            <Button label="Runtime…" variant="ghost" onPress={() => { setRenaming(false); setRuntimeOpen(true); }} />
+          </>
+        }
+      >
+        {renaming ? <RenameField initial={title} onDone={rename} onCancel={() => setRenaming(false)} /> : null}
+      </Dialog>
       <RuntimeDialog
         open={runtimeOpen}
         onClose={() => setRuntimeOpen(false)}
@@ -255,7 +306,7 @@ function RenameField({ initial, onDone, onCancel }: { initial: string; onDone: (
   const [value, setValue] = useState(initial);
   const ref = useRef<TextInputRef>(null);
   useEffect(() => {
-    const t = setTimeout(() => ref.current?.focus(), 30);
+    const t = setTimeout(() => ref.current?.focus(), 60);
     return () => clearTimeout(t);
   }, []);
   const onKeyDown = (e: { key: string; preventDefault: () => void }) => {
@@ -267,7 +318,7 @@ function RenameField({ initial, onDone, onCancel }: { initial: string; onDone: (
       onCancel();
     }
   };
-  return <TextField ref={ref} size="sm" value={value} onChangeText={setValue} onBlur={() => onDone(value)} onSubmitEditing={() => onDone(value)} selectTextOnFocus accessibilityLabel="Conversation title" {...({ onKeyDown } as object)} />;
+  return <TextField ref={ref} label="Title" value={value} onChangeText={setValue} onSubmitEditing={() => onDone(value)} selectTextOnFocus accessibilityLabel="Conversation title" hint="Enter saves." {...({ onKeyDown } as object)} />;
 }
 
 const RUNTIMES = [
@@ -293,12 +344,7 @@ function RuntimeDialog({ open, onClose, value, onSave }: { open: boolean; onClos
         </>
       }
     >
-      <View className="gap-3">
-        <SegmentedControl options={RUNTIMES} value={pick} onChange={setPick} fullWidth />
-        <Text variant="caption" tone="subtle">
-          Codex, Goose and a Hermes adapter arrive here as ACP commands later.
-        </Text>
-      </View>
+      <SegmentedControl options={RUNTIMES} value={pick} onChange={setPick} fullWidth />
     </Dialog>
   );
 }

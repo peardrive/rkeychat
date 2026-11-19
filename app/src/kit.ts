@@ -3,10 +3,12 @@
  * (feat/chat-shell) its stand-in lives under ./pending-pearkit with the same props and is exported from here,
  * so swapping it for the real one is a one-line change in this file.
  *
- * 2026-11-18: Chat (MessageList, Composer), Menu, Toast, DropZone, Toggle, SegmentedControl and MarkdownText
- * landed in the worktree and are used from PearKit directly. Still stand-ins: the two-line sidebar rows.
+ * 2026-11-19: everything from rounds 1 and 2 (Chat, Menu, Toast, DropZone, Toggle, SegmentedControl, MarkdownText,
+ * ActivityFeed, GlassBar, EmojiPicker, ProfileCard, SettingsBlock) is used from PearKit directly.
+ * Still stand-ins: the two-line sidebar rows and the file rows.
  */
 export {
+  ActivityFeed,
   AppWindow,
   Avatar,
   Button,
@@ -14,23 +16,33 @@ export {
   Chip,
   Composer,
   CountBadge,
+  DangerZone,
   Dialog,
   Divider,
   DropZone,
+  EmojiBar,
+  EmojiPicker,
   EmptyState,
+  GlassBar,
+  GlassBarButton,
   Icon,
   IconButton,
   Kbd,
+  LinkField,
   MarkdownText,
   Menu,
   MenuButton,
   MessageList,
+  MessageRow,
   Pane,
   PaneBody,
   PaneHeader,
+  ProfileCard,
   SearchField,
   SectionLabel,
   SegmentedControl,
+  SettingsBlock,
+  SettingsRow,
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -43,19 +55,29 @@ export {
   Text,
   TextField,
   ThemeProvider,
+  Thumbnail,
   ToastProvider,
   Toggle,
   Tooltip,
   WindowControls,
   cn,
   copyToClipboard,
+  DEFAULT_QUICK_EMOJI,
+  fileKindFromName,
+  formatBytes,
   messageTime,
+  placeOf,
+  quotedMessages,
   useSidebar,
   useTheme,
   useToast,
   withAlpha,
 } from 'pearkit';
-export type { ChatAttachment, ChatMessage, ColorToken, DroppedItem, IconName, IconSource, MenuItem, PaneHeaderAction, StatusTone, ToastOptions } from 'pearkit';
+export type { ActivityItem, ActivityKind, ChatAttachment, ChatMessage, ColorToken, DroppedItem, IconName, IconSource, MenuItem, PaneHeaderAction, ProfileSection, StatusTone, ToastOptions } from 'pearkit';
+
+// Pending in PearKit: the file rows of a project (projects-home-and-sync.md §3).
+export { FileList, FileRow } from './pending-pearkit/FileList';
+export type { FileState } from './pending-pearkit/FileList';
 
 // Pending in PearKit: sidebar rows with two lines (a group head with avatar + subtitle; a thread with a snippet).
 export { SidebarGroupRow, SidebarThreadItem } from './pending-pearkit/SidebarRows';

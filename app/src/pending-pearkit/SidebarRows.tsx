@@ -22,12 +22,14 @@ export interface SidebarGroupRowProps {
   open: boolean;
   onToggle: () => void;
   onPress?: () => void;
+  /** A long press (or a right click) on the row: the project's actions. */
+  onLongPress?: () => void;
   /** A live dot on the avatar (a seat is thinking somewhere in the group). */
   live?: boolean;
   trailing?: React.ReactNode;
 }
 
-export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, open, onToggle, onPress, live, trailing }: SidebarGroupRowProps) {
+export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, open, onToggle, onPress, onLongPress, live, trailing }: SidebarGroupRowProps) {
   const { collapsed } = useSidebar();
   const avatar = (
     <View className="relative">
@@ -61,7 +63,10 @@ export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, o
         accessibilityLabel={title}
         accessibilityState={{ expanded: open, selected: !!selected }}
         onPress={onPress ?? onToggle}
+        onLongPress={onLongPress}
+        delayLongPress={350}
         className={cn('min-w-0 flex-1 flex-row items-center gap-2.5 pl-2 pr-1', touch ? 'py-2.5' : 'py-1.5', Platform.OS === 'web' && 'cursor-pointer select-none')}
+        {...(onLongPress && Platform.OS === 'web' ? ({ onContextMenu: (e: { preventDefault: () => void }) => { e.preventDefault(); onLongPress(); } } as object) : {})}
       >
         {avatar}
         <View className="min-w-0 flex-1">
@@ -74,9 +79,9 @@ export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, o
             </Text>
           ) : null}
         </View>
-        {trailing}
         {unread ? <CountBadge value={unread} tone="warning" /> : null}
       </Pressable>
+      {trailing}
       <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Collapse' : 'Expand'} accessibilityState={{ expanded: open }} onPress={onToggle} hitSlop={touch ? 12 : 6} className={cn('items-center justify-center rounded-xs hover:bg-overlay/[0.08]', touch ? 'h-8 w-8' : 'h-5 w-5', Platform.OS === 'web' && 'cursor-pointer')}>
         <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} tone="subtle" />
       </Pressable>

@@ -8,15 +8,16 @@ import { getApi } from '../api';
 import { rkc } from '../hooks';
 import { Button, Dialog, SegmentedControl, StatusDot, Text, TextField } from '../kit';
 import { useStore } from '../store/context';
-import { folderName, orderDevices, slugOf } from '../store/selectors';
+import { folderName, orderDevices, orderedRooms, orgNames, slugOf } from '../store/selectors';
+import { OrgChips } from './ProjectDialogs';
 import type { Device } from '../types';
 
-export type NewProjectSubmit = { name: string; home?: string; folder?: string; prompt?: string };
+export type NewProjectSubmit = { name: string; home?: string; folder?: string; prompt?: string; org?: string };
 
 export interface NewProjectDialogProps {
   open: boolean;
   mode: 'create' | 'rebind';
-  prefill?: { name?: string; folder?: string };
+  prefill?: { name?: string; folder?: string; org?: string };
   onClose: () => void;
   onCreate: (p: NewProjectSubmit) => Promise<void>;
   onRebind: (folder: string) => Promise<void>;
@@ -28,6 +29,7 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
   const [home, setHome] = useState<string>('');
   const [folder, setFolder] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [org, setOrg] = useState('');
   const [workspace, setWorkspace] = useState('~/Projects');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +48,7 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
     setName(prefill?.name ?? '');
     setFolder(prefill?.folder ?? '');
     setPrompt('');
+    setOrg(prefill?.org ?? '');
     setError(null);
     setHome('');
     if (mode === 'create') {
@@ -85,7 +88,7 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
     if (chosen && !chosen.online && !chosen.here) return fail(`${chosen.name} is offline; the request would wait.`);
     setBusy(true);
     try {
-      await onCreate({ name: n, home: chosen && !chosen.here ? chosen.ref : undefined, folder: livesHere && folder ? folder : undefined, prompt: prompt.trim() || undefined });
+      await onCreate({ name: n, home: chosen && !chosen.here ? chosen.ref : undefined, folder: livesHere && folder ? folder : undefined, prompt: prompt.trim() || undefined, org: org.trim() || undefined });
       onClose();
     } catch (e) {
       fail((e as Error).message);
@@ -191,6 +194,13 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onReb
                 {picker ? <Button size="sm" variant="subtle" icon="folder-open" label="Choose an existing folder…" onPress={pick} /> : null}
               </View>
             )}
+          </View>
+          <View className="gap-1.5">
+            <Text variant="label" weight="semibold" tone="muted">
+              In an organization
+            </Text>
+            <OrgChips orgs={orgNames(orderedRooms(state))} value={org} onChange={setOrg} />
+            <TextField value={org} onChangeText={setOrg} placeholder="Optional · a name a set of projects belongs to" />
           </View>
           <TextField label="Prompt" multiline value={prompt} onChangeText={setPrompt} placeholder="Optional. What the project is, what the agent should keep in mind." inputStyle={{ minHeight: 64 }} />
         </View>

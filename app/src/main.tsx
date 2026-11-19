@@ -8,7 +8,28 @@ import { MOCK, setApi } from './api';
 import { setEventSourceFactory } from './events';
 import { App } from './App';
 
+/**
+ * iOS scrolls the page to a focused field and shrinks the visual viewport under the keyboard. Size the root to
+ * the visual viewport and keep the page at scroll 0, so the top bar stays where it is while typing.
+ */
+function followVisualViewport() {
+  const vv = window.visualViewport;
+  const root = document.getElementById('root');
+  if (!vv || !root) return;
+  const apply = () => {
+    root.style.height = `${Math.round(vv.height)}px`;
+    if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop) window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  };
+  vv.addEventListener('resize', apply);
+  vv.addEventListener('scroll', apply);
+  window.addEventListener('scroll', () => window.scrollTo(0, 0), { passive: true });
+  apply();
+}
+
 async function boot() {
+  followVisualViewport();
   if (MOCK) {
     const { mockApi, mockEventSource } = await import('./mock');
     setApi(mockApi);

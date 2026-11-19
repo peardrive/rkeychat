@@ -1,0 +1,141 @@
+/**
+ * Settings in PearDrive's shape (PearKit SettingsBlock / SettingsRow): this device, the wiki, media, peers,
+ * the agents on this device.
+ */
+import React, { useEffect, useState } from 'react';
+import { View } from 'react-native';
+import { getApi } from '../api';
+import { SAFE_TOP } from '../hooks';
+import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, Text, TextField, Toggle, useToast } from '../kit';
+import { useStore } from '../store/context';
+import type { AgentInfo, Person } from '../types';
+
+const WIKI_KEY = 'rkc.app.wiki';
+
+export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => void }) {
+  const { state } = useStore();
+  const { toast } = useToast();
+  const [workspace, setWorkspace] = useState('');
+  const [saved, setSaved] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [wiki, setWiki] = useState(() => localStorage.getItem(WIKI_KEY) ?? '');
+  const [people, setPeople] = useState<{ local: Person[]; known: Person[] } | null>(null);
+  const [agents, setAgents] = useState<AgentInfo[] | null>(null);
+
+  useEffect(() => {
+    getApi()
+      .workspace()
+      .then((w) => {
+        setWorkspace(w.workspace);
+        setSaved(w.workspace);
+      })
+      .catch(() => {});
+    getApi().people().then(setPeople).catch(() => setPeople({ local: [], known: [] }));
+    getApi().agents().then(setAgents).catch(() => setAgents([]));
+  }, []);
+
+  const saveWorkspace = async () => {
+    const w = workspace.trim();
+    if (!w) return;
+    setBusy(true);
+    try {
+      const res = await getApi().setWorkspace({ workspace: w });
+      setWorkspace(res.workspace);
+      setSaved(res.workspace);
+      toast({ title: 'Workspace saved', description: res.workspace, tone: 'success' });
+    } catch (e) {
+      toast({ title: 'Could not save', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveWiki = (v: string) => {
+    setWiki(v);
+    localStorage.setItem(WIKI_KEY, v);
+  };
+
+  const canHost = state.me?.canHost !== false;
+  const value = (t: string) => (
+    <Text variant="body" tone="muted" numberOfLines={1}>
+      {t}
+    </Text>
+  );
+
+  return (
+    <Pane glow>
+      <PaneHeader title="Settings" size={phone ? 'display' : 'title'} style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined} leading={<IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1" />} />
+      <PaneBody contentClassName="gap-3 px-4 pb-8 pt-1">
+        <View className="w-full max-w-[720px] gap-3 self-center">
+          <SettingsBlock icon="setting-2-bold" title="This device" description="its name, where projects go">
+            <SettingsRow label="Name" control={value(state.me?.device ?? '—')} />
+            <SettingsRow label="Workspace folder" hint="New projects made here get a folder in it." control={<View className="w-[260px] max-w-full"><TextField mono size="sm" value={workspace} onChangeText={setWorkspace} onSubmitEditing={saveWorkspace} placeholder="~/rKeyChat" disabled={!canHost} trailing={<Button size="sm" variant="primary" label="Save" disabled={!canHost || workspace.trim() === saved || !workspace.trim()} loading={busy} onPress={saveWorkspace} />} /></View>} />
+            <SettingsRow label="Can hold projects" hint={canHost ? 'Folders and seats live here.' : 'A phone: projects live on one of your computers.'} control={<Toggle value={canHost} onValueChange={() => {}} disabled />} divider={false} />
+          </SettingsBlock>
+
+          <SettingsBlock icon="document" title="Wiki" description="one space every agent reads">
+            <SettingsRow label="Space link" hint="Markdown synced by PearDrive: where things live, what we learned. Kept on this device until the daemon takes it next round." control={<View className="w-[260px] max-w-full"><TextField mono size="sm" value={wiki} onChangeText={saveWiki} placeholder="peardrive://…" /></View>} />
+            <SettingsRow
+              label={wiki ? 'In every seat’s prompt' : 'No wiki yet'}
+              hint={wiki ? 'the wiki is at this space; read its index when you need something outside the folder' : 'Make an empty one; the index fills itself in.'}
+              control={wiki ? <Chip size="sm" label="set" tone="success" selected /> : <Button size="sm" variant="subtle" label="Create empty" onPress={() => { saveWiki('peardrive://wiki-pending'); toast({ title: 'Wiki placeholder set', description: 'The daemon creates the space in the next round.' }); }} />}
+              divider={false}
+            />
+          </SettingsBlock>
+
+          <SettingsBlock icon="image" title="Media" description="GIFs and pictures to reply with" trailing={<Chip size="sm" label="soon" />}>
+            <SettingsRow label="Media space" hint="Thumbnails cached, bytes fetched from the space." control={value('not yet')} disabled divider={false} />
+          </SettingsBlock>
+
+          <SettingsBlock icon="people" title="Peers" description="people and agents from your projects">
+            {people ? (
+              people.known.length ? (
+                people.known.map((p, i) => <SettingsRow key={p.name} label={p.name} hint={p.from ? `from ${p.from}` : undefined} control={<Chip size="sm" label={p.role} />} divider={i < people.known.length - 1} />)
+              ) : (
+                <SettingsRow label="Nobody yet" hint="People appear here once they join a project of yours." divider={false} />
+              )
+            ) : (
+              <SettingsRow label="Loading…" divider={false} />
+            )}
+          </SettingsBlock>
+
+          <SettingsBlock icon="refresh" title="Agents on this device" description="seats hosted here">
+            {agents ? (
+              agents.length ? (
+                agents.map((a, i) => {
+                  const enrolled = a.rooms.filter((r) => r.enrolled).length;
+                  return (
+                    <SettingsRow
+                      key={a.name}
+                      label={`@${a.name}`}
+                      hint={[a.bridge, a.via, a.dir].filter(Boolean).join(' · ')}
+                      control={
+                        <View className="flex-row items-center gap-1.5">
+                          {a.rooms.some((r) => r.busy) ? <StatusDot tone="primary" size={6} pulse /> : null}
+                          {value(`${enrolled} ${enrolled === 1 ? 'project' : 'projects'}`)}
+                        </View>
+                      }
+                      divider={i < agents.length - 1}
+                    />
+                  );
+                })
+              ) : (
+                <SettingsRow label="No seat here" divider={false} />
+              )
+            ) : (
+              <SettingsRow label="Loading…" divider={false} />
+            )}
+          </SettingsBlock>
+
+          <View className="flex-row items-center gap-2 px-1 pt-2">
+            <Avatar seed={state.me?.ref ?? 'me'} size={18} label={state.me?.human ?? '?'} />
+            <Text variant="micro" tone="subtle" numberOfLines={1} className="min-w-0 flex-1">
+              {state.me?.human ?? '—'} · {state.me?.ref ?? ''}
+            </Text>
+            <Button size="sm" variant="ghost" label="Classic page" onPress={() => window.location.assign('/')} />
+          </View>
+        </View>
+      </PaneBody>
+    </Pane>
+  );
+}
