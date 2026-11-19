@@ -48,6 +48,14 @@ await shot('desktop-menu', {
     await page.waitForTimeout(300);
   },
 });
+await shot('desktop-new-project', {
+  width: 1280, height: 800,
+  before: async (page) => {
+    await page.getByText('New project').click();
+    await page.getByRole('textbox', { name: 'Name' }).fill('Notes app');
+    await page.waitForTimeout(400);
+  },
+});
 await shot('phone-list', { width: 390, height: 844 });
 await shot('phone-conversation', { width: 390, height: 844, before: openRedesign });
 await shot('phone-project', {

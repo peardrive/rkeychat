@@ -1,62 +1,117 @@
 /**
- * "New project" and "Change folder" in a browser (no native picker): a path and a name.
+ * "New project": a name, where it lives (one of your devices), an optional existing folder when it lives here
+ * and the desktop picker exists, an optional prompt. "Change folder": a path for this device.
  */
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { Button, Dialog, Text, TextField } from '../kit';
-import { folderName } from '../store/selectors';
+import { getApi } from '../api';
+import { rkc } from '../hooks';
+import { Button, Dialog, SegmentedControl, StatusDot, Text, TextField } from '../kit';
+import { useStore } from '../store/context';
+import { folderName, orderDevices, slugOf } from '../store/selectors';
+import type { Device } from '../types';
+
+export type NewProjectSubmit = { name: string; home?: string; folder?: string; prompt?: string };
 
 export interface NewProjectDialogProps {
   open: boolean;
   mode: 'create' | 'rebind';
   prefill?: { name?: string; folder?: string };
   onClose: () => void;
-  onSubmit: (folder: string, name?: string) => Promise<void>;
+  onCreate: (p: NewProjectSubmit) => Promise<void>;
+  onRebind: (folder: string) => Promise<void>;
 }
 
-export function NewProjectDialog({ open, mode, prefill, onClose, onSubmit }: NewProjectDialogProps) {
-  const [folder, setFolder] = useState('');
+export function NewProjectDialog({ open, mode, prefill, onClose, onCreate, onRebind }: NewProjectDialogProps) {
+  const { state, actions } = useStore();
   const [name, setName] = useState('');
+  const [home, setHome] = useState<string>('');
+  const [folder, setFolder] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [workspace, setWorkspace] = useState('~/Projects');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const devices = orderDevices(state.devices);
+  const here = devices.find((d) => d.here) ?? null;
+  const chosen = devices.find((d) => d.ref === home) ?? here;
+  const livesHere = !chosen || chosen.here;
+  const picker = rkc()?.pickFolder;
+
   useEffect(() => {
-    if (open) {
-      setFolder(prefill?.folder ?? '');
-      setName(prefill?.name ?? '');
-      setError(null);
+    if (!open) return;
+    setName(prefill?.name ?? '');
+    setFolder(prefill?.folder ?? '');
+    setPrompt('');
+    setError(null);
+    setHome('');
+    if (mode === 'create') {
+      actions.loadDevices().catch(() => {});
+      getApi()
+        .workspace()
+        .then((w) => setWorkspace(w.workspace))
+        .catch(() => {});
     }
-  }, [open, prefill]);
+  }, [open, prefill, mode, actions]);
+
+  const fail = (m: string) => {
+    setError(m);
+    setBusy(false);
+  };
 
   const submit = async () => {
-    const f = folder.trim();
-    if (!f) {
-      setError('A folder path is needed.');
-      return;
-    }
-    if (!/^(\/|~|[A-Za-z]:[\\/])/.test(f)) {
-      setError('Use an absolute path (it is read on this device).');
-      return;
-    }
-    setBusy(true);
     setError(null);
+    if (mode === 'rebind') {
+      const f = folder.trim();
+      if (!f) return fail('A folder path is needed.');
+      if (!/^(\/|~|[A-Za-z]:[\\/])/.test(f)) return fail('Use an absolute path (it is read on this device).');
+      setBusy(true);
+      try {
+        await onRebind(f);
+        onClose();
+      } catch (e) {
+        fail((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    const n = name.trim();
+    if (!n) return fail('A project needs a name.');
+    if (chosen && !chosen.online && !chosen.here) return fail(`${chosen.name} is offline; the request would wait.`);
+    setBusy(true);
     try {
-      await onSubmit(f, name.trim() || undefined);
+      await onCreate({ name: n, home: chosen && !chosen.here ? chosen.ref : undefined, folder: livesHere && folder ? folder : undefined, prompt: prompt.trim() || undefined });
       onClose();
     } catch (e) {
-      setError((e as Error).message);
+      fail((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+
+  const pick = async () => {
+    try {
+      const f = await picker?.();
+      if (f) {
+        setFolder(f);
+        if (!name.trim()) setName(folderName(f));
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const title = mode === 'create' ? 'New project' : 'Change folder';
+  const slug = slugOf(name.trim() || 'project');
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
       icon="folder"
-      title={mode === 'create' ? 'New project' : 'Change folder'}
-      description={mode === 'create' ? 'A folder becomes a project: a space, a chain, and a seat for the project agent.' : 'Bind this room to another folder on this device.'}
+      title={title}
+      description={mode === 'create' ? 'A folder on one of your devices, a room, and a seat for its agent.' : 'Bind this room to another folder on this device.'}
       actions={
         <>
           <Button label="Cancel" variant="ghost" onPress={onClose} disabled={busy} />
@@ -64,7 +119,7 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onSubmit }: New
         </>
       }
     >
-      <View className="gap-3">
+      {mode === 'rebind' ? (
         <TextField
           label="Folder"
           icon="folder"
@@ -78,17 +133,53 @@ export function NewProjectDialog({ open, mode, prefill, onClose, onSubmit }: New
           autoFocus
           onSubmitEditing={submit}
           error={error ?? undefined}
-          hint={error ? undefined : 'Absolute path on this device. In the desktop app, a folder dialog opens instead.'}
+          hint={error ? undefined : 'Absolute path on this device.'}
         />
-        {mode === 'create' ? (
-          <TextField label="Name" value={name} onChangeText={setName} placeholder={folderName(folder) || 'Defaults to the folder name'} onSubmitEditing={submit} />
-        ) : null}
-        {mode === 'create' ? (
-          <Text variant="caption" tone="subtle">
-            The project agent is added as @rkeychat over ACP; change it in the project pane afterwards.
-          </Text>
-        ) : null}
-      </View>
+      ) : (
+        <View className="gap-4">
+          <TextField label="Name" value={name} onChangeText={(t) => { setName(t); if (error) setError(null); }} placeholder="What the project is called" autoFocus onSubmitEditing={submit} error={error ?? undefined} />
+          <View className="gap-1.5">
+            <Text variant="label" weight="semibold" tone="muted">
+              Where it lives
+            </Text>
+            {devices.length ? (
+              <SegmentedControl
+                fullWidth
+                options={devices.map((d: Device) => ({ value: d.ref, label: d.here ? `${d.name} · here` : d.online ? d.name : `${d.name} · offline`, disabled: !d.online && !d.here }))}
+                value={chosen?.ref ?? ''}
+                onChange={setHome}
+              />
+            ) : (
+              <Text variant="caption" tone="subtle">
+                Only this device.
+              </Text>
+            )}
+            {chosen && !chosen.here ? (
+              <View className="flex-row items-center gap-1.5">
+                <StatusDot tone={chosen.online ? 'success' : 'neutral'} size={6} />
+                <Text variant="caption" tone="subtle">
+                  {chosen.name} will make the folder under its workspace root and run the seat.
+                </Text>
+              </View>
+            ) : folder ? (
+              <View className="flex-row items-center gap-2">
+                <Text variant="caption" tone="muted" numberOfLines={1} className="min-w-0 flex-1" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                  {folder}
+                </Text>
+                <Button size="sm" variant="ghost" label="Clear" onPress={() => setFolder('')} />
+              </View>
+            ) : (
+              <View className="flex-row items-center gap-2">
+                <Text variant="caption" tone="subtle" numberOfLines={1} className="min-w-0 flex-1">
+                  Will be created in {workspace.replace(/^\/Users\/[^/]+/, '~')}/{slug}
+                </Text>
+                {picker ? <Button size="sm" variant="subtle" icon="folder-open" label="Choose an existing folder…" onPress={pick} /> : null}
+              </View>
+            )}
+          </View>
+          <TextField label="Prompt" multiline value={prompt} onChangeText={setPrompt} placeholder="Optional. What the project is, what the agent should keep in mind." inputStyle={{ minHeight: 64 }} />
+        </View>
+      )}
     </Dialog>
   );
 }

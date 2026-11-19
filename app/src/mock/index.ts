@@ -4,7 +4,7 @@
  */
 import type { Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { Conversation, EventName, Events, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { Conversation, Device, EventName, Events, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -27,6 +27,14 @@ type MockRoom = {
 
 const ME = 'guy';
 const DEVICE = 'studio';
+const HERE = 'rkey:studio';
+const DEVICES: Device[] = [
+  { ref: HERE, name: DEVICE, online: true, here: true },
+  { ref: 'rkey:macbook', name: 'macbook', online: true, here: false },
+  { ref: 'rkey:zorin', name: 'zorin', online: false, here: false },
+];
+let workspace = '/Users/guy/Projects';
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
 
 const now = Date.now();
 const min = (n: number) => now - n * 60_000;
@@ -38,14 +46,14 @@ function act(name: string, text: string, ts: number, conv: string): Rec {
   return { id: id(), kind: 'activity', ts, name, human: false, text, conv };
 }
 
-function room(opts: { name: string; folder: string | null; seats: Seat[]; charter: string; convs: { conv: string; title: string; archived?: boolean; runtime?: string | null; created: number }[]; log: Rec[] }): MockRoom {
+function room(opts: { name: string; folder: string | null; home?: { device: string; name: string } | null; seats: Seat[]; charter: string; convs: { conv: string; title: string; archived?: boolean; runtime?: string | null; created: number }[]; log: Rec[] }): MockRoom {
   const convs = new Map<string, Conversation>();
   for (const c of opts.convs) convs.set(c.conv, { conv: c.conv, title: c.title, created: c.created, archived: !!c.archived, runtime: c.runtime ?? null, last: null, count: 0, busy: [] });
   const r: MockRoom = {
     name: opts.name,
     topic: hex() + hex() + hex() + hex(),
     folder: opts.folder,
-    app: { app: 'rkeychat', role: opts.folder ? 'project' : 'chat', name: opts.name },
+    app: { app: 'rkeychat', role: opts.folder || opts.home ? 'project' : 'chat', name: opts.name, home: opts.home === undefined ? (opts.folder ? { device: HERE, name: DEVICE } : null) : opts.home },
     seats: opts.seats,
     charter: { text: opts.charter, order: opts.seats.map((s) => s.name), agents: {} },
     convs,
@@ -116,6 +124,16 @@ const pearcast = room({
   ],
 });
 
+const notes = room({
+  name: 'Notes',
+  folder: null,
+  home: { device: 'rkey:macbook', name: 'macbook' },
+  seats: [{ name: 'rkeychat', bridge: 'claude', via: 'acp', dir: null }],
+  charter: 'Daily notes. Keep them short.',
+  convs: [{ conv: 'main', title: 'General', created: min(3000) }],
+  log: [msg(ME, 'Started this one from the phone; it lives on the MacBook.', min(2990), 'main')],
+});
+
 const family = room({
   name: 'Family',
   folder: null,
@@ -126,7 +144,7 @@ const family = room({
 });
 family.participants = family.participants.filter((p) => p.role === 'human');
 
-const rooms = new Map<string, MockRoom>([peardrive, pearcast, family].map((r) => [r.topic, r]));
+const rooms = new Map<string, MockRoom>([peardrive, pearcast, notes, family].map((r) => [r.topic, r]));
 peardrive.reactions[peardrive.log[6].id] = { '👍': [ME] };
 
 const summary = (r: MockRoom): RoomSummary => ({
@@ -229,7 +247,7 @@ export const mockApi: Api = {
     await sleep(LATENCY);
     const r = key ? find(key) : null;
     return {
-      device: { name: DEVICE, ref: 'rkey:studio', root: 'rkey:guy', participants: [{ name: ME, role: 'human', ref: 'rkey:guy' }, { name: 'rkeychat', role: 'agent', ref: 'rkey:rkeychat', bridge: 'claude' }] },
+      device: { name: DEVICE, ref: HERE, root: 'rkey:guy', participants: [{ name: ME, role: 'human', ref: 'rkey:guy' }, { name: 'rkeychat', role: 'agent', ref: 'rkey:rkeychat', bridge: 'claude' }] },
       rooms: [...rooms.values()].map(summary),
       canTranscribe: false,
       current: r ? snapshot(r, conv ?? 'main') : null,
@@ -312,20 +330,51 @@ export const mockApi: Api = {
     await sleep(LATENCY);
     return [];
   },
-  async createProject({ folder, name, via }) {
+  async createProject({ folder, name, home, prompt, via }) {
     await sleep(LATENCY * 3);
-    const base = folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder;
-    const r = room({
-      name: name || base,
-      folder,
-      seats: [{ name: 'rkeychat', bridge: 'claude', via: via ?? 'acp', dir: folder }],
-      charter: '',
-      convs: [{ conv: 'main', title: 'General', created: Date.now() }],
-      log: [],
-    });
+    const dev = home ? DEVICES.find((d) => d.ref === home || d.name === home) : DEVICES[0];
+    if (!dev) throw Object.assign(new Error(`no such device: ${home}`), { status: 404 });
+    if (!name && !folder) throw Object.assign(new Error('a project needs a name'), { status: 400 });
+    const base = folder ? folder.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || folder : '';
+    const make = (where: Device, dir: string | null) =>
+      room({
+        name: name || base,
+        folder: dir,
+        home: { device: where.ref, name: where.name },
+        seats: [{ name: 'rkeychat', bridge: 'claude', via: via ?? 'acp', dir }],
+        charter: prompt ?? '',
+        convs: [{ conv: 'main', title: 'General', created: Date.now() }],
+        log: [],
+      });
+    if (!dev.here) {
+      // Another device: a signed request goes out; the room shows up in a later `rooms` push (3 s here).
+      const id = hex().slice(0, 24);
+      if (dev.online) {
+        setTimeout(() => {
+          const r = make(dev, null);
+          rooms.set(r.topic, r);
+          emit('rooms', [...rooms.values()].map(summary));
+        }, 3000);
+      }
+      return { pending: true as const, asked: dev.name, via: 'Family', id, online: dev.online };
+    }
+    const r = make(dev, folder ?? `${workspace}/${slug(name || base)}`);
     rooms.set(r.topic, r);
     setTimeout(() => emit('rooms', [...rooms.values()].map(summary)), 50);
     return { room: summary(r), seat: 'rkeychat' };
+  },
+  async devices() {
+    await sleep(LATENCY);
+    return DEVICES;
+  },
+  async workspace() {
+    await sleep(LATENCY);
+    return { workspace };
+  },
+  async setWorkspace({ workspace: w }) {
+    await sleep(LATENCY);
+    workspace = w;
+    return { workspace };
   },
   async bindFolder({ room: key, folder }) {
     await sleep(LATENCY);

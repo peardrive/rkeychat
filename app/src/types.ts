@@ -16,7 +16,14 @@ export type Conversation = {
 
 export type ConvSummary = Pick<Conversation, 'conv' | 'title' | 'archived' | 'last' | 'count'>;
 
-export type AppRecord = { app: 'rkeychat'; role: 'project' | 'chat'; name: string; icon?: string } | null;
+/** The signed app note; `home` is the device whose disk holds the folder (projects-home-and-sync.md §1). */
+export type AppRecord = { app: 'rkeychat'; role: 'project' | 'chat'; name: string; icon?: string; home?: { device: string; name: string } | null } | null;
+
+/** One of the owner's own devices (`GET /api/devices`); this one first, with `here: true`. */
+export type Device = { ref: string; name: string; online: boolean; here: boolean };
+
+/** `POST /api/projects` when another device is asked to create the project. */
+export type PendingProject = { pending: true; asked: string; via: string; id: string; online: boolean };
 
 export type Seat = { name: string; bridge: 'claude' | 'hermes' | 'stream'; via: 'acp' | 'cli' | null; dir: string | null };
 

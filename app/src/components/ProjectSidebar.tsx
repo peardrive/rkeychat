@@ -8,7 +8,7 @@ import { rkc, type TextInputRef } from '../hooks';
 import { DropZone, SearchField, Sidebar, SidebarContent, SidebarFooter, SidebarGroupRow, SidebarHeader, SidebarItem, SidebarSection, SidebarSpacer, SidebarThreadItem, SidebarToggle, Text, WindowControls, useSidebar, useToast, type DroppedItem } from '../kit';
 import { shortTime } from '../time';
 import { useStore } from '../store/context';
-import { convTitle, folderName, groupRooms, orderedRooms, roomIsThinking, thinkingIn, unreadIn, unreadInRoom, visibleConvs } from '../store/selectors';
+import { convTitle, folderName, groupRooms, homeOf, orderedRooms, roomIsThinking, thinkingIn, unreadIn, unreadInRoom, visibleConvs } from '../store/selectors';
 import type { RoomSummary, SearchHit } from '../types';
 
 const WIDTH_KEY = 'rkc.app.sidebar';
@@ -100,8 +100,8 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
       return;
     }
     try {
-      const { seat } = await actions.createProject(path);
-      toast({ title: 'Project ready.', description: `@${seat} is listening.`, tone: 'success' });
+      const res = await actions.createProject({ folder: path, name: folderName(path) });
+      if (!('pending' in res)) toast({ title: 'Project ready.', description: `@${res.seat} is listening.`, tone: 'success' });
       onNavigate?.();
     } catch (e) {
       toast({ title: 'Could not create the project', description: (e as Error).message, tone: 'danger' });
@@ -118,12 +118,14 @@ export function ProjectSidebar({ onNewProject, onOpenSettings, searchRef, fullWi
     const convs = visibleConvs(state, r.topic).filter((c) => !q || convTitle(c).toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
     const selectedHere = state.selected.topic === r.topic;
     const expanded = isOpen(r.topic) || !!q;
+    const home = homeOf(r, state.me?.ref);
+    const subtitle = r.folder ? (home.here || !home.name ? folderName(r.folder) : `${folderName(r.folder)} · on ${home.name}`) : home.name && !home.here ? `on ${home.name}` : undefined;
     return (
       <View key={r.topic} className="w-full">
         <SidebarGroupRow
           seed={r.topic}
           title={r.name}
-          subtitle={r.folder ? folderName(r.folder) : undefined}
+          subtitle={subtitle}
           unread={expanded ? 0 : unreadInRoom(state, r.topic)}
           selected={selectedHere && !expanded}
           open={expanded}

@@ -165,3 +165,24 @@ describe('agent state', () => {
     expect(s.agents[convKey(T, 'c2')].rkeychat).toBe('idle');
   });
 });
+
+describe('pending projects', () => {
+  it('remembers a project asked of another device and finds its room when the rooms push brings it', () => {
+    let s = reducer(booted, { type: 'pendingProject', id: 'p1', name: 'Notes', asked: 'macbook' });
+    expect(s.pendingProjects).toEqual([{ id: 'p1', name: 'Notes', asked: 'macbook' }]);
+    // A rooms push without it: still waiting.
+    s = reducer(s, { type: 'rooms', rooms: [room({ topic: T })] });
+    expect(s.pendingProjects[0].topic).toBeUndefined();
+    // The room arrives (new topic, same name).
+    s = reducer(s, { type: 'rooms', rooms: [room({ topic: T }), room({ topic: 'new', name: 'Notes', app: { app: 'rkeychat', role: 'project', name: 'Notes', home: { device: 'mb', name: 'macbook' } } })] });
+    expect(s.pendingProjects[0].topic).toBe('new');
+    s = reducer(s, { type: 'pendingDone', id: 'p1' });
+    expect(s.pendingProjects).toEqual([]);
+  });
+  it('keeps the device ref and list', () => {
+    let s = reducer(initialState, { type: 'init', device: { name: 'studio', ref: 'me', human: 'guy' }, rooms: [] });
+    expect(s.me?.ref).toBe('me');
+    s = reducer(s, { type: 'devices', devices: [{ ref: 'me', name: 'studio', online: true, here: true }] });
+    expect(s.devices).toHaveLength(1);
+  });
+});

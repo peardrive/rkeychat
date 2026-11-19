@@ -6,7 +6,7 @@ import { Platform, Pressable, View } from 'react-native';
 import { rkc } from '../hooks';
 import { Avatar, Button, Chip, Divider, EmptyState, Icon, IconButton, Pane, PaneBody, PaneHeader, SectionLabel, SegmentedControl, StatusDot, Text, TextField, copyToClipboard, useToast, type StatusTone } from '../kit';
 import { useStore } from '../store/context';
-import { archivedConvs, convTitle, selectedRoom, thinkingIn } from '../store/selectors';
+import { archivedConvs, convTitle, homeOf, selectedRoom, thinkingIn } from '../store/selectors';
 import type { AgentState, Seat } from '../types';
 
 export interface ProjectPaneProps {
@@ -69,6 +69,9 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder }: ProjectPa
   }
 
   const seats = detail?.seats ?? [];
+  const home = homeOf({ folder: room.folder, app: detail?.app ?? room.app }, state.me?.ref);
+  const homeDevice = home.name ? state.devices.find((d) => d.name === home.name || d.ref === (detail?.app ?? room.app)?.home?.device) : state.devices.find((d) => d.here);
+  const isProject = !!room.folder || !!home.name;
   const members = (detail?.participants ?? []).filter((p) => !seats.some((s) => s.name === p.name));
   const archived = archivedConvs(state, room.topic);
   const bridge = rkc();
@@ -98,7 +101,7 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder }: ProjectPa
         <View className="flex-row items-center gap-1.5 rounded-field border border-overlay/[0.08] bg-overlay/5 py-1.5 pl-3 pr-1">
           <Icon name="folder" size={14} tone={room.folder ? 'accent' : 'subtle'} />
           <Text variant="label" tone={room.folder ? 'foreground' : 'subtle'} numberOfLines={1} className="min-w-0 flex-1" style={{ fontFamily: Platform.OS === 'web' ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : 'Menlo' }}>
-            {room.folder ?? 'No folder on this device'}
+            {room.folder ?? (home.name && !home.here ? `on ${home.name}` : 'No folder on this device')}
           </Text>
           {room.folder ? (
             <IconButton
@@ -113,9 +116,25 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder }: ProjectPa
           ) : null}
           {bridge?.openFolder && room.folder ? <IconButton icon="folder-open" size="xs" tooltip="Open folder" onPress={() => void bridge.openFolder?.(room.folder!)} /> : null}
         </View>
-        <View className="flex-row justify-end pt-1.5">
-          <Button label={room.folder ? 'Change…' : 'Bind a folder…'} variant="subtle" size="sm" onPress={onChangeFolder} />
-        </View>
+        {home.here || !home.name ? (
+          <View className="flex-row justify-end pt-1.5">
+            <Button label={room.folder ? 'Change…' : 'Bind a folder…'} variant="subtle" size="sm" onPress={onChangeFolder} />
+          </View>
+        ) : null}
+
+        {/* Home: the device whose disk holds the folder and runs the seat */}
+        {isProject ? (
+          <>
+            <SectionLabel label="Home" inset="none" className="pb-1.5 pt-4" />
+            <View className="flex-row items-center gap-2 py-1">
+              <StatusDot tone={homeDevice ? (homeDevice.online || homeDevice.here ? 'success' : 'neutral') : 'neutral'} size={8} accessibilityLabel={homeDevice?.online ? 'online' : 'offline'} />
+              <Text variant="body" numberOfLines={1} className="min-w-0 flex-1">
+                {home.here ? `${home.name ?? state.me?.device ?? 'this device'}` : home.name ?? '—'}
+              </Text>
+              <Chip size="sm" label={home.here ? 'this device' : homeDevice ? (homeDevice.online ? 'online' : 'offline') : 'unknown'} />
+            </View>
+          </>
+        ) : null}
 
         {/* Seats */}
         <SectionLabel label="Seats" count={seats.length || undefined} inset="none" className="pb-1 pt-4" />

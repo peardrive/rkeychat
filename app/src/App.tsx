@@ -4,7 +4,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TextInputRef } from './hooks';
 import { ConversationPane } from './components/ConversationPane';
-import { NewProjectDialog } from './components/NewProjectDialog';
+import { NewProjectDialog, type NewProjectSubmit } from './components/NewProjectDialog';
+import { SettingsDialog } from './components/SettingsDialog';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { ProjectPane } from './components/ProjectPane';
 import { rkc, useShortcuts, useViewport } from './hooks';
@@ -38,6 +39,7 @@ function Shell() {
     return saved ? saved === '1' : window.innerWidth >= 1040;
   });
   const [dialog, setDialog] = useState<{ mode: 'create' | 'rebind'; prefill?: { name?: string; folder?: string } } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const searchRef = useRef<TextInputRef>(null);
   const composerRef = useRef<TextInputRef>(null);
 
@@ -66,32 +68,20 @@ function Shell() {
   }, [state.selected, phone]);
 
   const createProject = useCallback(
-    async (folder: string, name?: string) => {
-      const { seat } = await actions.createProject(folder, name);
-      toast({ title: 'Project ready.', description: `@${seat} is listening.`, tone: 'success' });
+    async (p: NewProjectSubmit) => {
+      const res = await actions.createProject(p);
+      if ('pending' in res) {
+        toast({ title: `Asked ${res.asked} to create it.`, description: res.online ? `It will appear in a moment.` : `It will appear when ${res.asked} is online.`, tone: 'info', duration: 6000 });
+        return;
+      }
+      toast({ title: 'Project ready.', description: `@${res.seat} is listening.`, tone: 'success' });
       if (phone) setPage('conv');
     },
     [actions, toast, phone],
   );
 
-  const newProject = useCallback(
-    async (prefill?: { name?: string }) => {
-      const bridge = rkc();
-      if (bridge?.pickFolder && !prefill) {
-        try {
-          const folder = await bridge.pickFolder();
-          if (folder) await createProject(folder);
-          return;
-        } catch (e) {
-          toast({ title: 'Could not create the project', description: (e as Error).message, tone: 'danger' });
-          return;
-        }
-      }
-      // No native picker (a browser tab): type the path.
-      setDialog({ mode: 'create', prefill });
-    },
-    [createProject, toast],
-  );
+  // One dialog: name, where it lives, an existing folder (desktop, this device only), a prompt.
+  const newProject = useCallback((prefill?: { name?: string }) => setDialog({ mode: 'create', prefill }), []);
 
   const changeFolder = useCallback(async () => {
     const topic = state.selected.topic;
@@ -135,22 +125,24 @@ function Shell() {
   );
   useShortcuts(shortcuts);
 
-  const openSettings = () =>
-    toast({ title: 'Settings live in the classic page for now.', action: { label: 'Open', onPress: () => window.location.assign('/') } });
+  const openSettings = () => setSettingsOpen(true);
 
   const dialogNode = (
-    <NewProjectDialog
-      open={!!dialog}
-      mode={dialog?.mode ?? 'create'}
-      prefill={dialog?.prefill}
-      onClose={() => setDialog(null)}
-      onSubmit={async (folder, name) => {
-        if (dialog?.mode === 'rebind' && state.selected.topic) {
+    <>
+      <NewProjectDialog
+        open={!!dialog}
+        mode={dialog?.mode ?? 'create'}
+        prefill={dialog?.prefill}
+        onClose={() => setDialog(null)}
+        onCreate={createProject}
+        onRebind={async (folder) => {
+          if (!state.selected.topic) return;
           await actions.bindFolder(state.selected.topic, folder);
           toast({ title: 'Folder bound', description: folder, tone: 'success' });
-        } else await createProject(folder, name);
-      }}
-    />
+        }}
+      />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </>
   );
 
   if (phone) {

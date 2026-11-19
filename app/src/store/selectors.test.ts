@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RoomSummary } from '../types';
 import { initialState, reducer, type State } from './reducer';
-import { convTitle, folderName, groupRooms, thinkingIn, unreadInRoom } from './selectors';
+import { convTitle, folderName, groupRooms, homeOf, orderDevices, slugOf, thinkingIn, unreadInRoom } from './selectors';
 
 const room = (r: Partial<RoomSummary> & { topic: string }): RoomSummary => ({ name: r.topic, owner: true, admitted: true, folder: null, app: null, convs: [], ...r });
 
@@ -55,5 +55,27 @@ describe('unread and thinking', () => {
     expect(thinkingIn(s, 't', 'main')).toEqual([]);
     s = reducer(s, { type: 'agentState', topic: 't', name: 'hermes', conv: 'main', state: 'thinking' });
     expect(thinkingIn(s, 't', 'main')).toEqual(['hermes']);
+  });
+});
+
+describe('home and devices', () => {
+  it('tells where a project lives relative to this device', () => {
+    expect(homeOf({ folder: '/x', app: { app: 'rkeychat', role: 'project', name: 'x', home: { device: 'me', name: 'studio' } } }, 'me')).toEqual({ name: 'studio', here: true });
+    expect(homeOf({ folder: null, app: { app: 'rkeychat', role: 'project', name: 'x', home: { device: 'mb', name: 'macbook' } } }, 'me')).toEqual({ name: 'macbook', here: false });
+    expect(homeOf({ folder: '/x', app: null }, 'me')).toEqual({ name: null, here: true });
+    expect(homeOf({ folder: null, app: null }, 'me')).toEqual({ name: null, here: false });
+  });
+  it('orders devices: this one, then online, then offline', () => {
+    const d = orderDevices([
+      { ref: 'z', name: 'zorin', online: false, here: false },
+      { ref: 'm', name: 'macbook', online: true, here: false },
+      { ref: 'a', name: 'alpha', online: true, here: false },
+      { ref: 's', name: 'studio', online: true, here: true },
+    ]);
+    expect(d.map((x) => x.name)).toEqual(['studio', 'alpha', 'macbook', 'zorin']);
+  });
+  it('slugs a name the way the daemon names the folder', () => {
+    expect(slugOf('My New Project!')).toBe('my-new-project');
+    expect(slugOf('  ')).toBe('project');
   });
 });

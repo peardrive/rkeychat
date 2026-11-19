@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { Charter, Conversation, LogPage, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
+import type { Charter, Conversation, Device, LogPage, PendingProject, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -16,7 +16,11 @@ export interface Api {
   send(body: { room: string; as: string; text: string; conv: string; re?: string[] }): Promise<Rec>;
   search(q: { q: string; room?: string; conv?: string; limit?: number }): Promise<{ results: SearchHit[] }>;
   activity(q: { room: string; conv?: string }): Promise<unknown>;
-  createProject(body: { folder: string; name?: string; agent?: string; via?: 'acp' | 'cli' }): Promise<{ room: RoomSummary; seat: Seat | string }>;
+  /** `home` (a device ref or name) elsewhere → the daemon asks that device and answers `{ pending: true, … }`. */
+  createProject(body: { folder?: string; name?: string; home?: string; prompt?: string; agent?: string; via?: 'acp' | 'cli' }): Promise<{ room: RoomSummary; seat: Seat | string } | PendingProject>;
+  devices(): Promise<Device[]>;
+  workspace(): Promise<{ workspace: string }>;
+  setWorkspace(body: { workspace: string }): Promise<{ workspace: string }>;
   bindFolder(body: { room: string; folder: string }): Promise<RoomSummary>;
   react(body: { room: string; as?: string; target: string; emoji: string; on?: boolean }): Promise<Rec>;
   charter(body: { room: string } & Charter): Promise<unknown>;
@@ -75,6 +79,9 @@ export const httpApi: Api = {
   activity: (q) => get('activity', q),
   createProject: (b) => post('projects', b),
   bindFolder: (b) => post('rooms/folder', b),
+  devices: () => get('devices'),
+  workspace: () => get('workspace'),
+  setWorkspace: (b) => post('workspace', b),
   react: (b) => post('react', b),
   charter: ({ room, text, order, agents }) => post('control', { room, action: 'charter', text, order, agents }),
   setAgentVia: (b) => post('agents/via', b),

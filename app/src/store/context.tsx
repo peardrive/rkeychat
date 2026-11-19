@@ -5,8 +5,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { getApi } from '../api';
 import { connectEvents } from '../events';
-import type { Conversation, RoomSummary } from '../types';
+import type { Conversation, Device, PendingProject, RoomSummary } from '../types';
 import { convKey, initialState, reducer, type Action, type State } from './reducer';
+import type { Seat } from '../types';
 
 const SELECTED_KEY = 'rkc.app.selected';
 const PAGE = 60;
@@ -22,7 +23,8 @@ export interface Actions {
   archiveConversation(topic: string, conv: string, archived: boolean): Promise<void>;
   setRuntime(topic: string, conv: string, runtime: string | null): Promise<void>;
   /** Returns the new room and the name of its project seat. */
-  createProject(folder: string, name?: string): Promise<{ room: RoomSummary; seat: string }>;
+  createProject(opts: { folder?: string; name?: string; home?: string; prompt?: string }): Promise<{ room: RoomSummary; seat: string } | PendingProject>;
+  loadDevices(): Promise<Device[]>;
   bindFolder(topic: string, folder: string): Promise<void>;
   saveCharter(topic: string, text: string): Promise<void>;
   setSeatVia(name: string, via: 'acp' | 'cli'): Promise<void>;
@@ -59,7 +61,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           const sel = stateRef.current.selected;
           const res = await api().state(sel.topic, sel.conv);
           const human = res.device.participants.find((p) => p.role === 'human')?.name ?? null;
-          dispatch({ type: 'init', device: { name: res.device.name, human }, rooms: res.rooms, current: null });
+          dispatch({ type: 'init', device: { name: res.device.name, ref: res.device.ref, human }, rooms: res.rooms, current: null });
           if (res.current && sel.conv) dispatch({ type: 'room', snapshot: res.current, conv: sel.conv });
           else if (res.current) dispatch({ type: 'room', snapshot: res.current });
           return res.rooms;
@@ -125,8 +127,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const c = await api().setConvRuntime({ room: topic, conv, runtime });
         dispatch({ type: 'conv', topic, conv: c });
       },
-      async createProject(folder, name) {
-        const { room, seat } = await api().createProject({ folder, name });
+      async loadDevices() {
+        const devices = await api().devices();
+        dispatch({ type: 'devices', devices });
+        return devices;
+      },
+      async createProject(opts) {
+        const res = await api().createProject(opts);
+        if ('pending' in res && res.pending) {
+          dispatch({ type: 'pendingProject', id: res.id, name: opts.name ?? '', asked: res.asked });
+          return res;
+        }
+        const { room, seat } = res as { room: RoomSummary; seat: Seat | string };
         const rooms = await api().rooms();
         dispatch({ type: 'rooms', rooms: rooms.some((r) => r.topic === room.topic) ? rooms : [...rooms, room] });
         await a.select(room.topic, 'main');
@@ -168,6 +180,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const first = rooms[0]?.topic;
       if (remembered && rooms.some((r) => r.topic === remembered.topic)) await actions.select(remembered.topic, remembered.conv);
       else if (first) await actions.select(first, 'main');
+      actions.loadDevices().catch(() => {});
     })();
 
     const sink = connectEvents({
@@ -194,6 +207,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       sink.close();
     };
   }, [actions]);
+
+  // A project asked of another device has arrived: open it.
+  useEffect(() => {
+    const arrived = state.pendingProjects.find((p) => p.topic);
+    if (!arrived?.topic) return;
+    dispatch({ type: 'pendingDone', id: arrived.id });
+    void actions.select(arrived.topic, 'main');
+  }, [state.pendingProjects, actions]);
 
   const value = useMemo(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

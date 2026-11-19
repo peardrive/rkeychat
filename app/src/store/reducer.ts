@@ -1,7 +1,7 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Conversation, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Conversation, Device, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
 
@@ -13,7 +13,11 @@ export type State = {
   ready: boolean;
   connected: boolean;
   error: string | null;
-  me: { device: string; human: string | null } | null;
+  me: { device: string; ref?: string; human: string | null } | null;
+  /** The owner's devices, this one first. */
+  devices: Device[];
+  /** Projects another device was asked to create; `topic` is set once the room shows up. */
+  pendingProjects: { id: string; name: string; asked: string; topic?: string }[];
   roomOrder: string[];
   rooms: Record<string, RoomSummary>;
   details: Record<string, RoomDetail>;
@@ -31,6 +35,8 @@ export const initialState: State = {
   connected: false,
   error: null,
   me: null,
+  devices: [],
+  pendingProjects: [],
   roomOrder: [],
   rooms: {},
   details: {},
@@ -43,7 +49,10 @@ export const initialState: State = {
 };
 
 export type Action =
-  | { type: 'init'; device: { name: string; human: string | null }; rooms: RoomSummary[]; current?: RoomSnapshot | null }
+  | { type: 'init'; device: { name: string; ref?: string; human: string | null }; rooms: RoomSummary[]; current?: RoomSnapshot | null }
+  | { type: 'devices'; devices: Device[] }
+  | { type: 'pendingProject'; id: string; name: string; asked: string }
+  | { type: 'pendingDone'; id: string }
   | { type: 'rooms'; rooms: RoomSummary[] }
   | { type: 'room'; snapshot: RoomSnapshot; conv?: string }
   | { type: 'convs'; topic: string; convs: Conversation[] }
@@ -104,18 +113,33 @@ function applyRooms(state: State, rooms: RoomSummary[]): State {
       convs[r.topic] = r.convs.map((c) => ({ conv: c.conv, title: c.title, archived: !!c.archived, last: c.last ?? null, count: c.count ?? 0, created: 0, runtime: null, busy: [] }));
     }
   }
-  return { ...state, rooms: next, roomOrder: rooms.map((r) => r.topic), convs };
+  // A project another device was asked for: the moment a room with its name appears, remember where.
+  const known = new Set(Object.keys(state.rooms));
+  const pendingProjects = state.pendingProjects.length
+    ? state.pendingProjects.map((p) => {
+        if (p.topic) return p;
+        const hit = rooms.find((r) => !known.has(r.topic) && r.name === p.name);
+        return hit ? { ...p, topic: hit.topic } : p;
+      })
+    : state.pendingProjects;
+  return { ...state, rooms: next, roomOrder: rooms.map((r) => r.topic), convs, pendingProjects };
 }
 
 export function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'init': {
-      let s = applyRooms({ ...state, ready: true, error: null, me: { device: action.device.name, human: action.device.human } }, action.rooms);
+      let s = applyRooms({ ...state, ready: true, error: null, me: { device: action.device.name, ref: action.device.ref, human: action.device.human } }, action.rooms);
       if (action.current) s = reducer(s, { type: 'room', snapshot: action.current });
       return s;
     }
     case 'rooms':
       return applyRooms(state, action.rooms);
+    case 'devices':
+      return { ...state, devices: action.devices };
+    case 'pendingProject':
+      return { ...state, pendingProjects: [...state.pendingProjects.filter((p) => p.id !== action.id), { id: action.id, name: action.name, asked: action.asked }] };
+    case 'pendingDone':
+      return { ...state, pendingProjects: state.pendingProjects.filter((p) => p.id !== action.id) };
     case 'room': {
       const snap = action.snapshot;
       const topic = snap.topic;
