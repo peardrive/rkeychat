@@ -29,7 +29,7 @@ type Conversation = {
 
 type ProjectInfo = {
   folder: string | null   // device-private path; only present on this device
-  app: { app: 'rkeychat', role: 'project' | 'chat', name: string, icon?: string } | null  // the signed app record
+  app: { app: 'rkeychat', role: 'project' | 'chat', name: string, icon?: string, home: { device: string, name: string } | null } | null  // the signed app record; home = the device the folder lives on
   seats: { name: string, bridge: 'claude' | 'hermes' | 'stream', via: 'acp' | 'cli' | null, dir: string | null }[]
 }
 
@@ -59,7 +59,9 @@ carries `conv` (filled in with `'main'` when absent).
 | `POST /api/send` | `{ room, as, text, re, conv, … }` | record | `conv` defaults to the conversation of `re[0]`, else `main` |
 | `GET /api/search?q=&room=&conv=&limit=` | | hits | `conv` optional |
 | `GET /api/activity?room=&conv=&…` | | activity | `conv` optional |
-| `POST /api/projects` | `{ folder, name?, agent?, via? }` | `{ room: RoomSummary, seat }` | creates the room, binds the folder, writes the `app` record, adds the project agent (`via` default `acp`), names it after the folder |
+| `POST /api/projects` | `{ folder?, name?, agent?, via?, home?, prompt? }` | `{ room: RoomSummary, seat }` or `{ pending: true, asked, via, id, online }` | here: creates the room, binds the folder (made under the workspace root from `name` when no `folder`), writes the `app` record with `home`, seats the project agent (`via` default `acp`). `home` naming another of the owner's devices: a signed, account-gated `project` control goes to it through a shared room and it does the same there; the room appears later |
+| `GET /api/devices` | | `[{ ref, name, online, here }]` | the owner's own devices, this one first |
+| `GET /api/workspace` / `POST /api/workspace` | `{ workspace }` | `{ workspace }` | where projects made by name go on this device (default `~/Projects`) |
 | `POST /api/rooms/folder` | `{ room, folder }` | RoomSummary | bind or rebind a folder to an existing room |
 | `GET /app/*` | | static | the Vite build of `app/dist`; SPA fallback to `app/dist/index.html`; a short "not built yet" page otherwise |
 
