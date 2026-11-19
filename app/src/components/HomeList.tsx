@@ -12,6 +12,7 @@ import {
   SidebarHeader, SidebarItem, SidebarSection, SidebarSpacer, SidebarThreadItem, SidebarToggle, Text, WindowControls, cn, useSidebar, useToast, type ActivityItem, type DroppedItem, type MenuItem,
 } from '../kit';
 import { ApprovalDialog, toActivityItems } from './feed';
+import { DebugButton } from './DebugButton';
 import { useStore } from '../store/context';
 import { feedUnread, type FeedItem } from '../store/feed';
 import { convTitle, folderName, groupByOrg, homeOf, orderedRooms, roomIsThinking, thinkingIn, unreadIn, unreadInRoom, visibleConvs } from '../store/selectors';
@@ -279,6 +280,7 @@ function TopRow({ fullWidth, plusItems, onOpenSettings }: { fullWidth: boolean; 
       <Text variant={fullWidth ? 'display' : 'title'} className="min-w-0 flex-1">
         Home
       </Text>
+      <DebugButton />
       {fullWidth ? <IconButton icon="setting-2-bold" size="sm" hitSlop={8} accessibilityLabel="Settings" onPress={onOpenSettings} /> : null}
       <MenuButton icon="add" items={plusItems} size="sm" variant="subtle" tooltip={fullWidth ? undefined : 'New project or organization'} accessibilityLabel="New" />
     </View>

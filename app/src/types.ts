@@ -46,6 +46,10 @@ export type AgentInfo = {
 /** A device asking to log in or join (`login-ask` push); answered with /api/login/grant|deny. */
 export type LoginAsk = { topic: string; device: string; deviceName: string; names: { name: string; role: string }[]; room?: string | null; action: 'room' | 'login'; at: number; expires?: number };
 
+/** A saved debug note (`GET /api/debug/notes` → notes[]): note.json plus where it is. */
+export type DebugNoteInfo = { id: string; startedAt?: string; seconds?: number; steps?: number; app?: string; where?: Record<string, unknown>; noAudio?: string; audio?: string | null; dir?: string; from?: string };
+export type DebugSpaceInfo = { dir: string; sharelink: string | null; topic?: string | null; count: number; error?: string };
+
 /** An agent's rule in a room's charter. */
 export type AgentRule = { role?: string; wake?: 'order' | 'mention' | 'backup'; backupFor?: string | null; tokensPerDay?: number };
 

@@ -13,6 +13,8 @@ import { collapseActivity, mergeThread, toChatMessage } from '../store/mapping';
 import { convKey } from '../store/reducer';
 import { convTitle, selectedConv, selectedRoom, selectedThread, thinkingIn } from '../store/selectors';
 import { FilesView } from './FilesView';
+import { DebugButton } from './DebugButton';
+import { setConversationTab } from '../debugNotes';
 
 export type ConversationTab = 'chat' | 'files';
 
@@ -41,7 +43,11 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
   const key = topic && convId ? convKey(topic, convId) : null;
   const touch = isTouch();
 
-  const [tab, setTab] = useState<ConversationTab>('chat');
+  const [tab, setTabState] = useState<ConversationTab>('chat');
+  const setTab = (t: ConversationTab) => {
+    setTabState(t);
+    setConversationTab(t);
+  };
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [reply, setReply] = useState<Reply | null>(null);
@@ -151,7 +157,10 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
             </Text>
           ) : null}
         </Pressable>
-        <View className="flex-row items-center gap-1 app-region-no-drag">{buttons}</View>
+        <View className="flex-row items-center gap-1 app-region-no-drag">
+          {buttons}
+          <DebugButton className="ml-1" />
+        </View>
       </GlassBar>
     </View>
   );

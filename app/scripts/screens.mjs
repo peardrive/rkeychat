@@ -99,6 +99,18 @@ await shot('desktop-settings', {
   },
 });
 
+await shot('desktop-debug-note', {
+  ...desktop,
+  before: async (page) => {
+    await openRedesign(page);
+    await page.getByRole('button', { name: 'Start a debug note' }).first().click();
+    await page.waitForTimeout(1600);
+    await page.getByRole('button', { name: /Actions$/ }).last().click();
+    await page.waitForTimeout(500);
+    await must(page, page.getByRole('button', { name: /^Stop the debug note/ }), 'the running note on the button');
+  },
+});
+
 await shot('phone-home', { ...phone, before: async (page) => { await must(page, page.getByText('wants to log in'), 'the approval on the phone home'); } });
 await shot('phone-conversation', {
   ...phone,

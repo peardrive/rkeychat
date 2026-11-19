@@ -14,7 +14,8 @@ import { SettingsPage } from './components/SettingsPage';
 import { rkc, useShortcuts, useViewport, type TextInputRef } from './hooks';
 import { AppWindow, ThemeProvider, ToastProvider, useToast } from './kit';
 import { StoreProvider, useStore } from './store/context';
-import { orgNames, orderedRooms } from './store/selectors';
+import { convTitle, orgNames, orderedRooms, selectedConv, selectedRoom } from './store/selectors';
+import { getConversationTab, setDebugWhere } from './debugNotes';
 
 const PROJECT_WIDTH = 332;
 const PROJECT_OPEN_KEY = 'rkc.app.project-open';
@@ -53,6 +54,19 @@ function Shell() {
   useEffect(() => {
     if (narrow && !localStorage.getItem(PROJECT_OPEN_KEY)) setProjectOpen(false);
   }, [narrow]);
+
+  // Debug notes are stamped with where the app is.
+  const whereRef = useRef({ state, view, phonePage, phone });
+  whereRef.current = { state, view, phonePage, phone };
+  useEffect(() => {
+    setDebugWhere(() => {
+      const { state: s, view: v, phonePage: pp, phone: ph } = whereRef.current;
+      const room = selectedRoom(s);
+      const conv = selectedConv(s);
+      const page = ph && pp === 'home' ? 'home' : ph && pp === 'project' ? 'project' : v.kind === 'conversation' ? (getConversationTab() === 'files' ? 'files' : 'conversation') : v.kind;
+      return { page, org: room?.app?.org ?? null, project: room?.name ?? null, conversation: conv ? convTitle(conv) : null };
+    });
+  }, []);
 
   const toggleProject = useCallback(() => {
     if (phone) {

@@ -17,6 +17,7 @@ export {
   Composer,
   CountBadge,
   DangerZone,
+  DebugNotesButton,
   Dialog,
   Divider,
   DropZone,

@@ -57,7 +57,7 @@ export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, o
   }
   // Two buttons side by side (never nested): the row selects or expands, the chevron only toggles.
   return (
-    <View className={cn('app-region-no-drag w-full flex-row items-center rounded-md pr-1.5', selected ? 'bg-selected' : 'hover:bg-overlay/5')}>
+    <View {...({ dataSet: { project: title } } as object)} className={cn('app-region-no-drag w-full flex-row items-center rounded-md pr-1.5', selected ? 'bg-selected' : 'hover:bg-overlay/5')}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={title}
@@ -112,6 +112,7 @@ export function SidebarThreadItem({ title, snippet, time, unread = 0, selected, 
       accessibilityLabel={title}
       accessibilityState={{ selected: !!selected }}
       onPress={onPress}
+      {...({ dataSet: { conversation: title } } as object)}
       className={cn('app-region-no-drag w-full flex-row items-center gap-2 rounded-md pr-2', touch ? 'py-2' : 'py-[6px]', nested ? 'pl-[42px]' : 'pl-2.5', Platform.OS === 'web' && 'cursor-pointer select-none', selected ? 'bg-selected' : 'hover:bg-overlay/5 active:bg-overlay/[0.08]')}
     >
       <View className="min-w-0 flex-1 gap-px">

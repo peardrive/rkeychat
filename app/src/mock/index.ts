@@ -151,6 +151,10 @@ const family = room({
 });
 family.participants = family.participants.filter((p) => p.role === 'human');
 
+const mockNotes: { id: string; startedAt?: string; seconds?: number; steps?: number; where?: Record<string, unknown>; audio?: string | null }[] = [
+  { id: '2026-11-18T21-04-12', startedAt: new Date(min(1300)).toISOString(), seconds: 41, steps: 12, where: { page: 'conversation', project: 'PearDrive', conversation: 'Redesign the share row' }, audio: 'note.webm' },
+  { id: '2026-11-19T09-40-03', startedAt: new Date(min(60)).toISOString(), seconds: 9, steps: 4, where: { page: 'home' }, audio: null },
+];
 const rooms = new Map<string, MockRoom>([peardrive, pearcast, notes, family].map((r) => [r.topic, r]));
 peardrive.reactions[peardrive.log[6].id] = { '👍': [ME] };
 
@@ -444,6 +448,19 @@ export const mockApi: Api = {
   async loginGrant() {
     await sleep(LATENCY);
     return { granted: 'guy-phone' };
+  },
+  async debugNotes() {
+    await sleep(LATENCY);
+    return { dir: '/Users/guy/.rkeychat/debug', sharelink: 'peardrive://debug-notes-7e9558905c031c7a647a', topic: 'debug', count: mockNotes.length, notes: [...mockNotes].reverse() };
+  },
+  async debugSaveNote({ id, audio, trace, meta }) {
+    await sleep(LATENCY * 2);
+    mockNotes.push({ id, ...(meta as object), steps: trace.length, audio: audio ? 'note.webm' : null });
+    return { id, files: ['trace.jsonl', 'note.json'], shared: true, sharelink: 'peardrive://debug-notes-7e9558905c031c7a647a' };
+  },
+  async debugShare({ id }) {
+    await sleep(LATENCY);
+    return { ok: true, id };
   },
   async loginDeny() {
     await sleep(LATENCY);

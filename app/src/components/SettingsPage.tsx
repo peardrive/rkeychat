@@ -8,7 +8,10 @@ import { getApi } from '../api';
 import { SAFE_TOP } from '../hooks';
 import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, Text, TextField, Toggle, useToast } from '../kit';
 import { useStore } from '../store/context';
-import type { AgentInfo, Person } from '../types';
+import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person } from '../types';
+import { DebugButton } from './DebugButton';
+import { LinkField } from '../kit';
+import { shortTime } from '../time';
 
 const WIKI_KEY = 'rkc.app.wiki';
 
@@ -21,6 +24,8 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
   const [wiki, setWiki] = useState(() => localStorage.getItem(WIKI_KEY) ?? '');
   const [people, setPeople] = useState<{ local: Person[]; known: Person[] } | null>(null);
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
+  const [debug, setDebug] = useState<(DebugSpaceInfo & { notes: DebugNoteInfo[] }) | null>(null);
+  const [sharing, setSharing] = useState<string | null>(null);
 
   useEffect(() => {
     getApi()
@@ -32,7 +37,22 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
       .catch(() => {});
     getApi().people().then(setPeople).catch(() => setPeople({ local: [], known: [] }));
     getApi().agents().then(setAgents).catch(() => setAgents([]));
+    getApi().debugNotes().then(setDebug).catch(() => setDebug({ dir: '', sharelink: null, count: 0, notes: [] }));
   }, []);
+
+  const shareNote = async (id: string) => {
+    const topic = state.selected.topic;
+    if (!topic) return toast({ title: 'Pick a project first', description: 'The note is posted into the open project.' });
+    setSharing(id);
+    try {
+      await getApi().debugShare({ id, room: topic });
+      toast({ title: 'Note shared', description: `${id} → ${state.rooms[topic]?.name ?? 'the project'}`, tone: 'success' });
+    } catch (e) {
+      toast({ title: 'Could not share the note', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSharing(null);
+    }
+  };
 
   const saveWorkspace = async () => {
     const w = workspace.trim();
@@ -64,7 +84,7 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
 
   return (
     <Pane glow>
-      <PaneHeader title="Settings" size={phone ? 'display' : 'title'} style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined} leading={<IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1" />} />
+      <PaneHeader title="Settings" size={phone ? 'display' : 'title'} style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined} leading={<IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1" />} actions={<DebugButton />} />
       <PaneBody contentClassName="gap-3 px-4 pb-8 pt-1">
         <View className="w-full max-w-[720px] gap-3 self-center">
           <SettingsBlock icon="setting-2-bold" title="This device" description="its name, where projects go">
@@ -97,6 +117,24 @@ export function SettingsPage({ phone, onBack }: { phone: boolean; onBack: () => 
             ) : (
               <SettingsRow label="Loading…" divider={false} />
             )}
+          </SettingsBlock>
+
+          <SettingsBlock icon="microphone" title="Debug" description="voice notes with every step, for your agent">
+            <SettingsRow label="Notes space" hint="Your agent on the Mac pulls them with: rkeychat notes pull <link>" control={debug?.sharelink ? <View className="w-[260px] max-w-full"><LinkField value={debug.sharelink} onCopy={() => { toast({ title: 'Link copied', duration: 1500 }); }} /></View> : value(debug ? debug.error ?? 'no space yet' : 'loading…')} />
+            <SettingsRow label="Notes" hint={debug?.dir || undefined} control={value(debug ? `${debug.count}` : '…')} divider={!!debug?.notes.length} />
+            {debug?.notes.map((n, i) => {
+              const w = n.where as { page?: string; project?: string; conversation?: string } | undefined;
+              const where = [w?.project, w?.conversation ?? w?.page].filter(Boolean).join(' › ');
+              return (
+                <SettingsRow
+                  key={n.id}
+                  label={n.id}
+                  hint={[n.startedAt ? shortTime(Date.parse(n.startedAt)) : null, n.seconds != null ? `${n.seconds}s` : null, n.steps != null ? `${n.steps} steps` : null, n.audio ? 'voice' : 'steps only', where || null, n.from ? `from ${n.from}` : null].filter(Boolean).join(' · ')}
+                  control={<Button size="sm" variant="subtle" label="Share into this project" loading={sharing === n.id} disabled={!state.selected.topic} onPress={() => void shareNote(n.id)} />}
+                  divider={i < debug.notes.length - 1}
+                />
+              );
+            })}
           </SettingsBlock>
 
           <SettingsBlock icon="refresh" title="Agents on this device" description="seats hosted here">
