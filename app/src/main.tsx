@@ -7,6 +7,7 @@ import 'pearkit/global.css';
 import { MOCK, setApi } from './api';
 import { setEventSourceFactory } from './events';
 import { App } from './App';
+import { setClipboardWriter } from 'pearkit';
 
 /**
  * iOS scrolls the page to a focused field and shrinks the visual viewport under the keyboard. Size the root to
@@ -28,8 +29,15 @@ function followVisualViewport() {
   apply();
 }
 
+// Inside the phone app the page has no browser clipboard (plain http in a WebView): the app bridges it.
+declare global { interface Window { rkcMobile?: { copy: (t: string) => boolean; share?: (t: string) => boolean } } }
+function useAppClipboard() {
+  if (window.rkcMobile?.copy) setClipboardWriter((text) => window.rkcMobile!.copy(text));
+}
+
 async function boot() {
   followVisualViewport();
+  useAppClipboard();
   if (MOCK) {
     const { mockApi, mockEventSource } = await import('./mock');
     setApi(mockApi);

@@ -8,9 +8,9 @@
     <style>
       html, body, #root { height: 100%; margin: 0; background: #09080d; overflow: hidden; }
       html { touch-action: manipulation; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
-      body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
-      /* text people may want to copy stays selectable */
-      [data-selectable], [data-selectable] * { -webkit-user-select: text; user-select: text; }
+      body { overscroll-behavior: none; }
+      /* controls are not text: no accidental selection or callout on a long press; everything else stays selectable */
+      button, [role="button"], [role="tab"], [role="menuitem"], [role="switch"], [role="radio"] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
       /* react-native-web layouts are flexbox all the way down */
       #root { display: flex; flex-direction: column; }
     </style>

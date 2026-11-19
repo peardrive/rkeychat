@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { SAFE_BOTTOM, SAFE_TOP, isTouch, type TextInputRef } from '../hooks';
-import { Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, useToast } from '../kit';
+import { Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast } from '../kit';
 import { useStore } from '../store/context';
 import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
 import { collapseActivity, mergeThread, toChatMessage } from '../store/mapping';
@@ -218,7 +218,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
               composerRef.current?.focus();
             }}
             onCopy={(text) => {
-              void navigator.clipboard?.writeText(text);
+              void copyToClipboard(text);
               toast({ title: 'Copied', duration: 1200 });
             }}
             onOpenAttachment={(a) => a.url && window.open(a.url, '_blank')}
