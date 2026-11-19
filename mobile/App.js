@@ -2,8 +2,15 @@
 // runs on this device in a Bare worklet; the UI is the same web UI as the
 // desktop app, served by that backend on 127.0.0.1 and shown full screen.
 import { useEffect, useRef, useState } from 'react'
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
+import { AppState, Pressable, Share, StyleSheet, Text, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
+import * as Clipboard from 'expo-clipboard'
+
+// what the page sees as window.rkcMobile: copy and share through the app
+const BRIDGE = `window.rkcMobile = {
+  copy: (text) => { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'copy', text: String(text) })); return true },
+  share: (text) => { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'share', text: String(text) })); return true }
+}; true;`
 import { WebView } from 'react-native-webview'
 import { Worklet } from 'react-native-bare-kit'
 import { Paths } from 'expo-file-system'
@@ -80,6 +87,16 @@ export default function App () {
             }}
             onNavigationStateChange={(nav) => setStrayed(!nav.loading && !isChatPage(nav.url, url))}
             onError={() => setStrayed(true)}
+            // The page runs over plain http on 127.0.0.1, where WebKit gives it no clipboard. The page asks the
+            // app instead: window.rkcMobile.copy(text) → a message here → the phone's clipboard. Same for the
+            // share sheet.
+            injectedJavaScriptBeforeContentLoaded={BRIDGE}
+            onMessage={(e) => {
+              let m
+              try { m = JSON.parse(e.nativeEvent.data) } catch { return }
+              if (m?.type === 'copy' && typeof m.text === 'string') Clipboard.setStringAsync(m.text).catch(() => {})
+              if (m?.type === 'share' && typeof m.text === 'string') Share.share({ message: m.text }).catch(() => {})
+            }}
           />
           )
         : (
