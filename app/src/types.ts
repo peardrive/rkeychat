@@ -17,7 +17,37 @@ export type Conversation = {
 export type ConvSummary = Pick<Conversation, 'conv' | 'title' | 'archived' | 'last' | 'count'>;
 
 /** The signed app note; `home` is the device whose disk holds the folder (projects-home-and-sync.md §1). */
-export type AppRecord = { app: 'rkeychat'; role: 'project' | 'chat'; name: string; icon?: string; home?: { device: string; name: string } | null } | null;
+export type AppRecord = {
+  app: 'rkeychat';
+  role: 'project' | 'chat';
+  name: string;
+  icon?: string;
+  home?: { device: string; name: string } | null;
+  /** The organization the project belongs to (round 2): a grouping name signed by the owner. */
+  org?: string | null;
+} | null;
+
+/** A file shared in a room (`GET /api/files?room=`). `local`: the bytes are on this device. */
+export type FileEntry = { hash: string; kind?: 'file'; name: string; path?: string; mime?: string; size?: number; by: string; ts: number; local: boolean; providers: number };
+
+/** `GET /api/people`: agents on this device and the people known from owned rooms. */
+export type Person = { name: string; role: 'human' | 'agent'; local?: boolean; from?: string };
+
+/** `GET /api/agents`: a seat hosted on this device. */
+export type AgentInfo = {
+  name: string;
+  bridge: 'claude' | 'hermes' | 'stream';
+  via: 'acp' | 'cli' | null;
+  dir: string | null;
+  ref?: string;
+  rooms: { name: string; topic: string; enrolled: boolean; state: AgentState; busy: boolean }[];
+};
+
+/** A device asking to log in or join (`login-ask` push); answered with /api/login/grant|deny. */
+export type LoginAsk = { topic: string; device: string; deviceName: string; names: { name: string; role: string }[]; room?: string | null; action: 'room' | 'login'; at: number; expires?: number };
+
+/** An agent's rule in a room's charter. */
+export type AgentRule = { role?: string; wake?: 'order' | 'mention' | 'backup'; backupFor?: string | null; tokensPerDay?: number };
 
 /** One of the owner's own devices (`GET /api/devices`); this one first, with `here: true`. */
 export type Device = { ref: string; name: string; online: boolean; here: boolean; /** On the `here` entry: can this device hold a project folder (false on a phone). */ canHost?: boolean };
@@ -86,7 +116,7 @@ export type Participant = {
 
 export type Member = { name: string; device?: string; ref?: string; scope?: string[]; status?: string; depth?: number };
 
-export type Charter = { text: string; order: string[]; agents: Record<string, unknown> };
+export type Charter = { text: string; order: string[]; agents: Record<string, AgentRule> };
 
 /** Reactions as the daemon keeps them: { msgId: { emoji: [names] } }. */
 export type Reactions = Record<string, Record<string, string[]>>;
@@ -149,6 +179,7 @@ export type Events = {
   activity: { topic: string; rec: Rec };
   /** The whole room's reactions map after a react record (the daemon does not re-push `room` for it). */
   reactions: { topic: string; reactions: Reactions };
+  'login-ask': LoginAsk;
   'agent-state': { topic: string; name: string; conv: string; state: AgentState };
   'agent-error': { topic: string; name: string; conv?: string; error: string };
 };

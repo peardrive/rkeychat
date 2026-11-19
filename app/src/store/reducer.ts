@@ -1,7 +1,8 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Conversation, Device, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Conversation, Device, LoginAsk, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
 
@@ -16,6 +17,8 @@ export type State = {
   me: { device: string; ref?: string; human: string | null; canHost?: boolean } | null;
   /** The owner's devices, this one first. */
   devices: Device[];
+  /** The home feed, newest first (feed.ts). */
+  feed: FeedItem[];
   /** Projects another device was asked to create; `topic` is set once the room shows up. */
   pendingProjects: { id: string; name: string; asked: string; topic?: string }[];
   roomOrder: string[];
@@ -36,6 +39,7 @@ export const initialState: State = {
   error: null,
   me: null,
   devices: [],
+  feed: [],
   pendingProjects: [],
   roomOrder: [],
   rooms: {},
@@ -53,6 +57,12 @@ export type Action =
   | { type: 'devices'; devices: Device[] }
   | { type: 'pendingProject'; id: string; name: string; asked: string }
   | { type: 'pendingDone'; id: string }
+  | { type: 'feedAdd'; item: FeedItem }
+  | { type: 'feedOpen'; id: string }
+  | { type: 'feedOpenAll' }
+  | { type: 'feedRemove'; id: string }
+  | { type: 'loginAsk'; ask: LoginAsk }
+  | { type: 'loginAsks'; asks: LoginAsk[] }
   | { type: 'rooms'; rooms: RoomSummary[] }
   | { type: 'room'; snapshot: RoomSnapshot; conv?: string }
   | { type: 'convs'; topic: string; convs: Conversation[] }
@@ -156,7 +166,17 @@ export function reducer(state: State, action: Action): State {
       return { ...state, details, convs, rooms, threads };
     }
     case 'convs': {
-      return { ...state, convs: { ...state.convs, [action.topic]: action.convs } };
+      const prev = state.convs[action.topic];
+      let feed = state.feed;
+      if (prev && state.ready) {
+        const seen = new Set(prev.map((c) => c.conv));
+        for (const c of action.convs) {
+          if (seen.has(c.conv) || c.archived || c.conv === 'main') continue;
+          const r = state.rooms[action.topic];
+          feed = pushFeed(feed, { id: `conv:${action.topic}/${c.conv}`, kind: 'conversation', ts: c.created || Date.now(), title: `New conversation: ${c.title || 'untitled'}`, where: { org: r?.app?.org ?? undefined, project: r?.name ?? '' }, topic: action.topic, conv: c.conv, unread: true });
+        }
+      }
+      return { ...state, convs: { ...state.convs, [action.topic]: action.convs }, feed };
     }
     case 'conv': {
       const list = state.convs[action.topic] ?? [];
@@ -180,7 +200,16 @@ export function reducer(state: State, action: Action): State {
       const mine = !!state.me?.human && rec.name === state.me.human;
       const known = !!thread?.items.some((x) => x.id === rec.id);
       const unread = open || mine || known ? state.unread : { ...state.unread, [key]: (state.unread[key] ?? 0) + 1 };
-      return { ...state, threads, unread };
+      let feed = state.feed;
+      if (!mine && !known && state.ready) {
+        const r = state.rooms[action.topic];
+        const convTitle = (state.convs[action.topic] ?? []).find((c) => c.conv === rec.conv)?.title || (rec.conv === 'main' ? 'General' : '');
+        const where = { org: r?.app?.org ?? undefined, project: r?.name ?? '', conversation: convTitle || undefined };
+        const files = (rec.att ?? []).filter((a) => a.kind === 'file');
+        if (mentions(rec.text, state.me?.human)) feed = pushFeed(feed, { id: `mention:${rec.id}`, kind: 'mention', ts: rec.ts, title: 'mentioned you', text: rec.text, who: rec.name, whoAgent: !rec.human, where, topic: action.topic, conv: rec.conv, unread: true });
+        for (const f of files) feed = pushFeed(feed, { id: `file:${rec.id}:${f.hash}`, kind: 'file', ts: rec.ts, title: `shared ${f.name ?? 'a file'}`, text: undefined, who: rec.name, whoAgent: !rec.human, where, topic: action.topic, conv: rec.conv, unread: true });
+      }
+      return { ...state, threads, unread, feed };
     }
     case 'log': {
       const key = convKey(action.topic, action.conv);
@@ -213,7 +242,38 @@ export function reducer(state: State, action: Action): State {
     }
     case 'agentState': {
       const key = convKey(action.topic, action.conv || 'main');
-      return { ...state, agents: { ...state.agents, [key]: { ...(state.agents[key] ?? {}), [action.name]: action.state } } };
+      const was = state.agents[key]?.[action.name];
+      let feed = state.feed;
+      if (state.ready) {
+        const r = state.rooms[action.topic];
+        const title = (state.convs[action.topic] ?? []).find((c) => c.conv === (action.conv || 'main'))?.title || 'General';
+        const where = { org: r?.app?.org ?? undefined, project: r?.name ?? '', conversation: title };
+        if (action.state === 'idle' && (was === 'thinking' || was === 'waiting')) feed = pushFeed(feed, { id: `done:${key}:${action.name}:${Date.now()}`, kind: 'done', ts: Date.now(), title: 'finished', who: action.name, whoAgent: true, where, topic: action.topic, conv: action.conv || 'main', unread: true });
+        if (action.state === 'error') feed = pushFeed(feed, { id: `error:${key}:${action.name}:${Date.now()}`, kind: 'error', ts: Date.now(), title: 'hit an error', who: action.name, whoAgent: true, where, topic: action.topic, conv: action.conv || 'main', unread: true });
+      }
+      return { ...state, feed, agents: { ...state.agents, [key]: { ...(state.agents[key] ?? {}), [action.name]: action.state } } };
+    }
+    case 'feedAdd':
+      return { ...state, feed: pushFeed(state.feed, action.item) };
+    case 'feedOpen':
+      return { ...state, feed: state.feed.map((x) => (x.id === action.id && x.unread ? { ...x, unread: false } : x)) };
+    case 'feedOpenAll':
+      return state.feed.some((x) => x.unread && x.kind !== 'approval') ? { ...state, feed: state.feed.map((x) => (x.kind === 'approval' ? x : { ...x, unread: false })) } : state;
+    case 'feedRemove':
+      return { ...state, feed: state.feed.filter((x) => x.id !== action.id) };
+    case 'loginAsk': {
+      const a = action.ask;
+      const who = a.names?.map((n) => n.name).join(', ') || 'somebody';
+      return { ...state, feed: pushFeed(state.feed, { id: `ask:${a.topic}`, kind: 'approval', ts: a.at || Date.now(), title: a.room ? `wants into ${a.room}` : 'wants to log in', text: `as ${who}`, who: a.deviceName, unread: true, ask: a }) };
+    }
+    case 'loginAsks': {
+      let feed = state.feed.filter((x) => x.kind !== 'approval' || action.asks.some((a) => a.topic === x.ask?.topic));
+      for (const a of action.asks) {
+        if (feed.some((x) => x.id === `ask:${a.topic}`)) continue;
+        const who = a.names?.map((n) => n.name).join(', ') || 'somebody';
+        feed = pushFeed(feed, { id: `ask:${a.topic}`, kind: 'approval', ts: a.at || Date.now(), title: a.room ? `wants into ${a.room}` : 'wants to log in', text: `as ${who}`, who: a.deviceName, unread: true, ask: a });
+      }
+      return { ...state, feed };
     }
     case 'participants': {
       const d = state.details[action.topic];

@@ -6,12 +6,31 @@ import { convKey, type State } from './reducer';
 
 export const isProject = (r: RoomSummary) => !!r.folder || r.app?.role === 'project';
 
+/** @deprecated round 2: everything is a project. Kept for the one test that documents the old split. */
 export function groupRooms(rooms: RoomSummary[]): { projects: RoomSummary[]; chats: RoomSummary[] } {
   const projects: RoomSummary[] = [];
   const chats: RoomSummary[] = [];
   for (const r of rooms) (isProject(r) ? projects : chats).push(r);
   return { projects, chats };
 }
+
+export const orgOf = (r: Pick<RoomSummary, 'app'>) => (r.app?.org ?? '').trim() || null;
+
+/** Projects grouped by organization: the ones without one first, then each organization by name. */
+export function groupByOrg(rooms: RoomSummary[]): { ungrouped: RoomSummary[]; orgs: { name: string; rooms: RoomSummary[] }[] } {
+  const ungrouped: RoomSummary[] = [];
+  const byOrg = new Map<string, RoomSummary[]>();
+  for (const r of rooms) {
+    const org = orgOf(r);
+    if (!org) ungrouped.push(r);
+    else byOrg.set(org, [...(byOrg.get(org) ?? []), r]);
+  }
+  const orgs = [...byOrg.entries()].map(([name, rs]) => ({ name, rooms: rs })).sort((a, b) => a.name.localeCompare(b.name));
+  return { ungrouped, orgs };
+}
+
+/** Every organization name in use, alphabetical. */
+export const orgNames = (rooms: RoomSummary[]) => [...new Set(rooms.map(orgOf).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
 
 export const orderedRooms = (s: State) => s.roomOrder.map((t) => s.rooms[t]).filter(Boolean);
 

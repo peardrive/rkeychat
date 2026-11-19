@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { Charter, Conversation, Device, LogPage, PendingProject, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
+import type { AgentInfo, Charter, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -17,7 +17,19 @@ export interface Api {
   search(q: { q: string; room?: string; conv?: string; limit?: number }): Promise<{ results: SearchHit[] }>;
   activity(q: { room: string; conv?: string }): Promise<unknown>;
   /** `home` (a device ref or name) elsewhere → the daemon asks that device and answers `{ pending: true, … }`. */
-  createProject(body: { folder?: string; name?: string; home?: string; prompt?: string; agent?: string; via?: 'acp' | 'cli' }): Promise<{ room: RoomSummary; seat: Seat | string } | PendingProject>;
+  createProject(body: { folder?: string; name?: string; home?: string; prompt?: string; org?: string; agent?: string; via?: 'acp' | 'cli' }): Promise<{ room: RoomSummary; seat: Seat | string } | PendingProject>;
+  renameRoom(body: { room: string; name: string }): Promise<unknown>;
+  setRoomOrg(body: { room: string; org: string | null }): Promise<RoomSummary>;
+  /** Takes the room off this device; the folder on disk stays. */
+  removeRoom(body: { room: string }): Promise<{ removed: boolean; topic: string; seats?: string[]; folder?: string | null }>;
+  files(room: string): Promise<FileEntry[]>;
+  fetchFile(body: { room: string; hash: string }): Promise<FileEntry & { path: string }>;
+  invite(room: string): Promise<{ invite: string; room: string }>;
+  people(): Promise<{ local: Person[]; known: Person[] }>;
+  agents(): Promise<AgentInfo[]>;
+  loginAsks(): Promise<{ asking: LoginAsk[] }>;
+  loginGrant(topic: string): Promise<unknown>;
+  loginDeny(topic: string): Promise<unknown>;
   devices(): Promise<Device[]>;
   workspace(): Promise<{ workspace: string }>;
   setWorkspace(body: { workspace: string }): Promise<{ workspace: string }>;
@@ -84,6 +96,17 @@ export const httpApi: Api = {
   setWorkspace: (b) => post('workspace', b),
   react: (b) => post('react', b),
   charter: ({ room, text, order, agents }) => post('control', { room, action: 'charter', text, order, agents }),
+  renameRoom: ({ room, name }) => post('control', { room, action: 'rename', name }),
+  setRoomOrg: (b) => post('rooms/org', b),
+  removeRoom: (b) => post('rooms/remove', b),
+  files: (room) => get('files', { room }),
+  fetchFile: (b) => post('fetch', b),
+  invite: (room) => get('invite', { room }),
+  people: () => get('people'),
+  agents: () => get('agents'),
+  loginAsks: () => get('login/pending'),
+  loginGrant: (topic) => post('login/grant', { topic }),
+  loginDeny: (topic) => post('login/deny', { topic }),
   setAgentVia: (b) => post('agents/via', b),
 };
 

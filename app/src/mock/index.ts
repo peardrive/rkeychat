@@ -4,7 +4,7 @@
  */
 import type { Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { Conversation, Device, EventName, Events, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, Conversation, Device, EventName, Events, FileEntry, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -18,7 +18,9 @@ type MockRoom = {
   folder: string | null;
   app: RoomSummary['app'];
   seats: Seat[];
-  charter: { text: string; order: string[]; agents: Record<string, unknown> };
+  charter: { text: string; order: string[]; agents: Record<string, AgentRule> };
+  org: string | null;
+  files: FileEntry[];
   convs: Map<string, Conversation>;
   log: Rec[];
   reactions: Record<string, Record<string, string[]>>;
@@ -47,16 +49,18 @@ function act(name: string, text: string, ts: number, conv: string): Rec {
   return { id: id(), kind: 'activity', ts, name, human: false, text, conv };
 }
 
-function room(opts: { name: string; folder: string | null; home?: { device: string; name: string } | null; seats: Seat[]; charter: string; convs: { conv: string; title: string; archived?: boolean; runtime?: string | null; created: number }[]; log: Rec[] }): MockRoom {
+function room(opts: { name: string; folder: string | null; org?: string | null; home?: { device: string; name: string } | null; seats: Seat[]; charter: string; convs: { conv: string; title: string; archived?: boolean; runtime?: string | null; created: number }[]; log: Rec[] }): MockRoom {
   const convs = new Map<string, Conversation>();
   for (const c of opts.convs) convs.set(c.conv, { conv: c.conv, title: c.title, created: c.created, archived: !!c.archived, runtime: c.runtime ?? null, last: null, count: 0, busy: [] });
   const r: MockRoom = {
     name: opts.name,
     topic: hex() + hex() + hex() + hex(),
     folder: opts.folder,
-    app: { app: 'rkeychat', role: opts.folder || opts.home ? 'project' : 'chat', name: opts.name, home: opts.home === undefined ? (opts.folder ? { device: HERE, name: DEVICE } : null) : opts.home },
+    app: { app: 'rkeychat', role: opts.folder || opts.home ? 'project' : 'chat', name: opts.name, org: opts.org ?? null, home: opts.home === undefined ? (opts.folder ? { device: HERE, name: DEVICE } : null) : opts.home },
+    org: opts.org ?? null,
+    files: [],
     seats: opts.seats,
-    charter: { text: opts.charter, order: opts.seats.map((s) => s.name), agents: {} },
+    charter: { text: opts.charter, order: opts.seats.map((s) => s.name), agents: Object.fromEntries(opts.seats.map((s) => [s.name, { role: 'Keeps the design system honest.', wake: 'order' as const, tokensPerDay: 200000 }])) },
     convs,
     log: opts.log.sort((a, b) => a.ts - b.ts),
     reactions: {},
@@ -81,6 +85,7 @@ function refreshConvs(r: MockRoom) {
 
 const peardrive = room({
   name: 'PearDrive',
+  org: 'Anjou',
   folder: '/Users/guy/Anjou/peardrive',
   seats: [{ name: 'rkeychat', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive' }],
   charter:
@@ -110,6 +115,7 @@ peardrive.convs.get('a1b2c3d4e5f60718')!.busy = ['rkeychat'];
 
 const pearcast = room({
   name: 'pearcast',
+  org: 'Anjou',
   folder: '/Users/guy/Anjou/pearcast',
   seats: [{ name: 'rkeychat', bridge: 'claude', via: 'cli', dir: '/Users/guy/Anjou/pearcast' }],
   charter: 'pearcast: the podcast editor. Audio first. Never touch the_editor/tool without a test.',
@@ -157,6 +163,11 @@ const summary = (r: MockRoom): RoomSummary => ({
   app: r.app,
   convs: [...r.convs.values()].map(({ conv, title, archived, last, count }) => ({ conv, title, archived, last, count })),
 });
+peardrive.files = [
+  { hash: 'a1f9c2d4e5b6a7c8d9e0f1a2b3c4d5e6', kind: 'file', name: 'share-row.png', mime: 'image/png', size: 184320, by: 'rkeychat', ts: min(294), local: true, providers: 2 },
+  { hash: 'b2e8d3c5f6a7b8c9d0e1f2a3b4c5d6e7', kind: 'file', name: 'sync-trace.log', mime: 'text/plain', size: 52311, by: 'jeffrey', ts: min(138), local: false, providers: 1 },
+];
+peardrive.log[6].att = [{ hash: 'a1f9c2d4e5b6a7c8d9e0f1a2b3c4d5e6', kind: 'file', name: 'share-row.png', mime: 'image/png', size: 184320 }];
 
 const PAGE = 40;
 function page(r: MockRoom, conv: string, opts: { limit?: number; before?: string } = {}) {
@@ -204,6 +215,15 @@ export function mockEventSource(handlers: EventHandlers): EventSink {
   setTimeout(() => handlers.onOpen?.(false), 20);
   // The seat in the PearDrive redesign conversation is already thinking.
   setTimeout(() => emit('agent-state', { topic: peardrive.topic, name: 'rkeychat', conv: 'a1b2c3d4e5f60718', state: 'thinking' }), 400);
+  // Someone at the door, and a mention, so the home feed has something to show.
+  setTimeout(() => emit('login-ask', { topic: 'ask-1', device: 'rkey:phone2', deviceName: 'guy-phone', names: [{ name: 'guy', role: 'human' }], room: null, action: 'login', at: Date.now() }), 900);
+  setTimeout(() => {
+    const m = msg('rkeychat', '@guy the Zorin fix is in: retry at 5 s, the slow peer is logged. Want a release?', Date.now(), 'b2c3d4e5f6071829');
+    peardrive.log.push(m);
+    emit('record', { topic: peardrive.topic, rec: m });
+    refreshConvs(peardrive);
+    emit('convs', { topic: peardrive.topic, convs: [...peardrive.convs.values()] });
+  }, 1400);
   return {
     close() {
       listeners.delete(handlers);
@@ -331,7 +351,7 @@ export const mockApi: Api = {
     await sleep(LATENCY);
     return [];
   },
-  async createProject({ folder, name, home, prompt, via }) {
+  async createProject({ folder, name, home, prompt, org, via }) {
     await sleep(LATENCY * 3);
     const dev = home ? DEVICES.find((d) => d.ref === home || d.name === home) : DEVICES[0];
     if (!dev) throw Object.assign(new Error(`no such device: ${home}`), { status: 404 });
@@ -341,6 +361,7 @@ export const mockApi: Api = {
       room({
         name: name || base,
         folder: dir,
+        org: org ?? null,
         home: { device: where.ref, name: where.name },
         seats: [{ name: 'rkeychat', bridge: 'claude', via: via ?? 'acp', dir }],
         charter: prompt ?? '',
@@ -367,6 +388,66 @@ export const mockApi: Api = {
   async devices() {
     await sleep(LATENCY);
     return DEVICES;
+  },
+  async renameRoom({ room: key, name }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    r.name = name;
+    if (r.app) r.app = { ...r.app, name };
+    setTimeout(() => emit('rooms', [...rooms.values()].map(summary)), 50);
+    return { ok: true };
+  },
+  async setRoomOrg({ room: key, org }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    r.org = org && org.trim() ? org.trim() : null;
+    if (r.app) r.app = { ...r.app, org: r.org };
+    setTimeout(() => emit('rooms', [...rooms.values()].map(summary)), 50);
+    return summary(r);
+  },
+  async removeRoom({ room: key }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    rooms.delete(r.topic);
+    setTimeout(() => emit('rooms', [...rooms.values()].map(summary)), 50);
+    return { removed: true, topic: r.topic, seats: r.seats.map((s) => s.name), folder: r.folder };
+  },
+  async files(key) {
+    await sleep(LATENCY);
+    return [...find(key).files].sort((a, b) => b.ts - a.ts);
+  },
+  async fetchFile({ room: key, hash }) {
+    await sleep(LATENCY * 4);
+    const r = find(key);
+    const f = r.files.find((x) => x.hash.startsWith(hash));
+    if (!f) throw Object.assign(new Error('no such file in this room'), { status: 404 });
+    f.local = true;
+    return { ...f, path: `/Users/guy/.rkeychat/cache/${f.hash.slice(0, 12)}-${f.name}` };
+  },
+  async invite(key) {
+    await sleep(LATENCY);
+    const r = find(key);
+    return { invite: `rkeychat-invite:${r.topic.slice(0, 40)}…`, room: r.name };
+  },
+  async people() {
+    await sleep(LATENCY);
+    return { local: [{ name: 'rkeychat', role: 'agent', local: true }], known: [{ name: 'jeffrey', role: 'human', from: 'Family' }, { name: 'kimi-mini', role: 'agent', from: 'PearDrive' }] };
+  },
+  async agents() {
+    await sleep(LATENCY);
+    return [{ name: 'rkeychat', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive', rooms: [...rooms.values()].filter((r) => r.seats.length).map((r) => ({ name: r.name, topic: r.topic, enrolled: true, state: 'idle' as const, busy: false })) }];
+  },
+  async loginAsks() {
+    await sleep(LATENCY);
+    return { asking: [] };
+  },
+  async loginGrant() {
+    await sleep(LATENCY);
+    return { granted: 'guy-phone' };
+  },
+  async loginDeny() {
+    await sleep(LATENCY);
+    return { denied: 'guy-phone' };
   },
   async workspace() {
     await sleep(LATENCY);

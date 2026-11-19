@@ -5,7 +5,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { getApi } from '../api';
 import { connectEvents } from '../events';
-import type { Conversation, Device, PendingProject, RoomSummary } from '../types';
+import type { AgentRule, Conversation, Device, PendingProject, RoomSummary } from '../types';
 import { convKey, initialState, reducer, type Action, type State } from './reducer';
 import type { Seat } from '../types';
 
@@ -23,7 +23,16 @@ export interface Actions {
   archiveConversation(topic: string, conv: string, archived: boolean): Promise<void>;
   setRuntime(topic: string, conv: string, runtime: string | null): Promise<void>;
   /** Returns the new room and the name of its project seat. */
-  createProject(opts: { folder?: string; name?: string; home?: string; prompt?: string }): Promise<{ room: RoomSummary; seat: string } | PendingProject>;
+  createProject(opts: { folder?: string; name?: string; home?: string; prompt?: string; org?: string }): Promise<{ room: RoomSummary; seat: string } | PendingProject>;
+  renameRoom(topic: string, name: string): Promise<void>;
+  setRoomOrg(topic: string, org: string | null): Promise<void>;
+  removeRoom(topic: string): Promise<void>;
+  /** Change one agent's rule in a room's charter (role, wake, backupFor, tokensPerDay), keeping the rest. */
+  saveAgentRule(topic: string, name: string, rule: AgentRule): Promise<void>;
+  loginGrant(topic: string): Promise<void>;
+  loginDeny(topic: string): Promise<void>;
+  /** Open a feed item: mark it read and go to its conversation. */
+  openFeedItem(id: string): Promise<void>;
   loadDevices(): Promise<Device[]>;
   bindFolder(topic: string, folder: string): Promise<void>;
   saveCharter(topic: string, text: string): Promise<void>;
@@ -151,6 +160,41 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const sel = stateRef.current.selected;
         await openThread(topic, sel.topic === topic && sel.conv ? sel.conv : 'main');
       },
+      async renameRoom(topic, name) {
+        await api().renameRoom({ room: topic, name });
+        dispatch({ type: 'rooms', rooms: await api().rooms() });
+      },
+      async setRoomOrg(topic, org) {
+        await api().setRoomOrg({ room: topic, org });
+        dispatch({ type: 'rooms', rooms: await api().rooms() });
+      },
+      async removeRoom(topic) {
+        await api().removeRoom({ room: topic });
+        const rooms = await api().rooms();
+        dispatch({ type: 'rooms', rooms });
+        if (stateRef.current.selected.topic === topic) await a.select(null, null);
+      },
+      async saveAgentRule(topic, name, rule) {
+        const d = stateRef.current.details[topic];
+        const agents = { ...(d?.charter.agents ?? {}), [name]: { ...(d?.charter.agents?.[name] ?? {}), ...rule } };
+        await api().charter({ room: topic, text: d?.charter.text ?? '', order: d?.charter.order ?? [], agents });
+        const sel = stateRef.current.selected;
+        await openThread(topic, sel.topic === topic && sel.conv ? sel.conv : 'main');
+      },
+      async loginGrant(topic) {
+        await api().loginGrant(topic);
+        dispatch({ type: 'feedRemove', id: `ask:${topic}` });
+      },
+      async loginDeny(topic) {
+        await api().loginDeny(topic);
+        dispatch({ type: 'feedRemove', id: `ask:${topic}` });
+      },
+      async openFeedItem(id) {
+        const item = stateRef.current.feed.find((x) => x.id === id);
+        if (!item) return;
+        dispatch({ type: 'feedOpen', id });
+        if (item.topic) await a.select(item.topic, item.conv ?? 'main');
+      },
       async saveCharter(topic, text) {
         const d = stateRef.current.details[topic];
         await api().charter({ room: topic, text, order: d?.charter.order ?? [], agents: d?.charter.agents ?? {} });
@@ -181,6 +225,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (remembered && rooms.some((r) => r.topic === remembered.topic)) await actions.select(remembered.topic, remembered.conv);
       else if (first) await actions.select(first, 'main');
       actions.loadDevices().catch(() => {});
+      getApi()
+        .loginAsks()
+        .then((r) => dispatch({ type: 'loginAsks', asks: r.asking ?? [] }))
+        .catch(() => {});
     })();
 
     const sink = connectEvents({
@@ -193,7 +241,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       convs: ({ topic, convs }) => dispatch({ type: 'convs', topic, convs }),
       room: (snapshot) => dispatch({ type: 'room', snapshot }),
       rooms: (rooms) => dispatch({ type: 'rooms', rooms }),
-      participants: ({ topic, participants }) => dispatch({ type: 'participants', topic, participants }),
+      participants: ({ topic, participants }) => {
+        dispatch({ type: 'participants', topic, participants });
+        // Presence changed somewhere: the devices' online flags follow it.
+        actions.loadDevices().catch(() => {});
+      },
+      'login-ask': (ask) => dispatch({ type: 'loginAsk', ask }),
       activity: ({ topic, rec }) => dispatch({ type: 'activity', topic, rec }),
       reactions: ({ topic, reactions }) => dispatch({ type: 'reactions', topic, reactions }),
       'agent-state': ({ topic, name, conv, state }) => dispatch({ type: 'agentState', topic, name, conv, state }),
