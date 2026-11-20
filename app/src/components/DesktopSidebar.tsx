@@ -42,7 +42,7 @@ export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProjec
 
   const plusItems: MenuItem[] = [
     { key: 'project', label: 'New project', icon: 'folder', onSelect: () => onNewProject(current !== 'all' && current !== 'none' ? { org: current } : undefined) },
-    { key: 'org', label: 'New organization', icon: 'grid-1', onSelect: onNewOrg },
+    { key: 'org', label: 'New organization', icon: 'group', onSelect: onNewOrg },
   ];
 
   const onDrop = async (items: DroppedItem[]) => {
@@ -92,9 +92,9 @@ function Tabs({ tab, onTab, unread }: { tab: DockPage; onTab: (t: DockPage) => v
   if (collapsed) {
     return (
       <View className="items-center gap-1">
-        <IconButton icon="grid-1" size="sm" active={tab === 'home'} tooltip={{ label: 'Home', placement: 'right' }} onPress={() => onTab('home')} />
-        <IconButton icon="message" size="sm" active={tab === 'activity'} tooltip={{ label: `Activity${unread ? ` · ${unread}` : ''}`, placement: 'right' }} onPress={() => onTab('activity')} />
-        <IconButton icon="folder" size="sm" active={tab === 'projects'} tooltip={{ label: 'Projects', placement: 'right' }} onPress={() => onTab('projects')} />
+        <IconButton icon="home" size="sm" active={tab === 'home'} tooltip={{ label: 'Home', placement: 'right' }} onPress={() => onTab('home')} />
+        <IconButton icon="bell-fill" size="sm" active={tab === 'activity'} tooltip={{ label: `Activity${unread ? ` · ${unread}` : ''}`, placement: 'right' }} onPress={() => onTab('activity')} />
+        <IconButton icon="folder-fill" size="sm" active={tab === 'projects'} tooltip={{ label: 'Projects', placement: 'right' }} onPress={() => onTab('projects')} />
         <IconButton icon="setting-2-bold" size="sm" active={tab === 'settings'} tooltip={{ label: 'Settings', placement: 'right' }} onPress={() => onTab('settings')} />
       </View>
     );
@@ -107,9 +107,9 @@ function Tabs({ tab, onTab, unread }: { tab: DockPage; onTab: (t: DockPage) => v
         value={tab}
         onChange={(v) => onTab(v as DockPage)}
         options={[
-          { value: 'home', icon: 'grid-1', accessibilityLabel: 'Home' },
-          { value: 'activity', icon: 'message', label: unread ? String(unread) : undefined, accessibilityLabel: 'Activity' },
-          { value: 'projects', icon: 'folder', accessibilityLabel: 'Projects' },
+          { value: 'home', icon: 'home', accessibilityLabel: 'Home' },
+          { value: 'activity', icon: 'bell-fill', label: unread ? String(unread) : undefined, accessibilityLabel: 'Activity' },
+          { value: 'projects', icon: 'folder-fill', accessibilityLabel: 'Projects' },
           { value: 'settings', icon: 'setting-2-bold', accessibilityLabel: 'Settings' },
         ]}
       />

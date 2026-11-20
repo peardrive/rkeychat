@@ -54,7 +54,7 @@ export function MoveToOrgDialog({ open, current, orgs, onClose, onSubmit }: { op
     }
   };
   return (
-    <Dialog open={open} onClose={onClose} icon="grid-1" title="Move to organization" description="A name a set of projects belongs to. Leave it empty for none." actions={<><Button label="Cancel" variant="ghost" onPress={onClose} /><Button label="Move" variant="primary" loading={busy} onPress={submit} /></>}>
+    <Dialog open={open} onClose={onClose} icon="group" title="Move to organization" description="A name a set of projects belongs to. Leave it empty for none." actions={<><Button label="Cancel" variant="ghost" onPress={onClose} /><Button label="Move" variant="primary" loading={busy} onPress={submit} /></>}>
       <View className="gap-3">
         <OrgChips orgs={orgs} value={value} onChange={setValue} />
         <TextField label="Organization" value={value} onChangeText={(t) => { setValue(t); setError(null); }} placeholder="None" onSubmitEditing={submit} error={error ?? undefined} />
@@ -119,7 +119,7 @@ export function NewOrgDialog({ open, onClose, onSubmit }: { open: boolean; onClo
     onClose();
   };
   return (
-    <Dialog open={open} onClose={onClose} icon="grid-1" title="New organization" description="Then a first project in it. An organization exists through its projects." actions={<><Button label="Cancel" variant="ghost" onPress={onClose} /><Button label="Continue" variant="primary" onPress={submit} /></>}>
+    <Dialog open={open} onClose={onClose} icon="group" title="New organization" description="Then a first project in it. An organization exists through its projects." actions={<><Button label="Cancel" variant="ghost" onPress={onClose} /><Button label="Continue" variant="primary" onPress={submit} /></>}>
       <TextField label="Name" value={value} onChangeText={(t) => { setValue(t); setError(null); }} placeholder="Bitcoin Audible" autoFocus onSubmitEditing={submit} error={error ?? undefined} />
     </Dialog>
   );

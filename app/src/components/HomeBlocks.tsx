@@ -4,13 +4,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { getApi } from '../api';
-import { ActivityFeed, Avatar, HomeBlock, HomeGrid, PresenceRow, SidebarThreadItem, Text, cn, useToast, type ActivityItem } from '../kit';
+import { ActivityFeed, Avatar, HomeBlock, HomeGrid, PresenceRow, Text, cn, useToast, type ActivityItem } from '../kit';
 import { useStore } from '../store/context';
 import { feedUnread, type FeedItem } from '../store/feed';
 import { needsYou, onlineNow, orgSummaries, recentConversations } from '../store/home';
-import { convTitle, orderedRooms, thinkingIn, unreadIn } from '../store/selectors';
-import { shortTime } from '../time';
+import { orderedRooms } from '../store/selectors';
 import type { Person } from '../types';
+import { RecentList } from './ActivityPage';
 import { ApprovalDialog, toActivityItems } from './feed';
 
 export interface HomeBlocksProps {
@@ -60,33 +60,11 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
         )}
       </HomeBlock>
 
-      <HomeBlock title="Recent" icon="message" size="wide" action={{ label: 'Projects', onPress: () => onOpenProjects() }}>
-        {recent.length ? (
-          <View className="-mx-1 gap-px">
-            {recent.map((r) => (
-              <SidebarThreadItem
-                key={`${r.topic}/${r.conv.conv}`}
-                nested={false}
-                title={`${r.room} · ${convTitle(r.conv)}`}
-                snippet={r.conv.last ? `${r.conv.last.name}: ${r.conv.last.text}` : undefined}
-                time={shortTime(r.ts)}
-                unread={unreadIn(state, r.topic, r.conv.conv)}
-                live={thinkingIn(state, r.topic, r.conv.conv).length > 0}
-                onPress={() => {
-                  void actions.select(r.topic, r.conv.conv);
-                  onNavigate?.();
-                }}
-              />
-            ))}
-          </View>
-        ) : (
-          <Text variant="caption" tone="subtle">
-            No conversation yet.
-          </Text>
-        )}
+      <HomeBlock title="Recent" icon="message-fill" size="wide" action={{ label: 'Activity', onPress: onOpenActivity }}>
+        <RecentList items={recent} onNavigate={onNavigate} />
       </HomeBlock>
 
-      <HomeBlock title="Organizations" icon="grid-1" action={{ label: 'All', onPress: () => onOpenProjects() }}>
+      <HomeBlock title="Organizations" icon="group" action={{ label: 'All', onPress: () => onOpenProjects() }}>
         {orgs.length ? (
           <View className="flex-row flex-wrap gap-x-3 gap-y-2">
             {orgs.map((o) => (

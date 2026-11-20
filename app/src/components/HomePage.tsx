@@ -9,7 +9,7 @@ import { ALL_ORGS, DropZone, MenuButton, OrgTabs, Pane, PaneBody, PaneHeader, Se
 import { useStore } from '../store/context';
 import { filterByOrg, neighbourTab, orgTabs, writeOrgFilter, type OrgFilter } from '../store/nav';
 import { folderName, orderedRooms } from '../store/selectors';
-import { ActivityFeedView, MarkAllRead } from './ActivityPage';
+import { ActivityFeedView, MarkAllRead, RecentConversations } from './ActivityPage';
 import { DebugButton } from './DebugButton';
 import { HomeBlocks } from './HomeBlocks';
 import { ProjectList, type ProjectAction } from './ProjectList';
@@ -40,7 +40,8 @@ export function ActivityPage({ phone, onNavigate }: { phone: boolean; onNavigate
     <Pane glow>
       <PaneHeader title="Activity" size={phone ? 'display' : 'title'} style={headerStyle(phone)} dragRegion={!phone} actions={<View className="flex-row items-center gap-1"><MarkAllRead /><DebugButton /></View>} />
       <PaneBody contentClassName="px-3 pb-6 pt-1">
-        <View className="w-full max-w-[760px] self-center">
+        <View className="w-full max-w-[760px] gap-4 self-center">
+          <RecentConversations n={12} onNavigate={onNavigate} />
           <ActivityFeedView onNavigate={onNavigate} />
         </View>
         <DockSpace phone={phone} />
@@ -72,7 +73,7 @@ export function ProjectsPage({ phone, orgFilter, onOrgFilter, onNewProject, onNe
 
   const plusItems: MenuItem[] = [
     { key: 'project', label: 'New project', icon: 'folder', onSelect: () => onNewProject(current !== 'all' && current !== 'none' ? { org: current } : undefined) },
-    { key: 'org', label: 'New organization', icon: 'grid-1', onSelect: onNewOrg },
+    { key: 'org', label: 'New organization', icon: 'group', onSelect: onNewOrg },
   ];
 
   const onDrop = async (items: DroppedItem[]) => {

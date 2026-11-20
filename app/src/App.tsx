@@ -211,9 +211,9 @@ function Shell() {
 
   const unread = feedUnread(state.feed);
   const dockItems: DockItem[] = [
-    { key: 'home', icon: 'grid-1', label: 'Home' },
-    { key: 'activity', icon: 'message', label: 'Activity', badge: unread || undefined },
-    { key: 'projects', icon: 'folder', label: 'Projects' },
+    { key: 'home', icon: 'home', label: 'Home' },
+    { key: 'activity', icon: 'bell-fill', label: 'Activity', badge: unread || undefined },
+    { key: 'projects', icon: 'folder-fill', label: 'Projects' },
     { key: 'settings', icon: 'setting-2-bold', label: 'Settings' },
   ];
 

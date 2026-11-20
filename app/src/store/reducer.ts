@@ -113,9 +113,18 @@ function upsert(items: Rec[], rec: Rec): Rec[] {
   return next;
 }
 
-function applyRooms(state: State, rooms: RoomSummary[]): State {
+function applyRooms(state: State, rooms: RoomSummary[], announce = false): State {
   const next: Record<string, RoomSummary> = {};
   for (const r of rooms) next[r.topic] = r;
+  // A room that was not there before, once we are up: a new project (or chat) in the feed.
+  let feed = state.feed;
+  if (announce) {
+    for (const r of rooms) {
+      if (state.rooms[r.topic]) continue;
+      const project = r.app?.role !== 'chat';
+      feed = pushFeed(feed, { id: `room:${r.topic}`, kind: 'project', ts: Date.now(), title: `${project ? 'New project' : 'New chat'}: ${r.name}`, text: r.folder ?? undefined, where: { org: r.app?.org ?? undefined, project: r.name }, topic: r.topic, conv: 'main', unread: true });
+    }
+  }
   const convs = { ...state.convs };
   // A summary carries the conversation list too; use it where we have no full list yet.
   for (const r of rooms) {
@@ -132,7 +141,7 @@ function applyRooms(state: State, rooms: RoomSummary[]): State {
         return hit ? { ...p, topic: hit.topic } : p;
       })
     : state.pendingProjects;
-  return { ...state, rooms: next, roomOrder: rooms.map((r) => r.topic), convs, pendingProjects };
+  return { ...state, rooms: next, roomOrder: rooms.map((r) => r.topic), convs, pendingProjects, feed };
 }
 
 export function reducer(state: State, action: Action): State {
@@ -143,7 +152,7 @@ export function reducer(state: State, action: Action): State {
       return s;
     }
     case 'rooms':
-      return applyRooms(state, action.rooms);
+      return applyRooms(state, action.rooms, state.ready);
     case 'devices':
       return { ...state, devices: action.devices };
     case 'pendingProject':

@@ -49,6 +49,14 @@ describe('feed', () => {
   const booted: State = reducer(initialState, { type: 'init', device: { name: 'studio', human: 'guy' }, rooms: [room({ topic: T, name: 'PearDrive', convs: [{ conv: 'main', title: 'General', archived: false, last: null, count: 0 }] })] });
   const msg = (id: string, text: string, name = 'rkeychat', att?: Rec['att']): Rec => ({ id, kind: 'msg', ts: 5, name, human: false, text, conv: 'main', att });
 
+  it('a project that appears after boot lands in the feed; the ones there at boot do not', () => {
+    expect(booted.feed).toEqual([]);
+    const s = reducer(booted, { type: 'rooms', rooms: [...Object.values(booted.rooms), room({ topic: 'u', name: 'Show notes', folder: '/w/show-notes', app: { role: 'project', org: 'Bitcoin Audible' } as never })] });
+    expect(s.feed.map((x) => [x.kind, x.title, x.where?.org, x.unread])).toEqual([['project', 'New project: Show notes', 'Bitcoin Audible', true]]);
+    // the same list again announces nothing twice
+    expect(reducer(s, { type: 'rooms', rooms: Object.values(s.rooms) }).feed).toHaveLength(1);
+  });
+
   it('a mention of me and a shared file become feed items, my own messages do not', () => {
     let s = reducer(booted, { type: 'log', topic: T, conv: 'main', log: [], hasOlder: false, mode: 'replace' });
     s = reducer(s, { type: 'record', topic: T, rec: msg('m1', 'done, @guy have a look') });

@@ -132,7 +132,7 @@ export function ProjectList({ rooms, query = '', grouped = true, phone, onNaviga
     ? [
         { key: 'conv', label: 'New conversation', icon: 'add', shortcut: touch ? undefined : '⌘N', onSelect: () => void newConversation(rowRoom.topic) },
         { key: 'rename', label: 'Rename', icon: 'document', onSelect: () => onProjectAction('rename', rowRoom.topic) },
-        { key: 'org', label: 'Move to organization…', icon: 'grid-1', onSelect: () => onProjectAction('org', rowRoom.topic) },
+        { key: 'org', label: 'Move to organization…', icon: 'group', onSelect: () => onProjectAction('org', rowRoom.topic) },
         { key: 'sep', separator: true },
         { key: 'remove', label: 'Remove from this device', icon: 'close', danger: true, onSelect: () => onProjectAction('remove', rowRoom.topic) },
       ]

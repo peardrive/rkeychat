@@ -3,7 +3,7 @@
  */
 import type { LoginAsk } from '../types';
 
-export type FeedKind = 'approval' | 'mention' | 'done' | 'error' | 'conversation' | 'file';
+export type FeedKind = 'approval' | 'mention' | 'done' | 'error' | 'conversation' | 'project' | 'file' | 'publish';
 
 export type FeedItem = {
   id: string;

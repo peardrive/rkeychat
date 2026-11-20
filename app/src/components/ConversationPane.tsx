@@ -188,9 +188,9 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
         title,
         room.name,
         <>
-          <GlassBarButton icon="message" accessibilityLabel="Chat" active={tab === 'chat'} onPress={() => setTab('chat')} />
-          <GlassBarButton icon="document" accessibilityLabel="Files" active={tab === 'files'} onPress={() => setTab('files')} />
-          <GlassBarButton icon="more" accessibilityLabel="Project" active={projectOpen} onPress={onToggleProject} />
+          <GlassBarButton icon="message-fill" accessibilityLabel="Chat" active={tab === 'chat'} onPress={() => setTab('chat')} />
+          <GlassBarButton icon="document-fill" accessibilityLabel="Files" active={tab === 'files'} onPress={() => setTab('files')} />
+          <GlassBarButton icon="more-fill" accessibilityLabel="Project" active={projectOpen} onPress={onToggleProject} />
         </>,
       )}
       {tab === 'files' ? (
