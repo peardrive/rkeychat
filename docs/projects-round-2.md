@@ -91,3 +91,16 @@ know and what you learned") given to every session on every machine, and the wik
 4. Messages look; bot profile; settings in PearDrive's shape. Two days.
 5. Wiki space setting + the one line in every seat's prompt + the hand-off page. One day.
 6. Add a bot from another device or a hosted model; media space. After.
+
+## Round 3 (2026-11-20): the raised look, from the second memo
+
+From Guy's notes after the dock build: Home is a little house; "All" in Projects is a globe; organizations are
+three rounded squares in a huddle; every icon filled and embossed with a barely-there gradient; the button
+pads embossed too, soft, never an outline; the same for the top bar in a conversation; the Activity page opens
+with the longer Recent list and will also carry new rooms, published files, and later proposals and zaps.
+
+Done in PearKit (`feat/chat-shell` b7e60b7): `Icon emboss`, `embossPad`, the nine filled icons drawn from
+geometry (`scripts/draw-filled-icons.mjs`), `Dock` / `GlassBar` / `OrgTabs` on the pads, feed kinds
+`project`, `publish`, `proposal`, `zap`. In the shell (25b7cce): the icons swapped, the Recent section on
+Activity, a room that appears after boot announced as a `project` item. Still daemon-side: `publish` (a file
+added to a project's space), and `proposal` / `zap` once those exist.
