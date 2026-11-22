@@ -121,3 +121,21 @@ room; the owner's removal writes a `close` control first and every holder drops 
 its next start); the phone shows "Waiting on macbook" rows (`GET /api/projects/pending`) until the room
 arrives, with a way to stop waiting. Tests: `test/project-requests.test.js`, the reducer tests in
 `app/src/store/round2.test.ts`.
+
+### The phone, the keyboard, and what was really wrong (2026-11-22, later)
+
+The "Leaf Note" that would not answer was the room the MacBook had mis-made as "guy" on 19 Nov: Guy had renamed
+it "Leaf Note by Anjou" from the phone, the Mac removed it the same evening, and the phone kept it, so the phone
+held two rooms of that name, one dead. (Read off the phone itself: `xcrun devicectl device copy from --device
+<udid> --domain-type appDataContainer --domain-identifier com.anjouinc.rkeychat --source Documents/boot.log`
+gives the phone backend's whole log; `Documents/rkeychat/config.json` its room list.) The Mac re-joined the dead
+room from the invite still in the Lab's log so it can close it for everyone once the phone brings the chain.
+
+The keyboard: PearKit's `MessageList` now keeps its bottom edge anchored when its box changes height
+(`anchoredScrollY`): the chat slides up as one piece, the message above the field stays there, whether at the
+newest message or reading older ones. The shell drops the home-bar inset under the composer while the keyboard
+is up (`useKeyboardOpen`), and the status line above the field exists only when there is something to say.
+
+GUI tests: `app/scripts/gui.test.mjs` drives the mock in a real browser (phone and desktop): send, the keyboard
+coming up and going away at the end and while reading, a reply landing while reading, Back from a project,
+Enter / Shift+Enter. `npm --prefix app run test:gui`; the Mac Mini's quick run has it as "shell: gui".

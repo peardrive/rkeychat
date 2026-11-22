@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "screens": "node scripts/screens.mjs",
     "screens:interact": "node scripts/interact.mjs",
-    "screens:live": "node scripts/screens-live.mjs"
+    "screens:live": "node scripts/screens-live.mjs",
+    "test:gui": "node --test scripts/gui.test.mjs"
   },
   "dependencies": {
     "@fontsource/plus-jakarta-sans": "^5.1.0",

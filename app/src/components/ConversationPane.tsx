@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
-import { SAFE_BOTTOM, SAFE_TOP, isTouch, type TextInputRef } from '../hooks';
+import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, type TextInputRef } from '../hooks';
 import { Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast } from '../kit';
 import { useStore } from '../store/context';
 import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
@@ -42,6 +42,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
   const convId = state.selected.conv;
   const key = topic && convId ? convKey(topic, convId) : null;
   const touch = isTouch();
+  const keyboard = useKeyboardOpen();
 
   const [tab, setTabState] = useState<ConversationTab>('chat');
   const setTab = (t: ConversationTab) => {
@@ -138,7 +139,9 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
   };
 
   const title = convTitle(conv);
-  const composerStyle = phone ? ({ paddingBottom: `calc(12px + ${SAFE_BOTTOM})` } as never) : undefined;
+  // Under the composer: the home bar's inset while the keyboard is down; with the keyboard up the inset is covered,
+  // so only a hair of space, and the field sits right on the keyboard.
+  const composerStyle = phone ? ({ paddingBottom: keyboard ? 4 : `calc(8px + ${SAFE_BOTTOM})` } as never) : { paddingBottom: 10 };
   // The glass bar is absolute inside a box of its own height, so it reads as a pinned bar under the safe area.
   const barBox = phone ? ({ height: `calc(${BAR}px + ${SAFE_TOP})` } as never) : { height: BAR };
   const back = onBack ? <IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 app-region-no-drag" /> : undefined;
@@ -239,7 +242,9 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
         </View>
       )}
       {tab === 'chat' ? (
-        <View className="gap-1.5 px-3 pb-3 pt-1" style={composerStyle}>
+        <View className="gap-1 px-3" style={composerStyle}>
+          {/* the status line only when there is something to say: otherwise the messages run right down to the field */}
+          {thinking.length || hasSteps ? (
           <View className="h-5 flex-row items-center gap-1.5 px-1">
             {thinking.length ? (
               <>
@@ -265,6 +270,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
               />
             ) : null}
           </View>
+          ) : null}
           <Composer
             ref={composerRef}
             value={draft}

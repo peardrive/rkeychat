@@ -97,6 +97,7 @@ const peardrive = room({
     { conv: 'a1b2c3d4e5f60718', title: 'Redesign the share row', created: min(300), runtime: 'acp' },
     { conv: 'b2c3d4e5f6071829', title: 'Why does sync stall on Zorin?', created: min(140) },
     { conv: 'c3d4e5f607182930', title: 'Old: icon export script', created: min(9000), archived: true },
+    { conv: 'e5f60718293a4b5c', title: 'The long one', created: min(2000) },
   ],
   log: [
     msg(ME, 'Project is up. @rkeychat you are on PearDrive now.', min(4990), 'main'),
@@ -111,6 +112,12 @@ const peardrive = room({
     msg('jeffrey', 'Sync sits at 98% on the Zorin box for a very long time, then finishes. Every time.', min(139), 'b2c3d4e5f6071829'),
     msg('rkeychat', 'That is the last block of the largest file waiting on a peer that went to sleep. `SyncEngine.finish()` only retries after 30 s. I can lower the retry to 5 s and log which peer it waits on.', min(137), 'b2c3d4e5f6071829'),
     msg(ME, 'Archived this one: the script lives in pearkit now.', min(8990), 'c3d4e5f607182930'),
+    // a conversation taller than any screen: what scrolling, the keyboard and arriving replies are tested against
+    ...Array.from({ length: 40 }, (_, i) =>
+      i % 2
+        ? msg('rkeychat', `Step ${i}: ${['checked the renderer', 'ran the tests', 'moved the row into PearKit', 'wrote the story'][i % 4]}, nothing else touched. Next?`, min(1990 - i * 3), 'e5f60718293a4b5c')
+        : msg(ME, `Note ${i}: keep going, and show me the diff when the share row is in.`, min(1990 - i * 3), 'e5f60718293a4b5c'),
+    ),
   ],
 });
 peardrive.convs.get('a1b2c3d4e5f60718')!.busy = ['rkeychat'];

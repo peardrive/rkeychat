@@ -94,3 +94,28 @@ export function useDelayed(value: boolean, ms = 250) {
   }, [value, ms]);
   return shown;
 }
+
+/**
+ * Is the on-screen keyboard up? On a phone the visual viewport shrinks under it while the layout viewport stays:
+ * the difference is the keyboard. (main.tsx sizes the root to the visual viewport, so the page itself follows.)
+ */
+export function useKeyboardOpen(threshold = 100): boolean {
+  const read = () => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    return !!vv && window.innerHeight - vv.height > threshold;
+  };
+  const [open, setOpen] = useState(read);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onChange = () => setOpen(read());
+    vv.addEventListener('resize', onChange);
+    window.addEventListener('resize', onChange);
+    return () => {
+      vv.removeEventListener('resize', onChange);
+      window.removeEventListener('resize', onChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threshold]);
+  return open;
+}
