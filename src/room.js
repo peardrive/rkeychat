@@ -9,7 +9,7 @@ import { EventEmitter } from 'node:events'
 import * as fsSync from 'node:fs'
 import { extname } from 'node:path'
 import { Chain, enroll, revoke, unban, consent } from 'rkey'
-import { SCOPES, MAIN, isConvId, newConvId, APP_ROLES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, verifyRecord, parseMentions } from './proto.js'
+import { SCOPES, MAIN, isConvId, newConvId, APP_ROLES, ASK_CHOICES, envelope, isOurs, makeMessage, makeControl, makeActivity, makeReaction, makeRedaction, makeInvite, makeAsk, verifyRecord, parseMentions } from './proto.js'
 import { budget, addressedTo, replyDepth } from './turns.js'
 import { windowOf } from './feed-window.js'
 import { RoomSearch } from './search.js'
@@ -18,7 +18,7 @@ import { RoomSearch } from './search.js'
 // messages they point at; invites are addressed to one device)
 export const FEED_SKIP = ['react', 'redact', 'invite']
 // controls only the owner's own keys may write (see #admits); 'close' ends the room for everyone
-export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch', 'close']
+export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch', 'close', 'answer']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -420,6 +420,11 @@ export class Room extends EventEmitter {
     // starting or configuring a seat, connecting a folder. Only the room owner's own keys may say so: the root,
     // or a key enrolled directly under it (the owner's devices). An admin member is not enough.
     if (rec.kind === 'control' && ACCOUNT_GATED.includes(rec.action) && !this.isOwnerKey(rec.author)) return false
+    // an answer names an ask this room holds, with one of the known choices; the first admitted answer wins
+    if (rec.kind === 'control' && rec.action === 'answer') {
+      const a = this.store.get(rec.ask)
+      if (!a || a.kind !== 'ask' || !ASK_CHOICES.includes(rec.choice)) return false
+    }
     // a hash the room removed can't come back in a new message
     if (rec.kind === 'msg' && (rec.att ?? []).some((a) => this.blocked().hashes.has(a.hash))) return false
     return true
@@ -487,6 +492,8 @@ export class Room extends EventEmitter {
     if (!quiet) this.emit('record', this.view(rec))
     // the owner ended the room: whoever holds it drops it (the daemon listens)
     if (rec.kind === 'control' && rec.action === 'close') this.emit('closed', this.view(rec))
+    // a person answered an agent's ask: the waiting runner hears it (awaitAnswer)
+    if (rec.kind === 'control' && rec.action === 'answer') this.emit('answer', this.view(rec))
     // a debug note shared from another device (a phone, mostly): fetch its files now, while that device is
     // awake, so a helper can read them later from here. Phones don't; they're the ones sleeping.
     if (!quiet && rec.kind === 'msg' && rec.via === 'note' && typeof Bare === 'undefined') {
@@ -1033,6 +1040,57 @@ export class Room extends EventEmitter {
     if (!this.#ingest(rec)) throw new Error('control rejected (not an admin?)')
     await this.#send('rec', { rec })
     return rec
+  }
+
+  // ---------- permissions asked of a person (docs/project-agents.md "Asking a person") ----------
+
+  // An agent asks: a signed 'ask' record in the conversation. Returns the record, or null when the agent cannot
+  // post here (no chat scope).
+  async ask (name, { conv, tool, what, input, options, expires } = {}) {
+    const p = this.local[name]
+    if (!p || p.role !== 'agent' || !this.state?.can(p.signer.ref, SCOPES.chat)) return null
+    const rec = await makeAsk(p.signer, { room: this.topic, conv, tool, what, input, options, expires })
+    if (!this.#ingest(rec)) return null
+    await this.#send('rec', { rec })
+    return rec
+  }
+
+  // A person answers: a signed 'answer' control. Only the owner's own keys are admitted (ACCOUNT_GATED); on a
+  // member's device the control is refused here and everywhere else, so the error is immediate.
+  async answer (name, askId, choice) {
+    if (!ASK_CHOICES.includes(choice)) throw new Error(`choice must be one of ${ASK_CHOICES.join(', ')}`)
+    const a = this.store.get(askId)
+    if (!a || a.kind !== 'ask') throw new Error('no such ask in this room')
+    if (this.answerOf(askId)) throw new Error('already answered')
+    const p = this.local[name]
+    if (!p || p.role !== 'human') throw new Error('answers need a local human participant')
+    if (!this.isOwnerKey(p.signer.ref)) throw new Error('only the owner\'s own devices may answer an agent\'s ask')
+    return this.control(name, 'answer', { ask: askId, choice })
+  }
+
+  // The first admitted answer to an ask (viewed: name and device of who answered), or null.
+  answerOf (askId) {
+    for (const r of this.store.ordered) if (r.kind === 'control' && r.action === 'answer' && r.ask === askId) return this.view(r)
+    return null
+  }
+
+  // Asks nobody has answered and that have not lapsed, viewed, oldest first; within one conversation when given.
+  openAsks (conv, now = Date.now()) {
+    return this.store.ordered
+      .filter((r) => r.kind === 'ask' && (!conv || this.store.convOf(r) === conv) && r.expires > now && !this.answerOf(r.id))
+      .map((r) => this.view(r))
+  }
+
+  // Wait for an answer to one ask: the one already there, or the next one admitted; null after `ms`.
+  awaitAnswer (askId, ms = 10 * 60_000) {
+    const have = this.answerOf(askId)
+    if (have) return Promise.resolve(have)
+    return new Promise((resolve) => {
+      const done = (v) => { clearTimeout(t); this.off('answer', on); resolve(v) }
+      const on = (a) => { if (a.ask === askId) done(a) }
+      const t = setTimeout(() => done(null), ms); t.unref?.()
+      this.on('answer', on)
+    })
   }
 
   // Is this key the room owner's own: the root, or a key enrolled directly under it (one of the owner's devices)?

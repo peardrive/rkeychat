@@ -112,12 +112,45 @@ Costs seen on the first turns: the adapter starts in under a second, a resumed s
 into the SDK (a cache write the size of the transcript, ~4 s), then a turn is a few seconds. The Kimi seats
 still use the Hermes HTTP bridge.
 
+### Asking a person (2026-11-22, from Guy's debug note)
+
+"The bot said it could not get permission to search PearKit and PearDrive, and no way to approve ever showed up
+in the chat. I need that gated by my key." Over ACP, what the seat's tool list does not settle is now asked:
+
+1. `verdict()` (src/acp.js) says `allow` (an allow rule covers it), `deny` (a deny rule hits: final, nobody is
+   asked) or `ask`. On `ask` the process hands the runner `{ tool, what, input, options }`.
+2. The runner (src/agents.js `#ask`) writes a signed **`ask` record** into the conversation, by the agent's own
+   key: tool, one line of what it would do, the whole input, the agent's four options, and when it lapses (ten
+   minutes). The seat shows as *waiting*. Agents never read asks (renderTurn takes messages only).
+3. One of the owner's own devices answers with an **`answer` control** `{ ask, choice }`, choice one of
+   `allow_once | allow_always | reject_once | reject_always`. The control is **account-gated** (`ACCOUNT_GATED` in
+   src/room.js): only the account root or a key enrolled directly under it (the owner's Mac, phone, Mini) is
+   admitted. A team member who is admin in the room sees the question and the lock line, and an answer signed by
+   their key is refused on every device, theirs included. The first admitted answer wins; later ones change
+   nothing. An answer must name an ask the room holds.
+4. The runner, waiting on `room.awaitAnswer(id)`, passes the choice back; the process picks the agent's matching
+   option and logs `allowed by guy (iphone): Bash: brew install jq` in the activity feed. No answer in ten
+   minutes: refused, and the activity line says so.
+
+In the shell the ask is PearKit's `AskCard` where it happened in the conversation (Allow once · Always · Deny for
+the owner's devices, a lock line for everyone else, then "allowed once by guy (macbook)" as the record), and a
+Needs-you item on Home and Activity with the same three answers in a dialog. The CLI: `rkeychat asks` lists what
+agents wait on; `rkeychat answer ASK allow|deny [--always]`. API: `GET /api/asks`, `POST /api/asks/answer`.
+
+Tests: `test/asks.test.js` (the gate: jeff's forged answer is refused with `scope`; the first answer wins; a lapse
+ends the wait with null; `verdict`), `app/src/store/asks.test.ts` (the card and Needs you follow the records),
+PearKit `askLogic.test.ts`, and the GUI test "an agent asks for a permission" in a real browser.
+
+Not yet: `allow_always` is the agent's own memory (Claude Code stops asking for that rule within the session);
+the seat's tool list on disk is not widened. The permission mode switch and the model/provider per seat from the
+same memo are next.
+
 ## What it does not do yet
 
 - Interrupt a turn in flight when a person posts something new (Buzz's "steer"). Done on the ACP path; the
   cli path still takes the new message as the next turn.
 - Run on the phone. A project agent lives where its folder is.
-- Ask a person for a permission. Headless, anything outside the permission mode is refused (cli) or decided
-  by the tool list (acp); widen the mode or the tool list per agent if a project needs more.
+- Ask a person for a permission on the cli path. Over ACP it does (below); the cli path still refuses what the
+  mode does not cover.
 - Give the seat an rKeyChat MCP server (read the room, fetch a file, post mid-turn). ACP's `session/new`
   takes a list of MCP servers, so this is the natural next step; today the seat uses the `rkeychat` CLI.

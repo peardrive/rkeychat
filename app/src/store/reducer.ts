@@ -1,7 +1,7 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Conversation, Device, LoginAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Conversation, Device, LoginAsk, OpenAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
 import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
@@ -66,6 +66,8 @@ export type Action =
   | { type: 'feedOpen'; id: string }
   | { type: 'feedOpenAll' }
   | { type: 'feedRemove'; id: string }
+  /** The daemon's open asks at boot (agents waiting on a person): feed items for each. */
+  | { type: 'asks'; asks: OpenAsk[] }
   | { type: 'loginAsk'; ask: LoginAsk }
   | { type: 'loginAsks'; asks: LoginAsk[] }
   | { type: 'rooms'; rooms: RoomSummary[] }
@@ -213,10 +215,26 @@ export function reducer(state: State, action: Action): State {
       if (action.topic && action.conv) delete unread[convKey(action.topic, action.conv)];
       return { ...state, selected: { topic: action.topic, conv: action.conv }, unread };
     }
+    case 'asks': {
+      let feed = state.feed;
+      for (const a of action.asks) feed = pushFeed(feed, askFeedItem(state, a.topic, { ...a, conv: a.conv ?? 'main' }));
+      return { ...state, feed };
+    }
     case 'record': {
       const rec = { ...action.rec, conv: action.rec.conv ?? 'main' };
       if (rec.kind === 'activity') return reducer(state, { type: 'activity', topic: action.topic, rec });
-      if (rec.kind !== 'msg') return state; // controls, reactions and redactions arrive folded into room/convs pushes
+      // an agent asking a person: in the thread (the card), and in Needs you; the answer: in the thread (the card
+      // learns its outcome), and the ask leaves Needs you
+      if (rec.kind === 'ask' || (rec.kind === 'control' && rec.action === 'answer')) {
+        const key = convKey(action.topic, rec.conv!);
+        const thread = state.threads[key];
+        const threads = thread ? { ...state.threads, [key]: { ...thread, items: upsert(thread.items, rec) } } : state.threads;
+        let feed = state.feed;
+        if (rec.kind === 'ask') feed = pushFeed(feed, askFeedItem(state, action.topic, rec));
+        else feed = feed.filter((f) => f.id !== `perm:${rec.ask}`);
+        return { ...state, threads, feed };
+      }
+      if (rec.kind !== 'msg') return state; // other controls, reactions and redactions arrive folded into room/convs pushes
       const key = convKey(action.topic, rec.conv!);
       const thread = state.threads[key];
       const threads = thread ? { ...state.threads, [key]: { ...thread, items: upsert(thread.items, { ...rec, pending: false }) } } : state.threads;
@@ -336,4 +354,24 @@ export function reducer(state: State, action: Action): State {
     default:
       return state;
   }
+}
+
+/** The Needs-you item for an agent's ask. */
+function askFeedItem(state: State, topic: string, rec: Rec): FeedItem {
+  const r = state.rooms[topic];
+  const convTitle = (state.convs[topic] ?? []).find((c) => c.conv === rec.conv)?.title || (rec.conv === 'main' ? 'General' : '');
+  return {
+    id: `perm:${rec.id}`,
+    kind: 'approval',
+    ts: rec.ts,
+    title: `asks for ${rec.tool ?? 'a tool'}`,
+    text: rec.what,
+    who: rec.name,
+    whoAgent: true,
+    where: { org: r?.app?.org ?? undefined, project: r?.name ?? '', conversation: convTitle || undefined },
+    topic,
+    conv: rec.conv,
+    unread: true,
+    permission: { topic, conv: rec.conv ?? 'main', id: rec.id, tool: rec.tool ?? '', what: rec.what ?? '', expires: rec.expires ?? 0 },
+  };
 }

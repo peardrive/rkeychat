@@ -220,3 +220,37 @@ test('debug note: a bubble at the bottom follows the note to the Mac and goes on
     await ctx.close();
   }
 });
+
+test('an agent asks for a permission: the card sits in the conversation; Allow once answers it and the card says who did', async () => {
+  const { page, ctx, errors } = await open();
+  try {
+    await openThread(page, /Reading the folder/); // PearDrive › General (its last message) holds the mock's open ask
+    const card = page.locator('[data-ask-state="open"]');
+    await card.waitFor({ timeout: 4000 });
+    assert.match(await card.textContent(), /rkeychat asks for Bash/);
+    assert.match(await card.textContent(), /npm run release/);
+    assert.match(await card.textContent(), /min left/);
+    const allow = card.getByRole('button', { name: 'Allow once' });
+    assert.ok(await allow.isVisible(), 'the owner\'s device sees the three answers');
+    assert.ok(await card.getByRole('button', { name: 'Deny' }).isVisible());
+    // Needs you lists it too
+    await page.getByRole('button', { name: 'Back' }).first().tap();
+    await page.getByRole('tab', { name: 'Home' }).tap();
+    await page.waitForTimeout(500);
+    assert.ok(await page.getByText('asks for Bash').first().isVisible(), 'the ask is in Needs you');
+    await openThread(page, /Reading the folder/);
+    await page.locator('[data-ask-state="open"]').getByRole('button', { name: 'Allow once' }).tap();
+    const done = page.locator('[data-ask-state="allowed"]');
+    await done.waitFor({ timeout: 4000 });
+    assert.match(await done.textContent(), /allowed once by guy \(studio\)/);
+    assert.equal(await done.getByRole('button', { name: 'Allow once' }).count(), 0, 'the buttons are gone');
+    // and it left Needs you
+    await page.getByRole('button', { name: 'Back' }).first().tap();
+    await page.getByRole('tab', { name: 'Home' }).tap();
+    await page.waitForTimeout(500);
+    assert.equal(await page.getByText('asks for Bash').count(), 0, 'answered: no longer in Needs you');
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});

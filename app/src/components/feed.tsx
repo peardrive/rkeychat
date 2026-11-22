@@ -6,7 +6,7 @@ import { View } from 'react-native';
 import { Button, Dialog, Text, type ActivityItem } from '../kit';
 import type { FeedItem } from '../store/feed';
 
-export function toActivityItems(feed: FeedItem[], grant: (topic: string) => void): ActivityItem[] {
+export function toActivityItems(feed: FeedItem[], grant: (topic: string) => void, answer?: (topic: string, ask: string, choice: string) => void): ActivityItem[] {
   return feed.map((f) => ({
     id: f.id,
     ts: f.ts,
@@ -16,12 +16,36 @@ export function toActivityItems(feed: FeedItem[], grant: (topic: string) => void
     who: f.who ? { id: f.who, name: f.who, agent: f.whoAgent } : undefined,
     where: f.where,
     unread: f.unread,
-    action: f.kind === 'approval' && f.ask ? { label: 'Let in', onPress: () => grant(f.ask!.topic) } : undefined,
+    action: f.kind === 'approval' && f.ask ? { label: 'Let in', onPress: () => grant(f.ask!.topic) } : f.kind === 'approval' && f.permission && answer ? { label: 'Allow once', onPress: () => answer(f.permission!.topic, f.permission!.id, 'allow_once') } : undefined,
   }));
 }
 
-export function ApprovalDialog({ item, onClose, onGrant, onDeny }: { item: FeedItem | null; onClose: () => void; onGrant: (topic: string) => void; onDeny: (topic: string) => void }) {
+export function ApprovalDialog({ item, onClose, onGrant, onDeny, onAnswer }: { item: FeedItem | null; onClose: () => void; onGrant: (topic: string) => void; onDeny: (topic: string) => void; onAnswer?: (topic: string, ask: string, choice: string) => void }) {
   const ask = item?.ask;
+  const perm = item?.permission;
+  if (perm) {
+    const say = (choice: string) => { onAnswer?.(perm.topic, perm.id, choice); onClose(); };
+    return (
+      <Dialog
+        open
+        onClose={onClose}
+        icon="robot"
+        title={`${item?.who ?? 'An agent'} asks for ${perm.tool}`}
+        description="Only your own devices can answer. The answer is signed with this device's key and goes into the conversation."
+        actions={
+          <>
+            <Button label="Deny" variant="danger" onPress={() => say('reject_once')} />
+            <Button label="Always" variant="secondary" onPress={() => say('allow_always')} />
+            <Button label="Allow once" variant="primary" onPress={() => say('allow_once')} />
+          </>
+        }
+      >
+        <Text variant="body-sm" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
+          {perm.what}
+        </Text>
+      </Dialog>
+    );
+  }
   return (
     <Dialog
       open={!!ask}

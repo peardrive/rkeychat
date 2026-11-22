@@ -56,6 +56,7 @@ agents
   rkeychat room remove NAME                take a room off this device (its seat and records go; the folder stays)
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
+  rkeychat asks [--room R]                 what agents wait on a person for; answer: rkeychat answer ASK allow|deny [--always]
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
@@ -91,6 +92,7 @@ const { values: opt, positionals: pos } = parseArgs({
     background: { type: 'boolean' },
     voice: { type: 'boolean' },
     off: { type: 'boolean' },
+    always: { type: 'boolean' },
     once: { type: 'boolean' },
     qr: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
@@ -482,6 +484,24 @@ switch (cmd) {
     const [target, emoji] = b ? [a, b] : ['last', a]
     const r = await api('POST', '/api/react', { room: opt.room, as: opt.as, target, emoji, on: !opt.off })
     console.log(`${r.name} ${opt.off ? 'removed' : 'reacted'} ${r.emoji}`)
+    break
+  }
+  case 'asks': {
+    // what agents are waiting on a person for (one room with --room, else every room)
+    const { asks } = await api('GET', '/api/asks' + q({ room: opt.room }))
+    if (!asks.length) { console.log('no open asks'); break }
+    for (const a of asks) console.log(`${a.id}  @${a.name} in ${a.room}${a.conv && a.conv !== 'main' ? `/${a.conv}` : ''}  ${a.tool}: ${a.what}   (${Math.max(0, Math.round((a.expires - Date.now()) / 60_000))} min left)\n    rkeychat answer ${a.id} allow|deny [--always] --room "${a.room}"`)
+    break
+  }
+  case 'answer': {
+    // answer an ask: only from one of the owner's own devices (the control is account-gated)
+    const [askId, verb] = pos
+    if (!askId || !['allow', 'deny'].includes(verb)) die('usage: rkeychat answer ASK allow|deny [--always] [--room R]')
+    const choice = `${verb === 'allow' ? 'allow' : 'reject'}_${opt.always ? 'always' : 'once'}`
+    let key = opt.room
+    if (!key) { const { asks } = await api('GET', '/api/asks'); key = asks.find((a) => a.id === askId || a.id.startsWith(askId))?.topic ?? die('no open ask with that id; say --room') }
+    const r = await api('POST', '/api/asks/answer', { room: key, ask: askId, choice })
+    console.log(`${r.name}${r.device ? ` (${r.device})` : ''} ${verb === 'allow' ? 'allowed' : 'refused'}${opt.always ? ' always' : ''}  in ${r.roomName}`)
     break
   }
   case 'activity': {

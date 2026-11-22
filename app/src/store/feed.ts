@@ -20,6 +20,8 @@ export type FeedItem = {
   conv?: string;
   unread: boolean;
   ask?: LoginAsk;
+  /** An agent's ask for a permission: where the card is, and the ask's id (answered with /api/asks/answer). */
+  permission?: { topic: string; conv: string; id: string; tool: string; what: string; expires: number };
 };
 
 export const FEED_MAX = 200;

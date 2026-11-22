@@ -6,8 +6,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, type TextInputRef } from '../hooks';
-import { Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast } from '../kit';
+import { AskCard, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, type AskAnswer, type AskChoice } from '../kit';
 import { useStore } from '../store/context';
+import type { Rec } from '../types';
 import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
 import { collapseActivity, mergeThread, toChatMessage } from '../store/mapping';
 import { convKey } from '../store/reducer';
@@ -78,6 +79,28 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
     return (allSteps ? merged : collapseActivity(merged)).map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions }));
   }, [thread, key, topic, activity, state.details, state.me, allSteps]);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
+  // the agents' asks in this thread, each with its answer when one came (the first admitted 'answer' control)
+  const asks = useMemo(() => {
+    const out = new Map<string, { rec: Rec; answer: AskAnswer | null }>();
+    for (const r of thread?.items ?? []) if (r.kind === 'ask') out.set(r.id, { rec: r, answer: null });
+    for (const r of thread?.items ?? []) {
+      if (r.kind === 'control' && r.action === 'answer' && r.ask && out.has(r.ask) && !out.get(r.ask)!.answer) out.get(r.ask)!.answer = { choice: r.choice as AskChoice, by: r.name, device: r.device || undefined, ts: r.ts };
+    }
+    return out;
+  }, [thread]);
+  const [answering, setAnswering] = useState<string | null>(null);
+  const canAnswer = !!state.me?.human && !!(topic && state.details[topic]?.owner);
+  const answerAsk = async (id: string, choice: AskChoice) => {
+    if (!topic) return;
+    setAnswering(id);
+    try {
+      await actions.answerAsk(topic, id, choice);
+    } catch (e) {
+      toast({ title: 'Could not answer', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setAnswering(null);
+    }
+  };
   const hasSteps = !!activity?.length;
   const favourites = useMemo(() => topEmoji(emojiCounts, 6), [emojiCounts]);
 
@@ -208,6 +231,11 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
             look="bubbles"
             messages={messages}
             currentUserId={state.me?.human ?? undefined}
+            renderMessage={(m) => {
+              const a = asks.get(m.id);
+              if (!a) return undefined;
+              return <AskCard agent={a.rec.name} tool={a.rec.tool ?? ''} what={a.rec.what ?? ''} detail={a.rec.input} ts={a.rec.ts} expires={a.rec.expires ?? 0} answer={a.answer} canAnswer={canAnswer} lockHint="Only the owner's own devices can answer" busy={answering === m.id} onAnswer={(c) => void answerAsk(m.id, c)} className="my-1" />;
+            }}
             onReact={react}
             quickReactions={favourites}
             onMore={(m) => setPickerFor(m.id)}

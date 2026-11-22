@@ -46,6 +46,8 @@ export interface Actions {
   saveAgentRule(topic: string, name: string, rule: AgentRule): Promise<void>;
   loginGrant(topic: string): Promise<void>;
   loginDeny(topic: string): Promise<void>;
+  /** Answer an agent's ask (allow_once | allow_always | reject_once | reject_always); only the owner's devices can. */
+  answerAsk(topic: string, ask: string, choice: string): Promise<void>;
   /** Open a feed item: mark it read and go to its conversation. */
   openFeedItem(id: string): Promise<void>;
   loadDevices(): Promise<Device[]>;
@@ -216,6 +218,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await api().loginDeny(topic);
         dispatch({ type: 'feedRemove', id: `ask:${topic}` });
       },
+      async answerAsk(topic, ask, choice) {
+        const rec = await api().answerAsk({ room: topic, ask, choice });
+        dispatch({ type: 'record', topic, rec }); // the card learns its outcome at once; the push repeats it harmlessly
+        dispatch({ type: 'feedRemove', id: `perm:${ask}` });
+      },
       async openFeedItem(id) {
         const item = stateRef.current.feed.find((x) => x.id === id);
         if (!item) return;
@@ -256,6 +263,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       getApi()
         .loginAsks()
         .then((r) => dispatch({ type: 'loginAsks', asks: r.asking ?? [] }))
+        .catch(() => {});
+      getApi()
+        .asks()
+        .then((r) => dispatch({ type: 'asks', asks: r.asks ?? [] }))
         .catch(() => {});
     })();
 

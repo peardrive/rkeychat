@@ -74,6 +74,17 @@ CLI: `rkeychat project init [DIR] [--name N] [--agent SEAT]`, `rkeychat convs [n
 
 Control actions added to the server whitelist: `conv`, `app`.
 
+## Permissions asked of a person (2026-11-22)
+
+| Route | Body / query | Returns | Notes |
+|---|---|---|---|
+| `GET /api/asks` | `?room=&conv=` optional | `{ asks: [ask + { topic, room }] }` | agents' open asks (unanswered, not lapsed), oldest first; every room without `room` |
+| `POST /api/asks/answer` | `{ room, ask, choice }` | the viewed `answer` control | `choice`: `allow_once \| allow_always \| reject_once \| reject_always`. Writes an account-gated control: refused unless this device's human key is the owner's |
+
+Records: `ask { kind: 'ask', tool, what, input, options: [{ id, kind, name? }], expires, conv }` signed by the
+agent; `control { action: 'answer', ask, choice }` signed by an owner key. Both are in the page log and arrive as
+`record` pushes; agents never read them. See project-agents.md "Asking a person".
+
 ## Push events (SSE `GET /api/events`)
 
 - `record { topic, rec, budget }` — `rec.conv` present.

@@ -18,7 +18,7 @@ import { replyDepth } from './turns.js'
 import { TURN_WINDOW } from './room.js'
 import { MAIN } from './proto.js'
 import { agentSession, sessionKeyOf } from './config.js'
-import { AcpProcess } from './acp.js'
+import { AcpProcess, ASK_TIMEOUT_MS } from './acp.js'
 import { resolveTools } from './tools.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
@@ -217,6 +217,21 @@ export class AgentRunner {
 
   // ---- claude bridge (a project agent) ----
 
+  // The agent needs a permission its tool list does not settle: put the question in the conversation as a signed
+  // 'ask' and wait for one of the owner's devices to answer it (room.answer, account-gated). The seat shows as
+  // waiting meanwhile. Null when nobody answers in time: the process refuses the call.
+  async #ask (ask, t) {
+    const rec = await this.room.ask(this.name, { ...ask, conv: t.conv, expires: Date.now() + ASK_TIMEOUT_MS })
+    if (!rec) return null
+    this.room.setAgentState(this.name, 'waiting', t.conv)
+    try {
+      const a = await this.room.awaitAnswer(rec.id, ASK_TIMEOUT_MS)
+      return a ? { choice: a.choice, by: a.name, device: a.device } : null
+    } finally {
+      if (t.busy) this.room.setAgentState(this.name, 'thinking', t.conv)
+    }
+  }
+
   async #runClaude (t) {
     t.busy = true
     this.room.setAgentState(this.name, 'thinking', t.conv)
@@ -233,7 +248,8 @@ export class AgentRunner {
         bridge: this.bridge,
         // the standing rules go in once, as system prompt; turns arrive as messages
         system: renderTurn(this.room, this.name, { intro: true, conv: t.conv }).text.split('\n[room ')[0],
-        onActivity: (text, extra) => this.room.activity(this.name, text, { ...extra, conv: t.conv }).catch(() => {})
+        onActivity: (text, extra) => this.room.activity(this.name, text, { ...extra, conv: t.conv }).catch(() => {}),
+        onAsk: (ask) => this.#ask(ask, t)
       })
     }
     const { reply, usage, cancelled } = await t.proc.prompt(turn.text)

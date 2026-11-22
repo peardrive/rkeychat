@@ -148,3 +148,10 @@ a little connection dot also for whether it's connected to the Mac or not." Both
 `DebugNotesButton connection=`), fed by `GET /api/debug/sync`; the full account is in `debug-notes-module.md`, "The
 bubble and the dot". The same investigation found that pearcore ignores a peer's refusal mid-download, which is why
 a pull could wait in silence; the daemon now reads the refusal and says it.
+
+### Approvals in the chat, gated to the owner's keys (2026-11-22, later still)
+
+Guy, after the debug note: "Let's get the approval commands sorted with a strict control gate to the keys for
+'my account devices' since this will be important working with the other people on my team." Built as
+project-agents.md "Asking a person": the agent's `ask` record, the owner's `answer` control under the account
+gate, PearKit's `AskCard` in the conversation and a Needs-you dialog, `rkeychat asks` / `rkeychat answer`.

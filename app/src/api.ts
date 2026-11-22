@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
+import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -30,6 +30,10 @@ export interface Api {
   people(): Promise<{ local: Person[]; known: Person[] }>;
   agents(): Promise<AgentInfo[]>;
   loginAsks(): Promise<{ asking: LoginAsk[] }>;
+  /** Agents waiting on a person for a permission (every room). */
+  asks(): Promise<{ asks: OpenAsk[] }>;
+  /** Answer one: a signed control only the owner's own devices may write. */
+  answerAsk(body: { room: string; ask: string; choice: string }): Promise<Rec>;
   loginGrant(topic: string): Promise<unknown>;
   loginDeny(topic: string): Promise<unknown>;
   debugNotes(): Promise<DebugSpaceInfo & { notes: DebugNoteInfo[] }>;
@@ -115,6 +119,8 @@ export const httpApi: Api = {
   people: () => get('people'),
   agents: () => get('agents'),
   loginAsks: () => get('login/pending'),
+  asks: () => get('asks'),
+  answerAsk: (b) => post('asks/answer', b),
   loginGrant: (topic) => post('login/grant', { topic }),
   loginDeny: (topic) => post('login/deny', { topic }),
   debugNotes: () => get('debug/notes'),

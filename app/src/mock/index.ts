@@ -4,7 +4,7 @@
  */
 import type { Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, Conversation, DebugNoteSync, Device, EventName, Events, FileEntry, PendingRequest, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -102,6 +102,8 @@ const peardrive = room({
   log: [
     msg(ME, 'Project is up. @rkeychat you are on PearDrive now.', min(4990), 'main'),
     msg('rkeychat', 'Reading the folder. 212 files, the shell is in `src/renderer`, tests under `test/`. Ready.', min(4988), 'main'),
+    // the seat asking for a permission its tool list does not settle: open, nine minutes left
+    { id: 'ask0000000000000001', kind: 'ask', ts: min(1), name: 'rkeychat', human: false, text: '', conv: 'main', tool: 'Bash', what: 'npm run release -- --tag 0.4.0', input: 'npm run release -- --tag 0.4.0 && git push origin v0.4.0', options: [{ id: 'o1', kind: 'allow_once' }, { id: 'o2', kind: 'allow_always' }, { id: 'o3', kind: 'reject_once' }], expires: Date.now() + 9 * 60_000 },
     msg(ME, 'Can we make the share row match the Figma: thumbnail, name, meta line, status pill on the right?', min(299), 'a1b2c3d4e5f60718'),
     msg('rkeychat', 'Yes. PearKit already has `ShareRow` with exactly that layout. I will replace the custom row in `ShareList.tsx` and delete the old styles.\n\n- `ShareRow` takes `name`, `meta`, `thumbnail`, `status`, `progress`\n- the favourite star becomes `onFavorite`', min(297), 'a1b2c3d4e5f60718'),
     act('rkeychat', 'edited src/renderer/ShareList.tsx', min(296), 'a1b2c3d4e5f60718'),
@@ -459,6 +461,23 @@ export const mockApi: Api = {
   async agents() {
     await sleep(LATENCY);
     return [{ name: 'rkeychat', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive', rooms: [...rooms.values()].filter((r) => r.seats.length).map((r) => ({ name: r.name, topic: r.topic, enrolled: true, state: 'idle' as const, busy: false })) }];
+  },
+  async asks() {
+    await sleep(LATENCY);
+    const asks: OpenAsk[] = [];
+    for (const r of rooms.values()) for (const x of r.log) if (x.kind === 'ask' && (x.expires ?? 0) > Date.now() && !r.log.some((y) => y.kind === 'control' && y.action === 'answer' && y.ask === x.id)) asks.push({ ...x, topic: r.topic, room: r.name } as OpenAsk);
+    return { asks };
+  },
+  async answerAsk({ room: key, ask, choice }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    const a = r.log.find((x) => x.kind === 'ask' && x.id === ask);
+    if (!a) throw new Error('no such ask in this room');
+    if (r.log.some((y) => y.kind === 'control' && y.action === 'answer' && y.ask === ask)) throw new Error('already answered');
+    const rec: Rec = { id: id(), kind: 'control', action: 'answer', ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: a.conv ?? 'main', ask, choice };
+    r.log.push(rec);
+    setTimeout(() => emit('record', { topic: r.topic, rec }), 60);
+    return rec;
   },
   async loginAsks() {
     await sleep(LATENCY);

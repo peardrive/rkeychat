@@ -356,6 +356,23 @@ export function serve ({ app }) {
       return room.control(localHuman(), action, { n: n === undefined || n === null ? undefined : Number(n), until: u, agent, style: style === 'verbose' ? 'verbose' : style ? 'concise' : undefined, text, order, agents, name, conv, archived, runtime })
     },
 
+    // Permissions asked of a person (docs/project-agents.md "Asking a person"): the open asks, in one room or
+    // every room; and the answer, a signed control only the owner's own devices may write.
+    'GET /api/asks': (req, res, url) => {
+      const key = url.searchParams.get('room')
+      if (key) { const { room } = pick(key); return { asks: room.openAsks(url.searchParams.get('conv') || undefined).map((a) => ({ ...a, topic: room.topic, room: room.cfg.name })) } }
+      const asks = []
+      for (const { room } of app.rooms.values()) for (const a of room.openAsks()) asks.push({ ...a, topic: room.topic, room: room.cfg.name })
+      return { asks: asks.sort((a, b) => a.ts - b.ts) }
+    },
+    'POST /api/asks/answer': async (req) => {
+      const { room: key, ask, choice } = await body(req)
+      const { room } = pick(key)
+      need(ask, 'which ask?')
+      const rec = await room.answer(localHuman(), ask, choice)
+      return { ...room.view(rec), roomName: room.cfg.name }
+    },
+
     // what each agent in this room has spent in the last day, measured
     'GET /api/spend': (req, res, url) => {
       const { room } = pick(url.searchParams.get('room'))

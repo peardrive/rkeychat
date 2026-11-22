@@ -111,9 +111,21 @@ export type Rec = {
   redacted?: { by: string; ts: number };
   action?: string;
   mentions?: string[];
+  /** An `ask` (an agent asking a person for a permission): the tool, what it would do, the whole input, when it lapses. */
+  tool?: string;
+  what?: string;
+  input?: string;
+  options?: { id: string; kind: string; name?: string }[];
+  expires?: number;
+  /** An `answer` control: which ask, and the choice (allow_once | allow_always | reject_once | reject_always). */
+  ask?: string;
+  choice?: string;
   /** Local only: an optimistic send that the daemon has not confirmed yet. */
   pending?: boolean;
 };
+
+/** `GET /api/asks`: an open ask, with its room. */
+export type OpenAsk = Rec & { topic: string; room: string; tool: string; what: string; expires: number };
 
 export type Participant = {
   name: string;

@@ -131,6 +131,14 @@ await shot('phone-projects', {
     await must(page, page.getByText('PearDrive', { exact: true }), 'PearDrive under Anjou');
   },
 });
+await shot('phone-ask', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    await page.getByText(/Reading the folder/).first().tap();
+    await must(page, page.locator('[data-ask-state="open"]'), 'the agent\'s ask in the conversation');
+  },
+});
 await shot('phone-note-bubble', {
   ...phone,
   before: async (page) => {

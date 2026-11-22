@@ -67,7 +67,8 @@ export function ActivityFeedView({ onNavigate, compact }: { onNavigate?: () => v
   const [approval, setApproval] = useState<FeedItem | null>(null);
   const grant = useCallback((topic: string) => actions.loginGrant(topic).then(() => toast({ title: 'Let in', tone: 'success' })).catch((e) => toast({ title: 'Could not let them in', description: (e as Error).message, tone: 'danger' })), [actions, toast]);
   const deny = useCallback((topic: string) => actions.loginDeny(topic).catch((e) => toast({ title: 'Could not answer', description: (e as Error).message, tone: 'danger' })), [actions, toast]);
-  const rows = useMemo(() => toActivityItems(state.feed, grant), [state.feed, grant]);
+  const answer = useCallback((topic: string, ask: string, choice: string) => actions.answerAsk(topic, ask, choice).then(() => toast({ title: choice.startsWith('allow') ? 'Allowed' : 'Denied', tone: 'success' })).catch((e) => toast({ title: 'Could not answer', description: (e as Error).message, tone: 'danger' })), [actions, toast]);
+  const rows = useMemo(() => toActivityItems(state.feed, grant, answer), [state.feed, grant, answer]);
   const open = (item: ActivityItem) => {
     const f = state.feed.find((x) => x.id === item.id);
     if (f?.kind === 'approval') return setApproval(f);
@@ -77,7 +78,7 @@ export function ActivityFeedView({ onNavigate, compact }: { onNavigate?: () => v
   return (
     <View className="w-full">
       <ActivityFeed items={rows} onOpen={open} compact={compact} showWhere emptyState={<EmptyState icon="bell-fill" title="Nothing new" description="Approvals, mentions, finished turns, new projects and conversations, and files land here." className="py-6" />} />
-      <ApprovalDialog item={approval} onClose={() => setApproval(null)} onGrant={grant} onDeny={deny} />
+      <ApprovalDialog item={approval} onClose={() => setApproval(null)} onGrant={grant} onDeny={deny} onAnswer={answer} />
     </View>
   );
 }

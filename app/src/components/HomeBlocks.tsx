@@ -34,8 +34,9 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
 
   const grant = useCallback((topic: string) => actions.loginGrant(topic).then(() => toast({ title: 'Let in', tone: 'success' })).catch((e) => toast({ title: 'Could not let them in', description: (e as Error).message, tone: 'danger' })), [actions, toast]);
   const deny = useCallback((topic: string) => actions.loginDeny(topic).catch((e) => toast({ title: 'Could not answer', description: (e as Error).message, tone: 'danger' })), [actions, toast]);
+  const answer = useCallback((topic: string, ask: string, choice: string) => actions.answerAsk(topic, ask, choice).then(() => toast({ title: choice.startsWith('allow') ? 'Allowed' : 'Denied', tone: 'success' })).catch((e) => toast({ title: 'Could not answer', description: (e as Error).message, tone: 'danger' })), [actions, toast]);
   const needs = useMemo(() => needsYou(state.feed), [state.feed]);
-  const needsItems = useMemo(() => toActivityItems(needs, grant), [needs, grant]);
+  const needsItems = useMemo(() => toActivityItems(needs, grant, answer), [needs, grant, answer]);
   const openItem = (item: ActivityItem) => {
     const f = state.feed.find((x) => x.id === item.id);
     if (f?.kind === 'approval') return setApproval(f);
@@ -90,7 +91,7 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
         <PresenceRow people={online.map((p) => ({ ...p, avatar: { seed: p.id } }))} max={compact ? 6 : 10} size={36} onPress={onOpenProfile ? (id) => onOpenProfile(id) : undefined} />
       </HomeBlock>
 
-      <ApprovalDialog item={approval} onClose={() => setApproval(null)} onGrant={grant} onDeny={deny} />
+      <ApprovalDialog item={approval} onClose={() => setApproval(null)} onGrant={grant} onDeny={deny} onAnswer={answer} />
     </HomeGrid>
   );
 }

@@ -13,6 +13,10 @@
 //
 // Never bypass: the session mode is the seat's permissionMode (default acceptEdits), and a
 // request for `bypassPermissions` is turned into acceptEdits.
+//
+// What the tool list does not settle is asked of a person (2026-11-22, Guy's memo): the ask goes into the
+// conversation as a signed record, one of the owner's own devices answers it (an account-gated control), and the
+// answer comes back here as the agent's choice. Nobody answering within ASK_TIMEOUT_MS is a refusal.
 import { spawn } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
@@ -24,6 +28,7 @@ import { agentSession, sessionKeyOf } from './config.js'
 import { MAIN } from './proto.js'
 
 const IDLE_MS = 30 * 60_000
+export const ASK_TIMEOUT_MS = 10 * 60_000
 const TURN_TIMEOUT_MS = 20 * 60_000
 const require = createRequire(import.meta.url)
 
@@ -33,7 +38,7 @@ export function adapterPath () {
 }
 
 export class AcpProcess {
-  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity }) {
+  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk }) {
     this.name = name
     this.room = room
     this.conv = conv
@@ -41,6 +46,8 @@ export class AcpProcess {
     this.bridge = bridge // { kind: 'claude', via: 'acp', dir, permissionMode?, tools?, model?, command? }
     this.system = system
     this.onActivity = onActivity ?? (() => {})
+    // ask a person: ({ tool, what, input, options }) → Promise<{ choice, by, device } | null>; without it, refused
+    this.onAsk = onAsk ?? null
     this.child = null
     this.cx = null // ClientContext once connected
     this.sessionId = null
@@ -218,18 +225,49 @@ export class AcpProcess {
 
   // The agent asks whether it may use a tool. Claude Code has already allowed what the
   // mode covers (edits inside the folder under acceptEdits, read-only commands); what
-  // reaches here is the rest, and the seat's tool list decides. No person is asked.
-  #permission ({ toolCall, options }) {
+  // reaches here is the rest. The seat's tool list decides what it can (allow rules, deny
+  // rules); what it does not cover is asked of a person through the room, and the answer
+  // picked from the agent's own options. No answer in time is a refusal.
+  async #permission ({ toolCall, options }) {
     const tool = toolCall?._meta?.claudeCode?.toolName ?? toolCall?.name ?? ''
     const input = toolCall?.rawInput ?? {}
     const what = summarize(input) || toolCall?.title || tool
-    const allowed = permitted(this.rules, tool, input, this.bridge.dir)
     const pick = (kinds) => options?.find((o) => kinds.includes(o.kind)) ?? null
-    const choice = allowed ? pick(['allow_once', 'allow_always']) : pick(['reject_once', 'reject_always'])
-    this.onActivity(`${allowed ? 'allowed' : 'refused'} ${tool}: ${what}`)
-    if (!choice) return { outcome: { outcome: 'cancelled' } }
-    return { outcome: { outcome: 'selected', optionId: choice.optionId } }
+    const answer = (choice) => choice ? { outcome: { outcome: 'selected', optionId: choice.optionId } } : { outcome: { outcome: 'cancelled' } }
+    let v = verdict(this.rules, tool, input, this.bridge.dir)
+    if (v === 'ask' && this.onAsk) {
+      this.onActivity(`asks for ${tool}: ${what}`)
+      let a = null
+      try {
+        a = await this.onAsk({ tool, what, input: summarizeFull(input), options: (options ?? []).map((o) => ({ id: o.optionId, kind: o.kind, name: o.name })) })
+      } catch (err) { this.onActivity(`could not ask: ${err?.message ?? err}`) }
+      if (a?.choice) {
+        const chosen = options?.find((o) => o.kind === a.choice) ?? pick(a.choice.startsWith('allow') ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always'])
+        this.onActivity(`${a.choice.startsWith('allow') ? 'allowed' : 'refused'} by ${a.by ?? 'the owner'}${a.device ? ` (${a.device})` : ''}${a.choice.endsWith('always') ? ', always' : ''}: ${tool}: ${what}`)
+        return answer(chosen)
+      }
+      this.onActivity(`nobody answered in ${Math.round(ASK_TIMEOUT_MS / 60_000)} minutes: refused ${tool}: ${what}`)
+      v = 'deny'
+    }
+    const allowed = v === 'allow'
+    if (v !== 'ask') this.onActivity(`${allowed ? 'allowed' : 'refused'} ${tool}: ${what}`)
+    else this.onActivity(`refused ${tool}: ${what} (nobody to ask)`)
+    return answer(allowed ? pick(['allow_once', 'allow_always']) : pick(['reject_once', 'reject_always']))
   }
+}
+
+// What the seat's tool list says about one call: 'allow' (an allow rule covers it, no deny rule hits), 'deny' (a
+// deny rule hits, or an empty command), or 'ask' (nothing in the list speaks to it: a person decides).
+export function verdict ({ allow = [], deny = [] } = {}, tool, input = {}, dir = process.cwd()) {
+  if (!tool) return 'deny'
+  const paths = pathsOf(input, dir)
+  if (deny.some((r) => ruleHits(r, tool, input, paths, dir))) return 'deny'
+  if (tool === 'Bash') {
+    const parts = String(input.command ?? '').split(/\s*(?:&&|\|\||;|\|)\s*/).map((s) => s.trim()).filter(Boolean)
+    if (!parts.length) return 'deny'
+    return parts.every((part) => allow.some((r) => ruleHits(r, tool, { command: part }, [], dir))) ? 'allow' : 'ask'
+  }
+  return allow.some((r) => ruleHits(r, tool, input, paths, dir)) ? 'allow' : 'ask'
 }
 
 // ---- the seat's tool list, applied to one tool call ----
@@ -304,6 +342,13 @@ function summarize (input) {
   if (!input || typeof input !== 'object') return ''
   const s = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.description ?? (Object.keys(input).length ? JSON.stringify(input) : '')
   return String(s).replace(/\s+/g, ' ').slice(0, 100)
+}
+
+// the whole input, for the person reading an ask (a command in full, a file and the text it would get)
+function summarizeFull (input) {
+  if (!input || typeof input !== 'object') return ''
+  if (typeof input.command === 'string') return input.command.slice(0, 2000)
+  try { return JSON.stringify(input, null, 1).slice(0, 2000) } catch { return '' }
 }
 
 function firstText (content) {

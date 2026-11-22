@@ -23,15 +23,26 @@ export function reactionsOf(reactions: Reactions | undefined, id: string, me: st
   return out.length ? out : undefined;
 }
 
-/** A message or activity record as the chat list shows it. */
+const CHOICE_WORDS: Record<string, string> = { allow_once: 'allowed once', allow_always: 'allowed always', reject_once: 'refused', reject_always: 'refused always' };
+
+/** A control as one muted line: an answer to an ask, a rename, a budget change. */
+export function controlLine(rec: Rec): string {
+  if (rec.action === 'answer') return `${rec.name}: ${CHOICE_WORDS[rec.choice ?? ''] ?? rec.choice ?? 'answered'}`;
+  if (rec.action === 'rename') return `${rec.name} renamed the project`;
+  if (rec.action === 'charter') return `${rec.name} changed the charter`;
+  return `${rec.name}: ${rec.action ?? 'control'}`;
+}
+
+/** A message, an activity record, an ask or a control as the chat list shows it. */
 export function toChatMessage(rec: Rec, opts: { me?: string | null; reactions?: Reactions } = {}): ChatMessage {
-  const system = rec.kind === 'activity';
+  const system = rec.kind === 'activity' || rec.kind === 'control';
+  const ask = rec.kind === 'ask';
   return {
     id: rec.id,
     author: { id: rec.name, name: rec.name, agent: !rec.human },
     ts: rec.ts,
     // A record may carry no text at all (an attachment-only message, an older redaction): Markdown needs a string.
-    text: system ? `${rec.name}: ${rec.text ?? ''}` : rec.text ?? '',
+    text: rec.kind === 'activity' ? `${rec.name}: ${rec.text ?? ''}` : rec.kind === 'control' ? controlLine(rec) : ask ? `asks for ${rec.tool ?? 'a tool'}: ${rec.what ?? ''}` : rec.text ?? '',
     re: rec.re?.length ? rec.re : undefined,
     reactions: system ? undefined : reactionsOf(opts.reactions, rec.id, opts.me ?? null),
     attachments: rec.att?.length ? rec.att.map(attachmentOf) : undefined,
