@@ -169,7 +169,7 @@ describe('agent state', () => {
 describe('pending projects', () => {
   it('remembers a project asked of another device and finds its room when the rooms push brings it', () => {
     let s = reducer(booted, { type: 'pendingProject', id: 'p1', name: 'Notes', asked: 'macbook' });
-    expect(s.pendingProjects).toEqual([{ id: 'p1', name: 'Notes', asked: 'macbook' }]);
+    expect(s.pendingProjects).toMatchObject([{ id: 'p1', name: 'Notes', asked: 'macbook' }]);
     // A rooms push without it: still waiting.
     s = reducer(s, { type: 'rooms', rooms: [room({ topic: T })] });
     expect(s.pendingProjects[0].topic).toBeUndefined();

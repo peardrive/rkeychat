@@ -104,3 +104,20 @@ geometry (`scripts/draw-filled-icons.mjs`), `Dock` / `GlassBar` / `OrgTabs` on t
 `project`, `publish`, `proposal`, `zap`. In the shell (25b7cce): the icons swapped, the Recent section on
 Activity, a room that appears after boot announced as a `project` item. Still daemon-side: `publish` (a file
 added to a project's space), and `proposal` / `zap` once those exist.
+
+## Round 4 (2026-11-22): the Leaf Note failure
+
+Guy talked to the seat in "the Leaf Note room" from the phone and nothing answered. What happened: on 19 Nov at
+14:32 the phone asked the MacBook for "Leaf Note by Anjou"; the daemon of that hour read the project's name
+off the viewed copy of the request (`name` = the author) and made a project called "guy" under `~/Projects`,
+with the Leaf Note description as its charter and the phone in its room. The fix landed two hours later and the
+mistake was removed from the Mac, which told nobody: the phone kept a room called "guy" with no Mac, no seat
+and no presence. The request id was already on the Mac's done list, so Leaf Note was never made.
+
+Fixed on the branch: the request is read from the signed record only (`src/project-requests.js`); it is marked
+done after it is answered, never before, and every room's requests are swept at start; the answering room's
+app note carries `request` and the shell matches by it; a name already in use answers the request with that
+room; the owner's removal writes a `close` control first and every holder drops the room on it (at once or at
+its next start); the phone shows "Waiting on macbook" rows (`GET /api/projects/pending`) until the room
+arrives, with a way to stop waiting. Tests: `test/project-requests.test.js`, the reducer tests in
+`app/src/store/round2.test.ts`.

@@ -10,7 +10,22 @@ import { convKey, initialState, reducer, type Action, type State } from './reduc
 import type { Seat } from '../types';
 
 const SELECTED_KEY = 'rkc.app.selected';
+const HIDDEN_PENDING_KEY = 'rkc.app.pending-hidden';
 const PAGE = 60;
+
+function readHiddenPending(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(HIDDEN_PENDING_KEY) ?? '[]');
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+function hidePending(id: string) {
+  try {
+    localStorage.setItem(HIDDEN_PENDING_KEY, JSON.stringify([...new Set([...readHiddenPending(), id])].slice(-50)));
+  } catch {}
+}
 
 export interface Actions {
   /** Re-fetch everything; resolves with the room list (the reducer's state may not have rendered yet). */
@@ -34,6 +49,10 @@ export interface Actions {
   /** Open a feed item: mark it read and go to its conversation. */
   openFeedItem(id: string): Promise<void>;
   loadDevices(): Promise<Device[]>;
+  /** The projects this device asked other devices for and still waits on (the daemon's list). */
+  loadPending(): Promise<void>;
+  /** Stop showing a wait (the request stays in the room; a later answer still opens the project). */
+  dismissPending(id: string): void;
   bindFolder(topic: string, folder: string): Promise<void>;
   saveCharter(topic: string, text: string): Promise<void>;
   setSeatVia(name: string, via: 'acp' | 'cli'): Promise<void>;
@@ -141,10 +160,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'devices', devices });
         return devices;
       },
+      async loadPending() {
+        const list = await api().pendingProjects();
+        dispatch({ type: 'pendingProjects', list, hidden: readHiddenPending() });
+      },
+      dismissPending(id) {
+        hidePending(id);
+        dispatch({ type: 'pendingDone', id });
+      },
       async createProject(opts) {
         const res = await api().createProject(opts);
         if ('pending' in res && res.pending) {
-          dispatch({ type: 'pendingProject', id: res.id, name: opts.name ?? '', asked: res.asked });
+          dispatch({ type: 'pendingProject', id: res.id, name: opts.name ?? '', asked: res.asked, online: res.online });
           return res;
         }
         const { room, seat } = res as { room: RoomSummary; seat: Seat | string };
@@ -225,6 +252,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (remembered && rooms.some((r) => r.topic === remembered.topic)) await actions.select(remembered.topic, remembered.conv);
       else if (first) await actions.select(first, 'main');
       actions.loadDevices().catch(() => {});
+      actions.loadPending().catch(() => {});
       getApi()
         .loginAsks()
         .then((r) => dispatch({ type: 'loginAsks', asks: r.asking ?? [] }))
@@ -240,7 +268,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       record: ({ topic, rec }) => dispatch({ type: 'record', topic, rec }),
       convs: ({ topic, convs }) => dispatch({ type: 'convs', topic, convs }),
       room: (snapshot) => dispatch({ type: 'room', snapshot }),
-      rooms: (rooms) => dispatch({ type: 'rooms', rooms }),
+      rooms: (rooms) => {
+        dispatch({ type: 'rooms', rooms });
+        // a room arrived or went: what we wait on may have been answered
+        actions.loadPending().catch(() => {});
+      },
       participants: ({ topic, participants }) => {
         dispatch({ type: 'participants', topic, participants });
         // Presence changed somewhere: the devices' online flags follow it.
@@ -268,6 +300,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'pendingDone', id: arrived.id });
     void actions.select(arrived.topic, 'main');
   }, [state.pendingProjects, actions]);
+
+  // The room we were in went away (its owner closed it): land on the first one left.
+  useEffect(() => {
+    if (!state.ready || state.selected.topic || !state.roomOrder.length) return;
+    void actions.select(state.roomOrder[0], 'main');
+  }, [state.ready, state.selected.topic, state.roomOrder, actions]);
 
   const value = useMemo(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

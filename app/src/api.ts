@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
+import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -18,6 +18,8 @@ export interface Api {
   activity(q: { room: string; conv?: string }): Promise<unknown>;
   /** `home` (a device ref or name) elsewhere → the daemon asks that device and answers `{ pending: true, … }`. */
   createProject(body: { folder?: string; name?: string; home?: string; prompt?: string; org?: string; agent?: string; via?: 'acp' | 'cli' }): Promise<{ room: RoomSummary; seat: Seat | string } | PendingProject>;
+  /** The projects this device asked other devices for that no room has answered yet (the "waiting on …" rows). */
+  pendingProjects(): Promise<PendingRequest[]>;
   renameRoom(body: { room: string; name: string }): Promise<unknown>;
   setRoomOrg(body: { room: string; org: string | null }): Promise<RoomSummary>;
   /** Takes the room off this device; the folder on disk stays. */
@@ -95,6 +97,7 @@ export const httpApi: Api = {
   search: (q) => get('search', q),
   activity: (q) => get('activity', q),
   createProject: (b) => post('projects', b),
+  pendingProjects: () => get('projects/pending'),
   bindFolder: (b) => post('rooms/folder', b),
   devices: () => get('devices'),
   workspace: () => get('workspace'),

@@ -25,6 +25,8 @@ export type AppRecord = {
   home?: { device: string; name: string } | null;
   /** The organization the project belongs to (round 2): a grouping name signed by the owner. */
   org?: string | null;
+  /** The `project` request (its record id) this room answers, when another device asked for it. */
+  request?: string | null;
 } | null;
 
 /** A file shared in a room (`GET /api/files?room=`). `local`: the bytes are on this device. */
@@ -58,6 +60,9 @@ export type Device = { ref: string; name: string; online: boolean; here: boolean
 
 /** `POST /api/projects` when another device is asked to create the project. */
 export type PendingProject = { pending: true; asked: string; via: string; id: string; online: boolean };
+
+/** `GET /api/projects/pending`: a project this device asked another device for, not yet seen to arrive. */
+export type PendingRequest = { id: string; name: string; asked: string; home: string | null; via: string; ts: number; online: boolean };
 
 export type Seat = { name: string; bridge: 'claude' | 'hermes' | 'stream'; via: 'acp' | 'cli' | null; dir: string | null };
 

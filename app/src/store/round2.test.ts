@@ -98,3 +98,41 @@ describe('feed', () => {
     expect(s.feed).toEqual([]);
   });
 });
+
+describe('a project asked of another device', () => {
+  const T = 't';
+  const booted: State = reducer(initialState, { type: 'init', device: { name: 'phone', human: 'guy' }, rooms: [room({ topic: T, name: 'PearDrive' })] });
+  const asked = reducer(booted, { type: 'pendingProject', id: 'req1', name: 'Leaf Note', asked: 'macbook', online: true });
+
+  it('waits until a room answers the request by id, whatever the room is called', () => {
+    expect(asked.pendingProjects.map((p) => [p.id, p.topic])).toEqual([['req1', undefined]]);
+    // a room called after the author (the 2026-11-19 bug) answers nothing
+    const wrong = reducer(asked, { type: 'rooms', rooms: [...Object.values(asked.rooms), room({ topic: 'g', name: 'guy', app: { app: 'rkeychat', role: 'project', name: 'guy' } })] });
+    expect(wrong.pendingProjects[0].topic).toBeUndefined();
+    // the room whose note names the request does, under any name
+    const right = reducer(wrong, { type: 'rooms', rooms: [...Object.values(wrong.rooms), room({ topic: 'l', name: 'Leaf Note by Anjou', app: { app: 'rkeychat', role: 'project', name: 'Leaf Note by Anjou', request: 'req1' } })] });
+    expect(right.pendingProjects[0].topic).toBe('l');
+    // an older daemon writes no request id: a new room with the same name still counts
+    const byName = reducer(asked, { type: 'rooms', rooms: [...Object.values(asked.rooms), room({ topic: 'n', name: 'Leaf Note', app: { app: 'rkeychat', role: 'project', name: 'Leaf Note' } })] });
+    expect(byName.pendingProjects[0].topic).toBe('n');
+  });
+
+  it("the daemon's list survives a restart; a dismissed wait stays hidden; an arrival is kept until opened", () => {
+    const list = [{ id: 'req1', name: 'Leaf Note', asked: 'macbook', home: 'd1', via: 'Family', ts: 5, online: false }, { id: 'req2', name: 'Show notes', asked: 'zorin', home: 'd2', via: 'Family', ts: 6, online: true }];
+    const s = reducer(booted, { type: 'pendingProjects', list, hidden: ['req2'] });
+    expect(s.pendingProjects.map((p) => [p.id, p.asked, p.online, p.via])).toEqual([['req1', 'macbook', false, 'Family']]);
+    const arrived = reducer(reducer(asked, { type: 'rooms', rooms: [...Object.values(asked.rooms), room({ topic: 'l', name: 'Leaf Note', app: { app: 'rkeychat', role: 'project', name: 'Leaf Note', request: 'req1' } })] }), { type: 'pendingProjects', list: [], hidden: [] });
+    expect(arrived.pendingProjects.map((p) => [p.id, p.topic])).toEqual([['req1', 'l']]);
+    expect(reducer(arrived, { type: 'pendingDone', id: 'req1' }).pendingProjects).toEqual([]);
+  });
+
+  it('a room closed by its owner takes the selection with it', () => {
+    const inRoom = reducer(booted, { type: 'select', topic: T, conv: 'main' });
+    const gone = reducer(inRoom, { type: 'rooms', rooms: [room({ topic: 'other', name: 'Other' })] });
+    expect(gone.rooms[T]).toBeUndefined();
+    expect(gone.selected).toEqual({ topic: null, conv: null });
+    expect(gone.roomOrder).toEqual(['other']);
+    // still there: nothing changes
+    expect(reducer(inRoom, { type: 'rooms', rooms: Object.values(inRoom.rooms) }).selected).toEqual({ topic: T, conv: 'main' });
+  });
+});

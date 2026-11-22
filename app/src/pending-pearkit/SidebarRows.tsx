@@ -19,8 +19,9 @@ export interface SidebarGroupRowProps {
   subtitle?: string;
   unread?: number;
   selected?: boolean;
-  open: boolean;
-  onToggle: () => void;
+  /** Expanded? Without `onToggle` the row has nothing to expand: no chevron (a project still being made). */
+  open?: boolean;
+  onToggle?: () => void;
   onPress?: () => void;
   /** A long press (or a right click) on the row: the project's actions. */
   onLongPress?: () => void;
@@ -29,7 +30,7 @@ export interface SidebarGroupRowProps {
   trailing?: React.ReactNode;
 }
 
-export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, open, onToggle, onPress, onLongPress, live, trailing }: SidebarGroupRowProps) {
+export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, open = false, onToggle, onPress, onLongPress, live, trailing }: SidebarGroupRowProps) {
   const { collapsed } = useSidebar();
   const avatar = (
     <View className="relative">
@@ -82,9 +83,11 @@ export function SidebarGroupRow({ seed, title, subtitle, unread = 0, selected, o
         {unread ? <CountBadge value={unread} tone="warning" /> : null}
       </Pressable>
       {trailing}
-      <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Collapse' : 'Expand'} accessibilityState={{ expanded: open }} onPress={onToggle} hitSlop={touch ? 12 : 6} className={cn('items-center justify-center rounded-xs hover:bg-overlay/[0.08]', touch ? 'h-8 w-8' : 'h-5 w-5', Platform.OS === 'web' && 'cursor-pointer')}>
-        <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} tone="subtle" />
-      </Pressable>
+      {onToggle ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={open ? 'Collapse' : 'Expand'} accessibilityState={{ expanded: open }} onPress={onToggle} hitSlop={touch ? 12 : 6} className={cn('items-center justify-center rounded-xs hover:bg-overlay/[0.08]', touch ? 'h-8 w-8' : 'h-5 w-5', Platform.OS === 'web' && 'cursor-pointer')}>
+          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} tone="subtle" />
+        </Pressable>
+      ) : null}
     </View>
   );
 }

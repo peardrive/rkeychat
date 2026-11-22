@@ -4,7 +4,7 @@
  */
 import type { Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, Conversation, Device, EventName, Events, FileEntry, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, Conversation, Device, EventName, Events, FileEntry, PendingRequest, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -37,6 +37,8 @@ const DEVICES: Device[] = [
   { ref: 'rkey:zorin', name: 'zorin', online: false, here: false },
 ];
 let workspace = '/Users/guy/Projects';
+// projects asked of other devices: answered when a room's app note names the request
+const requests: PendingRequest[] = [];
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
 
 const now = Date.now();
@@ -373,11 +375,14 @@ export const mockApi: Api = {
         log: [],
       });
     if (!dev.here) {
-      // Another device: a signed request goes out; the room shows up in a later `rooms` push (3 s here).
+      // Another device: a signed request goes out; the room shows up in a later `rooms` push (3 s here),
+      // its app note naming the request. An offline device answers only when it comes back (never, here).
       const id = hex().slice(0, 24);
+      requests.push({ id, name: name || base, asked: dev.name, home: dev.ref, via: 'Family', ts: Date.now(), online: dev.online });
       if (dev.online) {
         setTimeout(() => {
           const r = make(dev, null);
+          r.app = r.app ? { ...r.app, request: id } : r.app;
           rooms.set(r.topic, r);
           emit('rooms', [...rooms.values()].map(summary));
         }, 3000);
@@ -392,6 +397,11 @@ export const mockApi: Api = {
   async devices() {
     await sleep(LATENCY);
     return DEVICES;
+  },
+  async pendingProjects() {
+    await sleep(LATENCY);
+    const answered = new Set([...rooms.values()].map((r) => r.app?.request).filter(Boolean));
+    return requests.filter((p) => !answered.has(p.id));
   },
   async renameRoom({ room: key, name }) {
     await sleep(LATENCY);

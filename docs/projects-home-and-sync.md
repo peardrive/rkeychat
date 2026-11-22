@@ -30,6 +30,21 @@ anywhere on disk; nothing in the space changes.
 Defaults: one workspace root per device, every project a folder directly under it unless you choose otherwise.
 `rkeychat project init DIR` keeps working for a folder that already exists.
 
+**The request's life** (settled after "Leaf Note", 2026-11-19, when the MacBook made a project called "guy"
+from the viewed copy of the request, then removed it without telling the phone). The home device reads the
+request from the *signed* record (`src/project-requests.js`; the viewed copy's `name` is the author), makes the
+project, and answers with the room's `app` note carrying `request: <the control's id>`. The phone matches the
+arrival by that id, not by name. A request is marked done only once it is answered, so one that fails is tried
+again at the next record and at every start (the daemon sweeps each room's `project` controls when it opens
+it). A name already in use on the home is the answer: that room's note gains the request id. Until a room
+answers, the phone shows the wait: `GET /api/projects/pending`, a "Waiting on macbook" row in Projects with a
+way to stop waiting; unanswered requests expire after 30 days.
+
+**Closing a room.** The owner removing a project writes a signed `close` control first (owner's keys only, like
+`project`), then drops the room. Every other device that holds it, the owner's phone included, removes it when
+it sees the record, at once when online and at its next start otherwise. A member's device leaves instead
+(self-revoke); it cannot close what it does not own.
+
 ## 2. What syncs, and what never does
 
 Today rKeyChat syncs **nothing from a folder on its own**: a file enters the space only when someone shares it

@@ -161,6 +161,32 @@ await shot('phone-new-project', {
     await page.waitForTimeout(400);
   },
 });
+// a project asked of another device: the "Waiting on macbook" row until the room answers (the mock answers in 3 s)
+const askMacbook = async (page) => {
+  await dockTo(page, 'Projects');
+  await page.getByRole('button', { name: 'New', exact: true }).tap();
+  await page.getByRole('menuitem', { name: 'New project' }).tap();
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Leaf Note');
+  await page.getByRole('button', { name: 'Create', exact: true }).tap();
+  await page.waitForTimeout(700);
+};
+await shot('phone-waiting', {
+  ...phone,
+  before: async (page) => {
+    await askMacbook(page);
+    await must(page, page.getByText(/^Waiting on macbook/), 'the waiting row in Projects');
+    await must(page, page.getByRole('button', { name: 'Stop waiting for Leaf Note' }), 'a way to stop waiting');
+  },
+});
+await shot('phone-waiting-arrived', {
+  ...phone,
+  before: async (page) => {
+    await askMacbook(page);
+    await page.waitForTimeout(3500);
+    if (await page.getByText(/^Waiting on macbook/).count()) throw new Error('the waiting row stayed after the room arrived');
+    await must(page, page.getByText('Leaf Note').first(), 'the project that arrived');
+  },
+});
 await shot('phone-profile', {
   ...phone,
   before: async (page) => {

@@ -249,6 +249,8 @@ export function serve ({ app }) {
     },
     // the owner's devices, for "where should this project live?": [{ ref, name, online, here }]
     'GET /api/devices': () => app.devices(),
+    // projects this device asked other devices for and has not seen arrive: [{ id, name, asked, home, via, ts, online }]
+    'GET /api/projects/pending': () => app.pendingProjects(),
     'GET /api/workspace': () => ({ workspace: app.workspace() }),
     'POST /api/workspace': async (req) => { const { workspace } = await body(req); need(String(workspace ?? '').trim(), 'a folder'); return { workspace: saveSettings({ workspace: resolvePath(String(workspace).trim()) }).workspace } },
     // take a room off this device (its seat and local records go; the folder on disk stays)

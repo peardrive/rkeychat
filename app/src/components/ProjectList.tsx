@@ -127,6 +127,8 @@ export function ProjectList({ rooms, query = '', grouped = true, phone, onNaviga
 
   const shown = rooms.filter(matches);
   const { ungrouped, orgs } = useMemo(() => groupByOrg(shown), [shown]);
+  // projects asked of another device that have not arrived: a row each, until the room answers or you stop waiting
+  const waiting = state.pendingProjects.filter((p) => !p.topic && (!q || p.name.toLowerCase().includes(q)));
   const rowRoom = rowMenu ? state.rooms[rowMenu.topic] : null;
   const rowItems: MenuItem[] = rowRoom
     ? [
@@ -140,10 +142,26 @@ export function ProjectList({ rooms, query = '', grouped = true, phone, onNaviga
 
   return (
     <View className="w-full">
+      {waiting.length ? (
+        <SidebarSection title="Waiting">
+          {waiting.map((p) => (
+            <SidebarGroupRow
+              key={p.id}
+              seed={p.id}
+              title={p.name}
+              subtitle={`Waiting on ${p.asked}${p.online === false ? ', offline' : ''}${p.ts ? ` · asked ${shortTime(p.ts)}` : ''}`}
+              live={p.online !== false}
+              trailing={<IconButton icon="close" size="xs" hitSlop={6} tooltip={touch ? undefined : 'Stop waiting'} accessibilityLabel={`Stop waiting for ${p.name}`} onPress={() => actions.dismissPending(p.id)} />}
+            />
+          ))}
+        </SidebarSection>
+      ) : null}
       {!shown.length ? (
-        <Text variant="caption" tone="subtle" className="px-2.5 py-2">
-          {q ? 'No project matches.' : emptyText ?? (touch ? 'Press + to start a project.' : 'Drop a folder here, or press +.')}
-        </Text>
+        waiting.length ? null : (
+          <Text variant="caption" tone="subtle" className="px-2.5 py-2">
+            {q ? 'No project matches.' : emptyText ?? (touch ? 'Press + to start a project.' : 'Drop a folder here, or press +.')}
+          </Text>
+        )
       ) : !grouped ? (
         <View className="w-full gap-0.5">{shown.map(renderGroup)}</View>
       ) : (

@@ -1,12 +1,15 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Conversation, Device, LoginAsk, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Conversation, Device, LoginAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
 import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
 
 export type Thread = { items: Rec[]; hasOlder: boolean; loaded: boolean; loadingOlder?: boolean };
+
+/** A project asked of another device: shown as a "waiting on …" row until a room answers it (`topic`). */
+export type PendingEntry = { id: string; name: string; asked: string; topic?: string; online?: boolean; via?: string; ts?: number };
 
 export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'admitted'>;
 
@@ -20,7 +23,7 @@ export type State = {
   /** The home feed, newest first (feed.ts). */
   feed: FeedItem[];
   /** Projects another device was asked to create; `topic` is set once the room shows up. */
-  pendingProjects: { id: string; name: string; asked: string; topic?: string }[];
+  pendingProjects: PendingEntry[];
   roomOrder: string[];
   rooms: Record<string, RoomSummary>;
   details: Record<string, RoomDetail>;
@@ -55,8 +58,10 @@ export const initialState: State = {
 export type Action =
   | { type: 'init'; device: { name: string; ref?: string; human: string | null; canHost?: boolean }; rooms: RoomSummary[]; current?: RoomSnapshot | null }
   | { type: 'devices'; devices: Device[] }
-  | { type: 'pendingProject'; id: string; name: string; asked: string }
+  | { type: 'pendingProject'; id: string; name: string; asked: string; online?: boolean }
   | { type: 'pendingDone'; id: string }
+  /** The daemon's list of what this device still waits on; `hidden` are the ones the person dismissed. */
+  | { type: 'pendingProjects'; list: PendingRequest[]; hidden?: string[] }
   | { type: 'feedAdd'; item: FeedItem }
   | { type: 'feedOpen'; id: string }
   | { type: 'feedOpenAll' }
@@ -132,16 +137,19 @@ function applyRooms(state: State, rooms: RoomSummary[], announce = false): State
       convs[r.topic] = r.convs.map((c) => ({ conv: c.conv, title: c.title, archived: !!c.archived, last: c.last ?? null, count: c.count ?? 0, created: 0, runtime: null, busy: [] }));
     }
   }
-  // A project another device was asked for: the moment a room with its name appears, remember where.
+  // A project another device was asked for: the moment a room answers it (its app note names the request, or,
+  // from an older daemon, a new room carries its name), remember where.
   const known = new Set(Object.keys(state.rooms));
   const pendingProjects = state.pendingProjects.length
     ? state.pendingProjects.map((p) => {
         if (p.topic) return p;
-        const hit = rooms.find((r) => !known.has(r.topic) && r.name === p.name);
+        const hit = rooms.find((r) => r.app?.request === p.id) ?? rooms.find((r) => !known.has(r.topic) && r.name === p.name);
         return hit ? { ...p, topic: hit.topic } : p;
       })
     : state.pendingProjects;
-  return { ...state, rooms: next, roomOrder: rooms.map((r) => r.topic), convs, pendingProjects, feed };
+  // the room we were in has gone (closed by its owner, removed here): nothing is selected until the shell picks
+  const selected = state.selected.topic && !next[state.selected.topic] ? { topic: null, conv: null } : state.selected;
+  return { ...state, rooms: next, roomOrder: rooms.map((r) => r.topic), convs, pendingProjects, feed, selected };
 }
 
 export function reducer(state: State, action: Action): State {
@@ -156,9 +164,16 @@ export function reducer(state: State, action: Action): State {
     case 'devices':
       return { ...state, devices: action.devices };
     case 'pendingProject':
-      return { ...state, pendingProjects: [...state.pendingProjects.filter((p) => p.id !== action.id), { id: action.id, name: action.name, asked: action.asked }] };
+      return { ...state, pendingProjects: [...state.pendingProjects.filter((p) => p.id !== action.id), { id: action.id, name: action.name, asked: action.asked, online: action.online, ts: Date.now() }] };
     case 'pendingDone':
       return { ...state, pendingProjects: state.pendingProjects.filter((p) => p.id !== action.id) };
+    case 'pendingProjects': {
+      // the daemon's list is the truth across restarts; what already arrived here (topic set) stays until opened
+      const hidden = new Set(action.hidden ?? []);
+      const arrived = state.pendingProjects.filter((p) => p.topic);
+      const fresh = action.list.filter((p) => !hidden.has(p.id) && !arrived.some((a) => a.id === p.id)).map((p) => ({ id: p.id, name: p.name, asked: p.asked, online: p.online, via: p.via, ts: p.ts }));
+      return { ...state, pendingProjects: [...arrived, ...fresh] };
+    }
     case 'room': {
       const snap = action.snapshot;
       const topic = snap.topic;
