@@ -139,3 +139,12 @@ is up (`useKeyboardOpen`), and the status line above the field exists only when 
 GUI tests: `app/scripts/gui.test.mjs` drives the mock in a real browser (phone and desktop): send, the keyboard
 coming up and going away at the end and while reading, a reply landing while reading, Back from a project,
 Enter / Shift+Enter. `npm --prefix app run test:gui`; the Mac Mini's quick run has it as "shell: gui".
+
+### The note bubble and the dot (2026-11-22, later still)
+
+Guy, from a debug note that itself took twenty minutes to reach the Mac: "An indicator for the sync state of each
+note to the Mac as a little pop-up bubble right at the bottom after recording would be very helpful here … then add
+a little connection dot also for whether it's connected to the Mac or not." Both are PearKit pieces (`SyncBubble`,
+`DebugNotesButton connection=`), fed by `GET /api/debug/sync`; the full account is in `debug-notes-module.md`, "The
+bubble and the dot". The same investigation found that pearcore ignores a peer's refusal mid-download, which is why
+a pull could wait in silence; the daemon now reads the refusal and says it.

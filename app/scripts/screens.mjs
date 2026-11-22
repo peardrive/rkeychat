@@ -131,6 +131,17 @@ await shot('phone-projects', {
     await must(page, page.getByText('PearDrive', { exact: true }), 'PearDrive under Anjou');
   },
 });
+await shot('phone-note-bubble', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    await page.getByRole('button', { name: /^Start a debug note/ }).first().tap();
+    await page.waitForTimeout(1200);
+    await page.getByRole('button', { name: /^Stop the debug note/ }).first().tap();
+    await page.locator('[data-sync-state="sending"]').waitFor({ timeout: 6000 }).catch(() => {});
+    await must(page, page.locator('[data-sync-state="sending"]'), 'the sync bubble while the note goes to the Mac');
+  },
+});
 await shot('phone-settings', { ...phone, before: async (page) => { await dockTo(page, 'Settings'); await must(page, page.getByText('Workspace folder'), 'the settings page'); } });
 await shot('phone-conversation', {
   ...phone,

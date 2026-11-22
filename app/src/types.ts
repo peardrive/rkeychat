@@ -51,6 +51,10 @@ export type LoginAsk = { topic: string; device: string; deviceName: string; name
 /** A saved debug note (`GET /api/debug/notes` → notes[]): note.json plus where it is. */
 export type DebugNoteInfo = { id: string; startedAt?: string; seconds?: number; steps?: number; app?: string; where?: Record<string, unknown>; noAudio?: string; audio?: string | null; dir?: string; from?: string };
 export type DebugSpaceInfo = { dir: string; sharelink: string | null; topic?: string | null; count: number; error?: string };
+/** Where one of this device's notes stands with its readers (`GET /api/debug/sync` → notes[id]). */
+export type DebugNoteSync = { files: number; state: 'local' | 'fetching' | 'fetched'; by: Record<string, { name: string | null; got: number; of: number }> };
+/** The notes space as seen from this device: who is on it, who has fetched what (the bubble and the dot). */
+export type DebugSyncInfo = { connected: boolean; peers: number; readers: { key: string; name: string | null }[]; notes: Record<string, DebugNoteSync> };
 
 /** An agent's rule in a room's charter. */
 export type AgentRule = { role?: string; wake?: 'order' | 'mention' | 'backup'; backupFor?: string | null; tokensPerDay?: number };

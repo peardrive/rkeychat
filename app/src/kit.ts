@@ -58,6 +58,8 @@ export {
   SidebarSpacer,
   SidebarToggle,
   StatusDot,
+  StatusPill,
+  SyncBubble,
   Text,
   TextField,
   ThemeProvider,
@@ -75,12 +77,15 @@ export {
   messageTime,
   placeOf,
   quotedMessages,
+  syncBubbleLinger,
+  syncProgressLabel,
+  syncStateMeta,
   useSidebar,
   useTheme,
   useToast,
   withAlpha,
 } from 'pearkit';
-export type { ActivityItem, ActivityKind, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, ToastOptions } from 'pearkit';
+export type { ActivityItem, ActivityKind, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, NetworkState, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, SyncState, ToastOptions } from 'pearkit';
 
 // Pending in PearKit: the file rows of a project (projects-home-and-sync.md §3).
 export { FileList, FileRow } from './pending-pearkit/FileList';

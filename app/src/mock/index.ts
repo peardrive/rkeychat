@@ -4,7 +4,7 @@
  */
 import type { Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, Conversation, Device, EventName, Events, FileEntry, PendingRequest, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, Conversation, DebugNoteSync, Device, EventName, Events, FileEntry, PendingRequest, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -164,6 +164,8 @@ const mockNotes: { id: string; startedAt?: string; seconds?: number; steps?: num
   { id: '2026-11-18T21-04-12', startedAt: new Date(min(1300)).toISOString(), seconds: 41, steps: 12, where: { page: 'conversation', project: 'PearDrive', conversation: 'Redesign the share row' }, audio: 'note.webm' },
   { id: '2026-11-19T09-40-03', startedAt: new Date(min(60)).toISOString(), seconds: 9, steps: 4, where: { page: 'home' }, audio: null },
 ];
+const noteSavedAt = new Map<string, number>(); // when a note was saved here (the sync bubble's clock); older notes count as long fetched
+const MAC_KEY = '0431eed5ea51a96bb00eb76482a30f0a050c5625fd98bc6fc73fa15f61bfa3da';
 const rooms = new Map<string, MockRoom>([peardrive, pearcast, notes, family].map((r) => [r.topic, r]));
 peardrive.reactions[peardrive.log[6].id] = { '👍': [ME] };
 
@@ -473,7 +475,20 @@ export const mockApi: Api = {
   async debugSaveNote({ id, audio, trace, meta }) {
     await sleep(LATENCY * 2);
     mockNotes.push({ id, ...(meta as object), steps: trace.length, audio: audio ? 'note.webm' : null });
+    noteSavedAt.set(id, Date.now());
     return { id, files: ['trace.jsonl', 'note.json'], shared: true, sharelink: 'peardrive://debug-notes-7e9558905c031c7a647a' };
+  },
+  // The Mac is on the notes space; a note just saved is fetched over about three seconds (the bubble's states)
+  async debugSync() {
+    await sleep(LATENCY / 2);
+    const notes: Record<string, DebugNoteSync> = {};
+    for (const n of mockNotes) {
+      const age = Date.now() - (noteSavedAt.get(n.id) ?? 0);
+      const files = n.audio ? 3 : 2;
+      const got = age < 1200 ? -1 : age < 2200 ? 1 : age < 3200 ? files - 1 : files;
+      notes[n.id] = got < 0 ? { files, state: 'local', by: {} } : { files, state: got >= files ? 'fetched' : 'fetching', by: { [MAC_KEY]: { name: 'macbook', got, of: files } } };
+    }
+    return { connected: true, peers: 1, readers: [{ key: MAC_KEY, name: 'macbook' }], notes };
   },
   async debugShare({ id }) {
     await sleep(LATENCY);

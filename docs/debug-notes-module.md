@@ -100,3 +100,32 @@ web recorder, DOM capture, `createDebugNotes`) and `DebugNotesButton` / `useDebu
 files per note, same step shapes, so this app's store, `rkeychat notes` and the reader side are unchanged. rKeyChat's
 in-page copy (`createTrace` in `src/ui/index.html`) stays until the GUI moves onto Pearkit; `~/Anjou/pear-ui/debug/`
 is the plain-JS mirror for the vanilla apps.
+
+## The bubble and the dot (2026-11-22)
+
+A note taken on the phone was arriving on the Mac hours late or not at all, and nothing on the phone said which. Two
+small things now say it, both from PearKit:
+
+- **The dot.** The debug button carries a 6px dot at its corner (`DebugNotesButton connection=`): green and glowing
+  while a reader is on this device's notes space, grey when none is. The daemon knows from the sockets on the
+  space's topic (`DebugNotes.peers()`), and the shell asks `GET /api/debug/sync` every ten seconds.
+- **The bubble.** When a note stops, a pill comes up at the bottom of the screen (`SyncBubble`, above the dock or the
+  composer) and follows the note: *Saved · checking the sync* → *Waiting for the Mac · open rKeyChat there* (or
+  *macbook is connected · waiting for it to fetch the note*) → *Sending to macbook · 2 of 3 files* → *On macbook ·
+  3 files*, then it goes on its own four seconds later. A note that could not be saved, or whose space is down,
+  says so and stays eight seconds; a wait gives up after two minutes (the state is still shown beside the note in
+  Settings › Debug, as a pill). Tap the bubble to dismiss it. While a bubble is up the shell asks every 1.5 s.
+
+How the phone knows: pearcore tells the serving side about every `SpaceFileTreeRequest` and
+`SpaceFileContentRequest` it answers. `src/debug-notes.js` keeps, per reader key, which note files were asked for
+and which had their last chunk asked for (file size ÷ 256 KB chunks); a note is `fetching` once a reader asked for
+any of its files and `fetched` once every file's last chunk went out to one reader. The reader's name comes from the
+owner's device list when the key is one of them. Only this session is remembered: after a restart a note shows as
+waiting again until it is asked for again, which is honest enough. The rules are tested in
+`test/debug-notes-sync.test.js` (daemon), `app/src/debugSync.test.ts` (the words), PearKit's `syncState.test.ts`,
+and the GUI test "debug note: a bubble at the bottom…" drives the whole thing in a browser against the mock.
+
+**A pull that is not going to work now says why.** pearcore (156a268) drops a peer's `Reject` on the floor inside a
+download, so a pull of a file the other side refuses waited ten minutes in silence. The daemon now listens for
+`Reject`, logs it (`[debug] <peer> refused a request: <reason>`), and a pull fails within 90 s per file naming the
+refusal. `GET /api/debug/downloads` lists this device's downloads in flight (providers, whether the tree is known).

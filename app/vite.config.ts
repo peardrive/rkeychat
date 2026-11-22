@@ -15,7 +15,11 @@ export default defineConfig({
   base: '/app/',
   plugins: [pearkit()],
   resolve: {
-    alias: [{ find: /^pearkit$/, replacement: PEARKIT_SRC }],
+    alias: [
+      { find: /^pearkit$/, replacement: PEARKIT_SRC },
+      // the pure rules of a few PearKit pieces, importable without the components (unit tests run in Node)
+      { find: /^pearkit\/sync$/, replacement: path.resolve(here, '../../pearkit--projects-shell/src/components/SyncBubble/syncState.ts') },
+    ],
     // pearkit lives behind a symlink with its own node_modules: one React, one RNW, one NativeWind.
     dedupe: ['react', 'react-dom', 'react-native', 'react-native-web', 'nativewind', 'react-native-css-interop', 'react-native-svg'],
   },

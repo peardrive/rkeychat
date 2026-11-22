@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { ConversationPane } from './components/ConversationPane';
+import { DebugSyncBubble } from './components/DebugSyncBubble';
 import { DesktopSidebar } from './components/DesktopSidebar';
 import { ActivityPage, HomePage, ProjectsPage } from './components/HomePage';
 import { NewProjectDialog, type NewProjectSubmit } from './components/NewProjectDialog';
@@ -243,6 +244,7 @@ function Shell() {
         <View className="relative min-h-0 flex-1">
           {overlayNode ?? pageNode(dock)}
           {overlay.kind === 'none' ? <Dock items={dockItems} value={dock} onChange={(k) => setDock(k as DockPage)} inset={`calc(10px + ${SAFE_BOTTOM})`} /> : null}
+          <DebugSyncBubble phone />
         </View>
         {dialogs}
       </AppWindow>
@@ -270,6 +272,7 @@ function Shell() {
       {middle}
       {projectOpen && dock !== 'settings' && overlay.kind !== 'profile' && state.selected.topic && state.selected.conv ? <ProjectPane width={PROJECT_WIDTH} phone={false} onClose={toggleProject} onChangeFolder={changeFolder} onProjectAction={onProjectAction} onOpenProfile={openProfile} /> : null}
       {dialogs}
+      <DebugSyncBubble phone={false} />
     </AppWindow>
   );
 }

@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
+import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -33,6 +33,8 @@ export interface Api {
   loginGrant(topic: string): Promise<unknown>;
   loginDeny(topic: string): Promise<unknown>;
   debugNotes(): Promise<DebugSpaceInfo & { notes: DebugNoteInfo[] }>;
+  /** Who is on the notes space and which reader has fetched which note. */
+  debugSync(): Promise<DebugSyncInfo>;
   /** `audio` is base64 of the recording (≤ 8 MB), or null for a steps-only note. */
   debugSaveNote(body: { id: string; audio: string | null; audioType: string | null; trace: unknown[]; meta: Record<string, unknown> }): Promise<{ id: string; dir?: string; files?: string[]; shared?: boolean; sharelink?: string | null }>;
   /** Posts a saved note's files into a room's conversation. */
@@ -116,6 +118,7 @@ export const httpApi: Api = {
   loginGrant: (topic) => post('login/grant', { topic }),
   loginDeny: (topic) => post('login/deny', { topic }),
   debugNotes: () => get('debug/notes'),
+  debugSync: () => get('debug/sync'),
   debugSaveNote: (b) => post('debug/note', b),
   debugShare: (b) => post('debug/share', b),
   setAgentVia: (b) => post('agents/via', b),

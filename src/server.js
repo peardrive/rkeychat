@@ -386,6 +386,10 @@ export function serve ({ app }) {
       return { name: sp.spaceName, topic: sp.topicHash, isSync: sp.isSync, peers, files: Object.entries(list).map(([p, v]) => ({ path: p, versions: Object.keys(v).length, providers: Object.values(v).map((x) => Object.keys(x.peers ?? {}).length) })) }
     },
     'GET /api/debug/notes': async () => ({ ...(await notes.info()), notes: notes.list() }),
+    // where this device's notes stand with their readers (the phone's bubble and its dot): see DebugNotes.status
+    'GET /api/debug/sync': async () => { await notes.open().catch(() => {}); return notes.status() },
+    // this device's own downloads in flight (a pull that takes long): what each one waits for
+    'GET /api/debug/downloads': () => notes.downloads(),
     'POST /api/debug/note': async (req) => {
       const n = JSON.parse(await rawBody(req, MAX_BLOB) || '{}')
       const audio = n.audio ? Buffer.from(String(n.audio), 'base64') : null

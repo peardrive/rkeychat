@@ -15,6 +15,7 @@
     "types": ["vite/client"],
     "paths": {
       "pearkit": ["../../pearkit--projects-shell/src/index.ts"],
+      "pearkit/sync": ["../../pearkit--projects-shell/src/components/SyncBubble/syncState.ts"],
       "react-native": ["../../pearkit--projects-shell/node_modules/react-native/types_generated/index.d.ts"]
     }
   },

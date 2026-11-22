@@ -10,6 +10,7 @@ import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+process.chdir(path.join(here, '..')); // Tailwind's content globs are relative to the working directory: run from app/ wherever we were started
 const PORT = Number(process.env.GUI_PORT || 5199);
 const PHONE = { width: 390, height: 844 };
 const KEYBOARD = 336; // what an iPhone keyboard takes
@@ -181,6 +182,39 @@ test('desktop: Enter sends, Shift+Enter makes a new line', async () => {
     await page.waitForTimeout(300);
     assert.equal(await field.inputValue(), '');
     assert.ok(await page.getByText('second line').last().isVisible());
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('debug note: a bubble at the bottom follows the note to the Mac and goes once it is there; the button shows the Mac connected', async () => {
+  const { page, ctx, errors } = await open();
+  try {
+    await page.getByRole('tab', { name: 'Projects' }).tap();
+    await page.waitForTimeout(400);
+    const start = page.getByRole('button', { name: /^Start a debug note/ }).first();
+    // the dot: the mock's Mac is on the notes space
+    assert.match(await start.getAttribute('aria-label'), /macbook is connected/, 'the button says who is connected');
+    assert.equal(await page.locator('[data-connection="connected"]').count(), 1, 'a connected dot sits on the button');
+    await start.tap();
+    await page.waitForTimeout(1200); // two quick taps on one spot would be a double-tap (zoom) on a phone
+    await page.getByRole('button', { name: /^Stop the debug note/ }).first().tap();
+    // the bubble comes up at the bottom, above the dock, and says the note is on its way
+    const bubble = page.locator('[data-sync-state]');
+    await bubble.waitFor({ timeout: 3000 });
+    const [b, dock] = [await box(bubble), await box(page.getByRole('tab', { name: 'Projects' }))];
+    assert.ok(b.y + b.height <= dock.y + 1, `the bubble sits above the dock (bubble bottom ${Math.round(b.y + b.height)}, dock top ${Math.round(dock.y)})`);
+    assert.ok(PHONE.height - (b.y + b.height) < 130, `the bubble is right at the bottom (${Math.round(PHONE.height - (b.y + b.height))}px up)`);
+    assert.ok(Math.abs(b.x + b.width / 2 - PHONE.width / 2) < 4, 'the bubble is centred');
+    assert.match(await bubble.textContent(), /Waiting|Sending|macbook/);
+    // it follows the files to the Mac and glows once they are there
+    await page.locator('[data-sync-state="sending"]').waitFor({ timeout: 6000 });
+    assert.match(await bubble.textContent(), /Sending to macbook/);
+    await page.locator('[data-sync-state="synced"]').waitFor({ timeout: 6000 });
+    assert.match(await bubble.textContent(), /On macbook/);
+    // and goes on its own a few seconds later
+    await bubble.waitFor({ state: 'detached', timeout: 8000 });
     assert.deepEqual(errors, []);
   } finally {
     await ctx.close();

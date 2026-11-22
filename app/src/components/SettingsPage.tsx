@@ -6,10 +6,11 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { getApi } from '../api';
 import { SAFE_TOP } from '../hooks';
-import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, Text, TextField, Toggle, useToast } from '../kit';
+import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, StatusPill, Text, TextField, Toggle, useToast } from '../kit';
 import { useStore } from '../store/context';
 import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person } from '../types';
 import { DebugButton } from './DebugButton';
+import { notePill, useDebugSync } from '../debugSync';
 import { LinkField, copyToClipboard } from '../kit';
 import { shortTime } from '../time';
 
@@ -26,6 +27,7 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
   const [debug, setDebug] = useState<(DebugSpaceInfo & { notes: DebugNoteInfo[] }) | null>(null);
   const [sharing, setSharing] = useState<string | null>(null);
+  const { sync } = useDebugSync();
 
   useEffect(() => {
     getApi()
@@ -141,7 +143,12 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
                   key={n.id}
                   label={n.id}
                   hint={[n.startedAt ? shortTime(Date.parse(n.startedAt)) : null, n.seconds != null ? `${n.seconds}s` : null, n.steps != null ? `${n.steps} steps` : null, n.audio ? 'voice' : 'steps only', where || null, n.from ? `from ${n.from}` : null].filter(Boolean).join(' · ')}
-                  control={<Button size="sm" variant="subtle" label="Share into this project" loading={sharing === n.id} disabled={!state.selected.topic} onPress={() => void shareNote(n.id)} />}
+                  control={
+                    <View className="flex-row items-center gap-2">
+                      {n.from ? null : <StatusPill {...notePill(sync?.notes[n.id], sync)} />}
+                      <Button size="sm" variant="subtle" label="Share into this project" loading={sharing === n.id} disabled={!state.selected.topic} onPress={() => void shareNote(n.id)} />
+                    </View>
+                  }
                   divider={i < debug.notes.length - 1}
                 />
               );
