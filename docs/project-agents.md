@@ -141,6 +141,16 @@ Tests: `test/asks.test.js` (the gate: jeff's forged answer is refused with `scop
 ends the wait with null; `verdict`), `app/src/store/asks.test.ts` (the card and Needs you follow the records),
 PearKit `askLogic.test.ts`, and the GUI test "an agent asks for a permission" in a real browser.
 
+**How long an ask waits.** Ten minutes by default. `rkeychat agent ask-minutes NAME 30` sets one seat's wait
+(its `bridge.askMinutes`); `rkeychat agent ask-minutes all 30` sets this device's default (`askMinutes` in
+config.json); 1 to 120 minutes, live for the next ask. The turn's own 20-minute clock stops while a person is
+asked, so a long wait does not time the turn out. API: `POST /api/agents/ask-minutes { name?, minutes }`.
+
+**Who may answer, as the shell sees it.** The room snapshot's `ownerDevice` is the daemon's own test
+(`isOwnerKey` on this device's human key), true on the owner's phone as well as the Mac; the older `owner` flag
+means "this device holds the root key" and is false on a phone, which is why the first phone build showed the
+lock line to Guy himself (2026-11-22).
+
 Not yet: `allow_always` is the agent's own memory (Claude Code stops asking for that rule within the session);
 the seat's tool list on disk is not widened. The permission mode switch and the model/provider per seat from the
 same memo are next.

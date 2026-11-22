@@ -57,6 +57,7 @@ agents
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat asks [--room R]                 what agents wait on a person for; answer: rkeychat answer ASK allow|deny [--always]
+  rkeychat agent ask-minutes NAME|all N    how long an ask waits for a person (1–120 min; default 10)
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
@@ -206,6 +207,14 @@ switch (cmd) {
       const name = pos[1] ?? die('usage: rkeychat agent tools NAME lab|none|RULE,RULE…   e.g. rkeychat agent tools peardrive "Bash(git:*),Bash(npm:*),Read"')
       const r = await api('POST', '/api/agents/tools', { name, tools: pos[2] ?? opt.tools ?? 'lab' })
       console.log(`@${r.name}: ${r.tools}\n  in effect from its next turn`)
+      break
+    }
+    if (sub === 'ask-minutes') {
+      // how long an ask waits for a person: one seat, or `all` for this device's default
+      const [, name, n] = pos
+      if (!name || !(Number(n) >= 1)) die('usage: rkeychat agent ask-minutes NAME|all MINUTES   (1–120; default 10)')
+      const r = await api('POST', '/api/agents/ask-minutes', { name: name === 'all' ? undefined : name, minutes: Number(n) })
+      console.log(`${r.name ? `@${r.name}` : 'every seat on this device'}: an ask waits ${r.minutes} min${r.name ? ` (device default ${r.default})` : ''}`)
       break
     }
     if (sub === 'via') {

@@ -11,7 +11,7 @@ export type Thread = { items: Rec[]; hasOlder: boolean; loaded: boolean; loading
 /** A project asked of another device: shown as a "waiting on …" row until a room answers it (`topic`). */
 export type PendingEntry = { id: string; name: string; asked: string; topic?: string; online?: boolean; via?: string; ts?: number };
 
-export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'admitted'>;
+export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'ownerDevice' | 'admitted'>;
 
 export type State = {
   ready: boolean;
@@ -100,6 +100,7 @@ function detailOf(s: RoomSnapshot): RoomDetail {
     members: s.members ?? [],
     reactions: s.reactions ?? {},
     owner: s.owner,
+    ownerDevice: s.ownerDevice,
     admitted: s.admitted,
   };
 }

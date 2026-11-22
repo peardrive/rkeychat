@@ -149,7 +149,10 @@ export type Reactions = Record<string, Record<string, string[]>>;
 export type RoomSnapshot = {
   name: string;
   topic: string;
+  /** This device holds the room's root key. */
   owner: boolean;
+  /** This device's human key is one of the owner's own (the phone included): it may answer an agent's ask. */
+  ownerDevice?: boolean;
   root?: string | null;
   admitted: boolean;
   participants: Participant[];

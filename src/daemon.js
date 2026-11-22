@@ -17,7 +17,7 @@ import { Chain, generate, consent, enroll } from 'rkey'
 import { loadConfig, saveConfig, dataDir, participantSigners, rootSigner, deviceSigner, migrate, addParticipant, readKeyFile } from './config.js'
 import { RoomStore } from './store.js'
 import { Room, joinRequest } from './room.js'
-import { AgentRunner } from './agents.js'
+import { AgentRunner, askSettings } from './agents.js'
 import { parseTools, resolveTools, describeTools } from './tools.js'
 import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
@@ -50,7 +50,8 @@ export class App extends EventEmitter {
     this.core = core
     this.device = device
     this.rooms = new Map() // topic -> { room, runners: Map<name, AgentRunner> }
-    this.inflight = new Set() // project request ids being made right now
+    this.inflight = new Set()
+    if (Number(this.cfg.askMinutes) >= 1) askSettings.minutes = Number(this.cfg.askMinutes) // how long an agent's ask waits (docs/project-agents.md) // project request ids being made right now
     this.closing = new Set() // rooms this device is closing itself (their own 'close' must not re-enter removeRoom)
   }
 
@@ -185,6 +186,25 @@ export class App extends EventEmitter {
     }
     this.emit('agents-changed')
     return { name, dir, keyFile, ref: p.signer.ref, account: p.account?.ref ?? null, enrolled, tools: describeTools(tools), via }
+  }
+
+  // How long an agent's ask waits for a person: per seat (its bridge), else the device default (config.json
+  // askMinutes), else ten minutes. Live: the runners read it on the next ask.
+  setAskMinutes (name, minutes) {
+    const n = Number(minutes)
+    if (!(n >= 1 && n <= 120)) throw new Error('ask minutes must be between 1 and 120')
+    if (name) {
+      const raw = this.cfg.participants[name]
+      if (!raw) throw new Error(`no agent ${name} on this device`)
+      if (raw.bridge?.kind !== 'claude') throw new Error(`${name} is not a project agent`)
+      raw.bridge.askMinutes = n
+      for (const { runners } of this.rooms.values()) { const r = runners.get(name); if (r?.bridge) r.bridge.askMinutes = n }
+    } else {
+      this.cfg.askMinutes = n
+      askSettings.minutes = n
+    }
+    saveConfig(this.cfg)
+    return { name: name ?? null, minutes: n, default: this.cfg.askMinutes ?? askSettings.minutes }
   }
 
   // Switch a project agent between the two ways of driving Claude Code. Live: its process

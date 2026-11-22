@@ -206,6 +206,7 @@ function snapshot(r: MockRoom, conv = 'main'): RoomSnapshot {
     name: r.name,
     topic: r.topic,
     owner: true,
+    ownerDevice: true,
     admitted: true,
     participants: r.participants,
     members: r.participants.map((x) => ({ name: x.name, scope: x.role === 'human' ? ['chat', 'admin'] : ['chat', 'agent'] })),

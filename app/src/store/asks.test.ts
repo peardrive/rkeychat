@@ -26,6 +26,13 @@ describe('an agent asking for a permission', () => {
     expect(again.threads['t1/main'].items.length).toBe(2);
   });
 
+  it('whether this device may answer comes from the snapshot\'s ownerDevice, with owner as the older fallback', () => {
+    const snap = { name: 'PearDrive', topic: 't1', owner: false, ownerDevice: true, admitted: true, participants: [], members: [], reactions: {}, charter: { text: '', order: [], agents: {} }, convs: [], conv: 'main', seats: [], folder: null, app: null, log: [], hasOlder: false } as never;
+    const s = reducer(booted(), { type: 'room', snapshot: snap });
+    expect(s.details.t1.ownerDevice).toBe(true);
+    expect(s.details.t1.owner).toBe(false);
+  });
+
   it('the daemon\'s open asks at boot become Needs-you items, one per ask', () => {
     let s = reducer(booted(), { type: 'asks', asks: [{ ...ask, topic: 't1', room: 'PearDrive' } as never] });
     expect(s.feed.map((f) => f.id)).toEqual(['perm:ask1']);

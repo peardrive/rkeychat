@@ -81,6 +81,11 @@ Control actions added to the server whitelist: `conv`, `app`.
 | `GET /api/asks` | `?room=&conv=` optional | `{ asks: [ask + { topic, room }] }` | agents' open asks (unanswered, not lapsed), oldest first; every room without `room` |
 | `POST /api/asks/answer` | `{ room, ask, choice }` | the viewed `answer` control | `choice`: `allow_once \| allow_always \| reject_once \| reject_always`. Writes an account-gated control: refused unless this device's human key is the owner's |
 
+| `POST /api/agents/ask-minutes` | `{ name?, minutes }` | `{ name, minutes, default }` | how long an ask waits (1–120 min); without `name`, this device's default |
+
+`RoomSnapshot.ownerDevice`: this device's human key is one of the owner's own (it may answer); `owner` still
+means "holds the root key".
+
 Records: `ask { kind: 'ask', tool, what, input, options: [{ id, kind, name? }], expires, conv }` signed by the
 agent; `control { action: 'answer', ask, choice }` signed by an owner key. Both are in the page log and arrive as
 `record` pushes; agents never read them. See project-agents.md "Asking a person".

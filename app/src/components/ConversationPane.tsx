@@ -89,7 +89,8 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
     return out;
   }, [thread]);
   const [answering, setAnswering] = useState<string | null>(null);
-  const canAnswer = !!state.me?.human && !!(topic && state.details[topic]?.owner);
+  // one of the owner's own devices (the daemon's own test, so the phone counts); an older daemon says only `owner`
+  const canAnswer = !!state.me?.human && !!(topic && (state.details[topic]?.ownerDevice ?? state.details[topic]?.owner));
   const answerAsk = async (id: string, choice: AskChoice) => {
     if (!topic) return;
     setAnswering(id);

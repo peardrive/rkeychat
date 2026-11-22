@@ -28,7 +28,7 @@ import { agentSession, sessionKeyOf } from './config.js'
 import { MAIN } from './proto.js'
 
 const IDLE_MS = 30 * 60_000
-export const ASK_TIMEOUT_MS = 10 * 60_000
+export const ASK_TIMEOUT_MS = 10 * 60_000 // the default; the runner's askMinutes() says what applies
 const TURN_TIMEOUT_MS = 20 * 60_000
 const require = createRequire(import.meta.url)
 
@@ -38,7 +38,7 @@ export function adapterPath () {
 }
 
 export class AcpProcess {
-  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk }) {
+  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk, askMinutes }) {
     this.name = name
     this.room = room
     this.conv = conv
@@ -48,6 +48,7 @@ export class AcpProcess {
     this.onActivity = onActivity ?? (() => {})
     // ask a person: ({ tool, what, input, options }) → Promise<{ choice, by, device } | null>; without it, refused
     this.onAsk = onAsk ?? null
+    this.askMinutes = askMinutes ?? (() => ASK_TIMEOUT_MS / 60_000) // how long that wait is, for the words
     this.child = null
     this.cx = null // ClientContext once connected
     this.sessionId = null
@@ -238,15 +239,20 @@ export class AcpProcess {
     if (v === 'ask' && this.onAsk) {
       this.onActivity(`asks for ${tool}: ${what}`)
       let a = null
+      // the turn's own clock stops while a person is asked: the wait is theirs, not the agent's
+      const pend = this.pending
+      if (pend?.timer) clearTimeout(pend.timer)
       try {
         a = await this.onAsk({ tool, what, input: summarizeFull(input), options: (options ?? []).map((o) => ({ id: o.optionId, kind: o.kind, name: o.name })) })
-      } catch (err) { this.onActivity(`could not ask: ${err?.message ?? err}`) }
+      } catch (err) { this.onActivity(`could not ask: ${err?.message ?? err}`) } finally {
+        if (pend && this.pending === pend) pend.timer = setTimeout(() => this.stop('turn timed out'), TURN_TIMEOUT_MS)
+      }
       if (a?.choice) {
         const chosen = options?.find((o) => o.kind === a.choice) ?? pick(a.choice.startsWith('allow') ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always'])
         this.onActivity(`${a.choice.startsWith('allow') ? 'allowed' : 'refused'} by ${a.by ?? 'the owner'}${a.device ? ` (${a.device})` : ''}${a.choice.endsWith('always') ? ', always' : ''}: ${tool}: ${what}`)
         return answer(chosen)
       }
-      this.onActivity(`nobody answered in ${Math.round(ASK_TIMEOUT_MS / 60_000)} minutes: refused ${tool}: ${what}`)
+      this.onActivity(`nobody answered in ${this.askMinutes()} minutes: refused ${tool}: ${what}`)
       v = 'deny'
     }
     const allowed = v === 'allow'
