@@ -69,7 +69,9 @@ export async function makeMessage (signer, { room, text, mentions = [], re = [],
 // Conversations and apps: 'conv' (conv = its id; text = title; archived; runtime) describes one
 // conversation of the room, latest record per field wins; 'app' (app = which app made this
 // room, role = what the room is to it: 'chat' | 'project', name, icon) is the signed note
-// PearDrive's "My Apps" asks for, so a space can say which app it belongs to.
+// PearDrive's "My Apps" asks for, so a space can say which app it belongs to. 'project' (name, home, text, org)
+// asks one of the owner's devices to make a project; the answering room's 'app' note carries `request` (that
+// record's id). 'close' (owner only) says the room is finished: every device drops it.
 export const APP_ROLES = ['chat', 'project']
 export const WAKE_MODES = ['order', 'mention', 'backup']
 export function cleanAgentRules (agents) {
@@ -87,7 +89,7 @@ export function cleanAgentRules (agents) {
   }
   return out
 }
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, ts = Date.now() }) {
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
@@ -104,7 +106,9 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
     // the device a project lives on: { device: <device key ref>, name: 'macbook' } (app and project controls)
     home: home === undefined ? undefined : home === null ? null : { device: String(home.device).slice(0, 140), name: String(home.name ?? '').slice(0, 80) },
     // the organization a project belongs to (a name people use: 'Bitcoin Audible'); null takes it out of one
-    org: org === undefined ? undefined : org === null ? null : String(org).trim().slice(0, 80)
+    org: org === undefined ? undefined : org === null ? null : String(org).trim().slice(0, 80),
+    // the 'project' request (its record id) an 'app' note answers: the device that asked matches the room by it
+    request: request === undefined ? undefined : String(request).slice(0, 32)
   })
 }
 

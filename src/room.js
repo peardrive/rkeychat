@@ -17,8 +17,8 @@ import { RoomSearch } from './search.js'
 // record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
 // messages they point at; invites are addressed to one device)
 export const FEED_SKIP = ['react', 'redact', 'invite']
-// controls only the owner's own keys may write (see #admits)
-export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch']
+// controls only the owner's own keys may write (see #admits); 'close' ends the room for everyone
+export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch', 'close']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -325,10 +325,17 @@ export class Room extends EventEmitter {
     for (const r of this.store.ordered) {
       if (r.kind !== 'control' || r.action !== 'app' || !r.app) continue
       // each note carries what it says; what it leaves out stays as it was (an 'org' change does not forget the home)
-      a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : (a?.role ?? 'chat'), name: r.name ?? a?.name ?? this.cfg.name, home: r.home !== undefined ? r.home : (a?.home ?? null), org: r.org !== undefined ? r.org : (a?.org ?? null), ...(r.icon ? { icon: r.icon } : a?.icon ? { icon: a.icon } : {}) }
+      a = { app: r.app, role: APP_ROLES.includes(r.role) ? r.role : (a?.role ?? 'chat'), name: r.name ?? a?.name ?? this.cfg.name, home: r.home !== undefined ? r.home : (a?.home ?? null), org: r.org !== undefined ? r.org : (a?.org ?? null), request: r.request !== undefined ? r.request : (a?.request ?? null), ...(r.icon ? { icon: r.icon } : a?.icon ? { icon: a.icon } : {}) }
     }
     return a
   }
+
+  // The 'project' requests carried by this room (docs/projects-home-and-sync.md §1), oldest first. Each passed
+  // the account gate, so each was signed by one of the owner's own devices.
+  projectRequests () { return this.store.ordered.filter((r) => r.kind === 'control' && r.action === 'project') }
+
+  // Has the owner closed this room? (A 'close' control; only the owner's keys pass the gate for it.)
+  closed () { return this.store.ordered.some((r) => r.kind === 'control' && r.action === 'close') }
 
   // The device a project's folder lives on (docs/projects-home-and-sync.md §1), or null for a chat.
   home () { return this.appInfo()?.home ?? null }
@@ -420,6 +427,14 @@ export class Room extends EventEmitter {
 
   // ---------- ingest ----------
 
+  // A record handed in from outside the space transport (a test, another carrier): taken exactly as a peer's
+  // would be. Returns 'ok' or why it was refused.
+  receive (rec) {
+    const why = this.#admitReason(rec)
+    if (why === 'ok') this.#ingest(rec)
+    return why
+  }
+
   async #onSpaceMessage ({ message, content }) {
     if (message.topic !== this.topic || !isOurs(content)) return
     this.lastRx = Date.now()
@@ -470,6 +485,8 @@ export class Room extends EventEmitter {
     if (rec.kind === 'control' && rec.action === 'rename') this.applyRename()
     if (rec.kind === 'invite' && rec.to === this.device.ref) this.emit('invite', { code: rec.code, from: this.cfg.name })
     if (!quiet) this.emit('record', this.view(rec))
+    // the owner ended the room: whoever holds it drops it (the daemon listens)
+    if (rec.kind === 'control' && rec.action === 'close') this.emit('closed', this.view(rec))
     // a debug note shared from another device (a phone, mostly): fetch its files now, while that device is
     // awake, so a helper can read them later from here. Phones don't; they're the ones sleeping.
     if (!quiet && rec.kind === 'msg' && rec.via === 'note' && typeof Bare === 'undefined') {
@@ -1040,10 +1057,13 @@ export class Room extends EventEmitter {
   }
 
   // Say which app this room belongs to and what it is to it (see proto.js 'app'). Owner-side, once per change.
-  async setApp (name, { app = 'rkeychat', role, title, icon, home, org } = {}) {
+  async setApp (name, { app = 'rkeychat', role, title, icon, home, org, request } = {}) {
     if (role !== undefined && !APP_ROLES.includes(role)) throw new Error(`role must be one of ${APP_ROLES.join(', ')}`)
-    return this.control(name, 'app', { app, role, name: title, icon, home, org })
+    return this.control(name, 'app', { app, role, name: title, icon, home, org, request })
   }
+
+  // The owner ends the room: a signed 'close' control. Every device that sees it takes the room off itself.
+  async close (name) { return this.control(name, 'close') }
 
   // Ask one of the owner's devices to make a project (docs/projects-home-and-sync.md §1): a signed, account-gated
   // 'project' control carried by this room; the home device acts on it when it sees it.

@@ -6,8 +6,7 @@ import { join, resolve, basename } from 'node:path'
 // can this device hold project folders and run seats? (the phone runs on Bare: no)
 const canHost = () => typeof Bare === 'undefined'
 
-// a seat name from a folder name: lower case, letters digits - _ only
-const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project'
+import { slug, requestsFor, requestOf, pendingProjectsOf } from './project-requests.js'
 import { existsSync, readFileSync, appendFileSync, mkdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { loadSettings } from './glossary.js'
@@ -51,7 +50,12 @@ export class App extends EventEmitter {
     this.core = core
     this.device = device
     this.rooms = new Map() // topic -> { room, runners: Map<name, AgentRunner> }
+    this.inflight = new Set() // project request ids being made right now
+    this.closing = new Set() // rooms this device is closing itself (their own 'close' must not re-enter removeRoom)
   }
+
+  // the local person who signs controls here, if any
+  get human () { return Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0] ?? null }
 
   get participants () { return participantSigners(this.cfg) }
 
@@ -100,8 +104,14 @@ export class App extends EventEmitter {
     // the control is account-gated in #admits, so arriving here means the owner's own key signed it
     room.on('record', (rec) => {
       if (rec.kind !== 'control' || rec.action !== 'project' || rec.home?.device !== this.device.ref) return
-      // the event carries the viewed record, whose `name` is the author; the project's name is on the signed one
-      this.#projectRequested(room.store.get(rec.id) ?? rec, room).catch((err) => console.error(`[${rcfg.name}] project request:`, err.message))
+      // the event carries the viewed record (its `name` is the author); #projectRequested reads the signed one
+      this.#projectRequested(rec.id, room)
+    })
+    // the owner ended this room from another device: take it off this one (its seat and records go)
+    room.on('closed', (rec) => {
+      if (this.closing.has(rcfg.topic)) return
+      console.log(`[${rcfg.name}] closed by its owner (${rec.name}${rec.device ? `@${rec.device}` : ''}): removing it here`)
+      this.removeRoom(rcfg.topic, { closed: true }).catch((err) => console.error(`[${rcfg.name}] close:`, err.message))
     })
     room.on('invite', async ({ code, from }) => {
       try {
@@ -121,6 +131,13 @@ export class App extends EventEmitter {
     const check = () => { for (const [name, p] of Object.entries(participants)) { const ref = room.local[name]?.signer.ref; if (room.state && ref && !room.state.isActive(ref)) console.error(`[${rcfg.name}] WARNING: ${name}'s key on this device (${ref.slice(0, 24)}…) is ${room.state.status(ref)} here; it can't post or be woken. rkeychat request --room "${rcfg.name}" and have the owner approve it.`) } }
     room.on('chain', check); setTimeout(check, 3000).unref?.()
     this.emit('room-added', this.rooms.get(rcfg.topic))
+    // what this room already holds for us: a close we missed, or project requests still to honour (one that
+    // arrived while the daemon was down, or failed last time)
+    setTimeout(() => {
+      if (!this.rooms.has(rcfg.topic)) return
+      if (room.closed() && !room.isOwner) { console.log(`[${rcfg.name}] was closed by its owner: removing it here`); this.removeRoom(rcfg.topic, { closed: true }).catch((err) => console.error(`[${rcfg.name}] close:`, err.message)); return }
+      for (const r of requestsFor(room.projectRequests(), this.device.ref, { done: this.cfg.projectRequests ?? [], inflight: this.inflight })) this.#projectRequested(r.id, room)
+    }, 500).unref?.()
     return room
   }
 
@@ -239,7 +256,7 @@ export class App extends EventEmitter {
   // A project: a room bound to a folder on this device, with its own seat (a project agent in that
   // folder, driven over ACP unless said otherwise) and the signed note that says what the room is.
   // One gesture from the shell: drop a folder, and the room, the chain, the seat and the note exist.
-  async createProject ({ folder, name, agent, via = 'acp', org } = {}) {
+  async createProject ({ folder, name, agent, via = 'acp', org, request } = {}) {
     if (!canHost()) throw new Error('this device cannot hold a project; pick one of your computers')
     folder = resolve(String(folder ?? '').trim())
     if (!folder || !existsSync(folder)) throw new Error(`no such folder: ${folder}`)
@@ -252,7 +269,8 @@ export class App extends EventEmitter {
     saveConfig(this.cfg)
     this.#manifest(room, 'project').catch((err) => console.error(`[${name}] manifest:`, err.message))
     const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
-    if (human) await room.setApp(human, { role: 'project', title: name, home: { device: this.device.ref, name: this.cfg.deviceName }, org: org ?? undefined }).catch((err) => console.error(`[${name}] app note:`, err.message))
+    // `request`: the 'project' control this answers, so the device that asked matches the room by id, not by name
+    if (human) await room.setApp(human, { role: 'project', title: name, home: { device: this.device.ref, name: this.cfg.deviceName }, org: org ?? undefined, request: request ?? undefined }).catch((err) => console.error(`[${name}] app note:`, err.message))
     // the seat: named after the folder unless taken, in the folder, in this room only
     let seat = String(agent ?? '').trim() || slug(name)
     const isPerson = (n) => this.cfg.participants[n]?.role === 'human'
@@ -289,24 +307,43 @@ export class App extends EventEmitter {
   workspace () { return resolve(String(loadSettings().workspace || join(homedir(), 'rKeyChat'))) }
 
   // A 'project' control that names this device as home: make the folder under the workspace root and the
-  // project. Once per request record; a name already in use here is left alone and said so.
-  async #projectRequested (rec, via) {
-    const org = rec.org ?? undefined
+  // project, and answer with the room's app note (`request` = the control's id). A request is marked done only
+  // once it has been answered, so one that fails is tried again (next record, next start). A name already in
+  // use here is the answer: that room's note gains the request id, and the asker's wait ends on it.
+  #projectRequested (id, via) {
+    const req = requestOf(via.store.get(id))
+    if (!req || req.home?.device !== this.device.ref) return
     const done = this.cfg.projectRequests ??= []
-    if (done.includes(rec.id)) return
-    done.push(rec.id); if (done.length > 200) done.splice(0, done.length - 200)
-    saveConfig(this.cfg)
-    const name = String(rec.name ?? '').trim() || 'New project'
-    const folder = join(this.workspace(), slug(name))
-    if (this.cfg.rooms.some((r) => r.folder === folder || r.name === name)) { console.error(`[project] "${name}" already exists here; ignoring the request from ${via.cfg.name}`); return }
-    mkdirSync(folder, { recursive: true })
-    const out = await this.createProject({ folder, name, org })
-    if (rec.text) { // the prompt the requester wrote, as the room's charter
-      const room = this.rooms.get(out.room.topic)?.room
-      const human = Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0]
-      if (room && human) await room.control(human, 'charter', { text: rec.text }).catch(() => {})
+    if (done.includes(id) || this.inflight.has(id)) return
+    this.inflight.add(id)
+    const finish = () => { done.push(id); if (done.length > 200) done.splice(0, done.length - 200); saveConfig(this.cfg) }
+    const human = this.human
+    const run = async () => {
+      const folder = join(this.workspace(), slug(req.name))
+      const existing = this.cfg.rooms.find((r) => r.folder === folder || r.name === req.name)
+      if (existing) {
+        const room = this.rooms.get(existing.topic)?.room
+        if (room?.isOwner && human && room.appInfo()?.request !== id) await room.setApp(human, { request: id })
+        console.log(`[project] "${req.name}" already exists here; answered the request from ${via.cfg.name} with it`)
+        finish(); return
+      }
+      mkdirSync(folder, { recursive: true })
+      const out = await this.createProject({ folder, name: req.name, org: req.org, request: id })
+      if (req.text) { // the prompt the requester wrote, as the room's charter
+        const room = this.rooms.get(out.room.topic)?.room
+        if (room && human) await room.control(human, 'charter', { text: req.text }).catch(() => {})
+      }
+      finish()
+      console.log(`[project] made "${req.name}" at ${folder}, asked from ${via.cfg.name}`)
     }
-    console.log(`[project] made "${name}" at ${folder}, asked from ${via.cfg.name}`)
+    run().catch((err) => console.error(`[project] "${req.name}" (asked from ${via.cfg.name}) failed: ${err.message}; it will be tried again`)).finally(() => this.inflight.delete(id))
+  }
+
+  // What this device asked other devices for and has not seen arrive (the shell shows the wait).
+  pendingProjects () {
+    const mine = Object.values(this.participants).filter((p) => p.role === 'human').map((p) => p.signer.ref)
+    const rooms = [...this.rooms.values()].map(({ room }) => ({ name: room.cfg.name, requests: room.projectRequests(), answered: [room.appInfo()?.request].filter(Boolean), devices: room.ownDevices() }))
+    return pendingProjectsOf(rooms, mine)
   }
 
   // The owner's devices, merged across the rooms this device is in: [{ ref, name, online, here }].
@@ -337,14 +374,23 @@ export class App extends EventEmitter {
     return { asked: dev.name, via: carrier.cfg.name, id: rec.id, online: dev.online }
   }
 
-  // Take a room off this device: its seat (when it lives only here), its runners, its local records. A room
-  // someone else owns is left first (our keys self-revoke). The project folder on disk is never touched.
-  async removeRoom (key) {
+  // Take a room off this device: its seat (when it lives only here), its runners, its local records. The owner
+  // closes the room first (a signed 'close': the owner's other devices and the members drop it too); a room
+  // someone else owns is left (our keys self-revoke). With `closed`, the owner already ended it elsewhere:
+  // nothing to announce, nobody to leave. The project folder on disk is never touched.
+  async removeRoom (key, { closed = false } = {}) {
     const r = this.find(key)
     if (!r) throw new Error(`no room "${key}"`)
     const { room, runners } = r
     const topic = room.topic
-    if (!room.isOwner && room.chain) {
+    const human = this.human
+    if (!closed && room.isOwner && room.chain && human && room.local[human]) {
+      this.closing.add(topic)
+      try {
+        await room.close(human)
+        await new Promise((resolve) => setTimeout(resolve, 1500)) // a moment for the record to reach the peers that are online
+      } catch (err) { console.error(`[${room.cfg.name}] close:`, err.message) } finally { this.closing.delete(topic) }
+    } else if (!closed && !room.isOwner && room.chain) {
       for (const [name, p] of Object.entries(this.participants)) if (room.local[name] && room.state?.isActive(p.signer.ref)) await room.leave(name).catch(() => {})
       await room.leave().catch(() => {})
     }

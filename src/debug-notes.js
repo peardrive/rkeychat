@@ -12,13 +12,19 @@
 // src/trace.js, unchanged in shape. Only the save path differs — there it is IPC to Electron's main process,
 // here it is an HTTP POST to this daemon. When a third app wants it, that is the seam to lift into a package.
 
-import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { decodeShareLink } from 'pearcore/src/utils/sharelink.utils.js'
+import { DEFAULT_CHUNK_SIZE } from 'pearcore/src/constants/global.constants.js'
 import { dataDir } from './config.js'
 import { writeManifest, APP_ID } from './app-space.js'
 
 const EXT = (type) => /ogg/.test(type) ? 'ogg' : /mp4|m4a|aac/.test(type) ? 'm4a' : /wav/.test(type) ? 'wav' : 'webm'
+const hexOf = (k) => (typeof k === 'string' ? k : Buffer.from(k ?? []).toString('hex'))
+// a note's id and file from a path in the space ("/notes/<id>/<file>"); null for anything else
+const noteFile = (p) => { const m = String(p ?? '').match(/^\/?notes\/([^/]+)\/([^/]+)$/); return m ? { id: m[1], file: m[2] } : null }
+// how long a pull waits for one file before giving up: the other device has to be awake and answering
+const FILE_WAIT = 90_000
 // add a file to a space's registry; one that is already there is fine (a second open, a re-save)
 export async function addFileOnce (drive, spacePath, localPath) {
   try {
@@ -35,6 +41,11 @@ export class DebugNotes {
     this.app = app
     this.dir = join(dataDir(), 'debug-notes')
     this.space = null
+    // who has asked this device for which note files (the serving side of a pull): key → { at, asked: Set<path>,
+    // got: Set<path> }. A file counts as got once its last chunk was asked for. Only this session: a reader that
+    // fetched a note before a restart is forgotten, and the note shows as waiting again; that is honest enough.
+    this.readers = new Map()
+    this.lastReject = null // { at, from, reason }: the last refusal a peer sent us (a pull that is not going to work says why)
   }
 
   // The space, made on first use. Readable by anyone holding the link and writable by nobody else:
@@ -75,6 +86,62 @@ export class DebugNotes {
     } catch (err) {
       return { dir: this.dir, sharelink: null, topic: null, count: this.list().length, error: err.message }
     }
+  }
+
+  // How many peers are on the notes space right now (a reader shows up here while it is pulling, or just open).
+  peers () {
+    try { const t = this.space?.topicHash; return t ? this.app.core.managers.sockets.getConnectedSockets({ topics: [t] }).length : 0 } catch { return 0 }
+  }
+
+  // The name of one of the owner's devices by its pearcore key, when it is one.
+  #deviceName (key) {
+    try { return this.app.devices().find((d) => d.ref.slice(8) === key)?.name ?? null } catch { return null }
+  }
+
+  // Where each of this device's notes stands with the readers: which device has fetched it, which is fetching,
+  // and whether anyone is connected to the space at all. This is what the phone's bubble and dot show.
+  //   { connected, peers, readers: [{ key, name }], notes: { <id>: { files, state: local|fetching|fetched, by: { <key>: { name, got, of } } } } }
+  status () {
+    const notes = {}
+    for (const n of this.list()) {
+      if (n.from) continue
+      const files = [n.audio, 'trace.jsonl', 'note.json'].filter(Boolean)
+      const by = {}
+      let state = 'local'
+      for (const [key, r] of this.readers) {
+        const asked = files.filter((f) => r.asked.has(`notes/${n.id}/${f}`)).length
+        if (!asked) continue
+        const got = files.filter((f) => r.got.has(`notes/${n.id}/${f}`)).length
+        by[key] = { name: this.#deviceName(key), got, of: files.length }
+        if (got >= files.length) state = 'fetched'
+        else if (state !== 'fetched') state = 'fetching'
+      }
+      notes[n.id] = { files: files.length, state, by }
+    }
+    const peers = this.peers()
+    return { connected: peers > 0, peers, readers: [...this.readers.keys()].map((key) => ({ key, name: this.#deviceName(key) })), notes }
+  }
+
+  // The serving side of a pull, as pearcore tells it: a reader asked for a file's tree (it is fetching), then for
+  // its chunks; the request that reaches the file's last chunk means the reader has (as good as) got it.
+  #asked (kind, info, message) {
+    try {
+      if (!this.space || message?.topic !== this.space.topicHash) return
+      const nf = noteFile(message.payload?.spaceFilePath); if (!nf) return
+      const path = `notes/${nf.id}/${nf.file}`
+      const key = hexOf(info?.publicKey)
+      let r = this.readers.get(key)
+      if (!r) { r = { at: Date.now(), asked: new Set(), got: new Set() }; this.readers.set(key, r) }
+      r.at = Date.now()
+      r.asked.add(path)
+      if (kind === 'content') {
+        const [, end] = message.payload.slice ?? []
+        let leaves = 1
+        try { leaves = Math.max(1, Math.ceil(statSync(join(this.dir, path)).size / DEFAULT_CHUNK_SIZE)) } catch {}
+        if (Number(end) >= leaves - 1) r.got.add(path)
+      }
+      if (process.env.RKEYCHAT_DEBUG) console.error(`[debug] ${key.slice(0, 8)} asked for the ${kind} of ${path}`)
+    } catch (err) { console.error('[debug] asked:', err.message) }
   }
 
   // Our own notes, then the ones pulled from other devices (under from/<host>/), newest first. Each carries
@@ -132,13 +199,34 @@ export class DebugNotes {
       mkdirSync(dirname(dest), { recursive: true })
       const entry = await browser.getFile(path)
       const task = await entry.download(root, dest)
+      const started = Date.now()
+      // pearcore (this version) drops a peer's refusal on the floor and the download waits for ever; we watch for
+      // the refusal ourselves and say what it was, and give up on a file after FILE_WAIT either way
       await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error(`timed out fetching ${id}/${file}`)), 10 * 60_000); t.unref?.()
-        task.onComplete(() => { clearTimeout(t); resolve() }); task.onError?.((e) => { clearTimeout(t); reject(e instanceof Error ? e : new Error(String(e))) })
+        let done = false
+        const finish = (fn) => { if (done) return; done = true; clearInterval(tick); clearTimeout(t); fn() }
+        const t = setTimeout(() => finish(() => reject(new Error(`timed out fetching ${id}/${file} after ${Math.round(FILE_WAIT / 1000)}s (${peers()} of its peers connected). Is their rKeyChat open?`))), FILE_WAIT); t.unref?.()
+        const tick = setInterval(() => {
+          const r = this.lastReject
+          if (r && r.at >= started) finish(() => reject(new Error(`${host} refused ${id}/${file}: ${r.reason}`)))
+        }, 500); tick.unref?.()
+        task.onComplete(() => finish(resolve)); task.onError?.((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))))
       })
       pulled++
     }
     return { host, topic, peers: peers(), notes: [...ids].sort().reverse(), files: files.length, pulled, dir: base }
+  }
+
+  // This device's own downloads in flight (a pull that is taking long): what each one waits for.
+  downloads () {
+    const out = []
+    try {
+      for (const [key, t] of this.app.core.managers.spaceFiles.downloadTasks ?? []) {
+        let percent = null; try { percent = t.getProgress?.()?.percent ?? null } catch {}
+        out.push({ key: key.slice(0, 8), topic: t.topic, path: t.spaceFilePath, percent, providers: [...(t.providerList?.peers?.() ?? [])].map((k) => k.slice(0, 8)), treeKnown: !!t.tree, pendingTreeRequests: t.puller?.pendingRequests?.size ?? null, complete: !!t.downloadComplete })
+      }
+    } catch (err) { return { error: err.message, tasks: out } }
+    return { tasks: out, lastReject: this.lastReject }
   }
 
   // Save one note and announce its files to the space. The write happens whether or not the space is up:
@@ -188,5 +276,13 @@ export class DebugNotes {
     const onTopic = ({ topics }) => { if (this.space && topics?.includes(this.space.topicHash)) this.announce() }
     em.on('Connection', onTopic)
     em.on('SpaceHashList', onTopic)
+    // the serving side: who is fetching which note (status())
+    em.on('SpaceFileTreeRequest', ({ info, message }) => this.#asked('tree', info, message))
+    em.on('SpaceFileContentRequest', ({ info, message }) => this.#asked('content', info, message))
+    // a refusal from a peer: pearcore's download does not act on it, so a pull would wait in silence; we read it
+    em.on('Reject', (ctx) => {
+      this.lastReject = { at: Date.now(), from: hexOf(ctx?.fromPublicKey).slice(0, 8), reason: String(ctx?.reason ?? 'refused') }
+      console.error(`[debug] ${this.lastReject.from} refused a request: ${this.lastReject.reason}`)
+    })
   }
 }
