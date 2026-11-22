@@ -120,11 +120,16 @@ async function api (method, path, payload) {
 }
 
 const hhmm = (ts) => new Date(ts).toTimeString().slice(0, 5)
-const fmt = (r) => r.kind === 'control'
-  ? (r.action === 'rename'
-      ? `  · ${r.name} named this room "${r.roomName ?? '?'}"`
-      : `  · ${r.name} ${r.action}${r.agent ? ' @' + r.agent : ''}${r.n ? ' ' + r.n : ''}${r.until ? ' until ' + new Date(r.until).toLocaleTimeString() : ''}`)
-  : `[${hhmm(r.ts)}] ${r.name}${r.human ? '' : ` (r${r.depth})`}: ${r.text}`
+const CHOICE_WORDS = { allow_once: 'allowed once', allow_always: 'allowed always', reject_once: 'refused', reject_always: 'refused always' }
+const fmt = (r) => r.kind === 'ask'
+  ? `[${hhmm(r.ts)}] ${r.name} asks for ${r.tool}: ${r.what}   (${r.expires > Date.now() ? `${Math.max(1, Math.round((r.expires - Date.now()) / 60_000))} min left: rkeychat answer ${r.id} allow|deny` : 'lapsed or answered'})`
+  : r.kind === 'control'
+    ? (r.action === 'rename'
+        ? `  · ${r.name} named this room "${r.roomName ?? '?'}"`
+        : r.action === 'answer'
+          ? `  · ${r.name}${r.device ? ` (${r.device})` : ''} ${CHOICE_WORDS[r.choice] ?? r.choice} ${r.ask?.slice(0, 8)}`
+          : `  · ${r.name} ${r.action}${r.agent ? ' @' + r.agent : ''}${r.n ? ' ' + r.n : ''}${r.until ? ' until ' + new Date(r.until).toLocaleTimeString() : ''}`)
+    : `[${hhmm(r.ts)}] ${r.name}${r.human ? '' : ` (r${r.depth})`}: ${r.text}`
 
 async function nextStep () {
   const cfg = loadConfig() && cfgOrDie()
