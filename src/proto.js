@@ -72,6 +72,9 @@ export async function makeMessage (signer, { room, text, mentions = [], re = [],
 // PearDrive's "My Apps" asks for, so a space can say which app it belongs to. 'project' (name, home, text, org)
 // asks one of the owner's devices to make a project; the answering room's 'app' note carries `request` (that
 // record's id). 'close' (owner only) says the room is finished: every device drops it.
+// Permissions (docs/project-agents.md "Asking a person"): an agent's 'ask' record (kind 'ask', below) is answered
+// by an 'answer' control { ask: <the ask's id>, choice } from one of the owner's own keys only (account-gated).
+export const ASK_CHOICES = ['allow_once', 'allow_always', 'reject_once', 'reject_always']
 export const APP_ROLES = ['chat', 'project']
 export const WAKE_MODES = ['order', 'mention', 'backup']
 export function cleanAgentRules (agents) {
@@ -89,7 +92,7 @@ export function cleanAgentRules (agents) {
   }
   return out
 }
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ts = Date.now() }) {
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
@@ -108,7 +111,24 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
     // the organization a project belongs to (a name people use: 'Bitcoin Audible'); null takes it out of one
     org: org === undefined ? undefined : org === null ? null : String(org).trim().slice(0, 80),
     // the 'project' request (its record id) an 'app' note answers: the device that asked matches the room by it
-    request: request === undefined ? undefined : String(request).slice(0, 32)
+    request: request === undefined ? undefined : String(request).slice(0, 32),
+    // an 'answer': which ask, and what was chosen (one of ASK_CHOICES)
+    ask: ask === undefined ? undefined : String(ask).slice(0, 32),
+    choice: choice === undefined ? undefined : String(choice).slice(0, 16)
+  })
+}
+
+// An agent asks a person for a permission its seat's tool list does not settle (src/acp.js): which tool, what it
+// would do (one line), the input in full (trimmed), the choices the agent offered, and when the question lapses.
+// Signed by the agent; shown in the conversation; answered by an 'answer' control from the owner's keys.
+export async function makeAsk (signer, { room, conv, tool, what, input, options = [], expires, ts = Date.now() }) {
+  return signBody('rkeychat-ask', signer, {
+    kind: 'ask', id: newId(), room, ts, conv: convField(conv),
+    tool: String(tool ?? '').slice(0, 40),
+    what: String(what ?? '').replace(/\s+/g, ' ').slice(0, 200),
+    input: input === undefined ? undefined : String(input).slice(0, 2000),
+    options: (Array.isArray(options) ? options : []).slice(0, 8).map((o) => ({ id: String(o.id ?? o.optionId ?? '').slice(0, 64), kind: String(o.kind ?? '').slice(0, 16), name: o.name === undefined ? undefined : String(o.name).slice(0, 80) })),
+    expires: Number(expires) || ts + 10 * 60_000
   })
 }
 
@@ -161,6 +181,7 @@ export function verifyRecord (rec) {
   if (rec?.kind === 'msg') return verifyBody('rkeychat-msg', rec)
   if (rec?.kind === 'control') return verifyBody('rkeychat-control', rec)
   if (rec?.kind === 'activity') return verifyBody('rkeychat-activity', rec)
+  if (rec?.kind === 'ask') return verifyBody('rkeychat-ask', rec)
   return false
 }
 
