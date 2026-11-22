@@ -74,6 +74,9 @@ export function roomSnapshot (room, { conv = MAIN, cfg } = {}) {
     name: room.cfg.name,
     topic: room.topic,
     owner: room.isOwner,
+    // this device's human key is one of the owner's own (the root, or enrolled directly under it): it may answer
+    // an agent's ask and write the other account-gated controls. True on the owner's phone too; `owner` is not.
+    ownerDevice: (() => { const h = Object.entries(cfg?.participants ?? {}).find(([, p]) => p.role === 'human')?.[0]; const p = h ? room.local[h] : null; return !!(p && room.isOwnerKey(p.signer.ref)) })(),
     root: room.cfg.root,
     admitted: !!room.chain,
     // projects and conversations (docs/projects-api.md)
@@ -295,6 +298,12 @@ export function serve ({ app }) {
       return app.addAgent({ name, dir, permissionMode, tools, model, via })
     },
     // how the daemon drives a project agent's Claude Code: cli (claude -p) or acp
+    // how long an agent's ask waits for a person (minutes, 1–120): one seat, or every seat on this device with name
+    // omitted (the device default, in config.json askMinutes)
+    'POST /api/agents/ask-minutes': async (req) => {
+      const { name, minutes } = await body(req)
+      return app.setAskMinutes(name, minutes)
+    },
     'POST /api/agents/via': async (req) => {
       const { name, via } = await body(req)
       need(name, 'which agent?')
