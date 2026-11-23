@@ -11,10 +11,15 @@
 // 'limit' n = that agent may post at most n times between human messages
 // ('limit' with no n lifts it). These are standing settings: they persist
 // across human messages until changed.
+//
+// 'rounds' n (2026-11-23, "I want to be able to set rounds") is the standing
+// number a human message resets to: this room's own default. 'extend' tops up
+// the current exchange only; 'reset' puts the room's default back to 3.
 
 export const DEFAULT_ROUNDS = 3
 
 export function budget (log, { now = Date.now(), defaultRounds = DEFAULT_ROUNDS } = {}) {
+  let rounds = defaultRounds
   let limit = defaultRounds
   let unlimited = false
   let until = null
@@ -35,20 +40,21 @@ export function budget (log, { now = Date.now(), defaultRounds = DEFAULT_ROUNDS 
     } else if (r.kind === 'control') {
       switch (r.action) {
         case 'extend': limit += Math.max(1, Number(r.n) || 1); break
+        case 'rounds': rounds = Math.max(1, Math.min(1000, Number(r.n) || defaultRounds)); limit = rounds; unlimited = false; until = null; break
         case 'unlimited': unlimited = true; break
         case 'until': until = Number(r.until) || null; break
         case 'pause': paused = true; break
         case 'resume': paused = false; break
-        case 'reset': limit = defaultRounds; unlimited = false; until = null; break
+        case 'reset': rounds = defaultRounds; limit = defaultRounds; unlimited = false; until = null; break
       }
     } else if (r.kind === 'msg' && (r.via === 'mirror' || r.via === 'note')) {
       // a mirrored terminal exchange, or a shared debug note, is a record of what was said,
       // not a live turn: it neither resets nor spends rounds
     } else if (r.kind === 'msg') {
       if (r.human) {
-        // a human speaking resets the round count (but not a standing
-        // unlimited/until grant — that's an explicit "run all night")
-        limit = defaultRounds
+        // a human speaking resets the round count to the room's rounds (but not
+        // a standing unlimited/until grant — that's an explicit "run all night")
+        limit = rounds
         maxDepth = 0
         agentPosts.clear()
       } else {
@@ -63,6 +69,7 @@ export function budget (log, { now = Date.now(), defaultRounds = DEFAULT_ROUNDS 
     paused,
     unlimited,
     until,
+    rounds,
     limit,
     used: maxDepth,
     remaining: open ? Infinity : Math.max(0, limit - maxDepth),
