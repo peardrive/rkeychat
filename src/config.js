@@ -85,11 +85,20 @@ export function addParticipant (cfg, name, { role = 'agent', bridge = { kind: 's
   return cfg.participants[name]
 }
 
-export function participantSigners (cfg) {
-  return Object.fromEntries(Object.entries(cfg.participants).map(([name, raw]) => {
-    const p = secretsOf(raw)
-    return [name, { signer: signerFromSecret(p.suite, p.secretKey), previous: p.previous ? signerFromSecret(p.previous.suite, p.previous.secretKey) : null, role: p.role, bridge: p.bridge, keyFile: p.keyFile ?? null, account: accountSigner(cfg, name) }]
-  }))
+// A project agent whose key file is gone (its folder deleted or on a drive that is not here) is left out, and
+// `onLost(name, keyFile)` is told; the daemon must not die at start for one seat (2026-11-23: a test project
+// made in a temp folder took the whole daemon down when the folder was cleared).
+export function participantSigners (cfg, { onLost } = {}) {
+  const out = {}
+  for (const [name, raw] of Object.entries(cfg.participants)) {
+    let p
+    try { p = secretsOf(raw) } catch (err) {
+      if (err?.code === 'ENOENT' && raw.keyFile) { onLost?.(name, raw.keyFile); continue }
+      throw err
+    }
+    out[name] = { signer: signerFromSecret(p.suite, p.secretKey), previous: p.previous ? signerFromSecret(p.previous.suite, p.previous.secretKey) : null, role: p.role, bridge: p.bridge, keyFile: p.keyFile ?? null, account: accountSigner(cfg, name) }
+  }
+  return out
 }
 
 // Every participant is an account: a person's account is this device's root

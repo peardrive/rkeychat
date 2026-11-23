@@ -20,6 +20,7 @@ import { MAIN } from './proto.js'
 import { agentSession, sessionKeyOf } from './config.js'
 import { AcpProcess } from './acp.js'
 import { resolveTools } from './tools.js'
+import { providerEnv, autoState } from './seat-settings.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
 // turn per process means a listener reconnects immediately, and it must not be
@@ -240,6 +241,13 @@ export class AgentRunner {
   async #runClaude (t) {
     t.busy = true
     this.room.setAgentState(this.name, 'thinking', t.conv)
+    // Auto counts its turns here; a grant that has run out puts the seat back in its old mode before this turn
+    // (the daemon hears 'auto-over' and changes the shared bridge object now; the room hears why)
+    if (this.bridge.permissionMode === 'auto') {
+      const st = autoState(this.bridge.auto ?? { since: Date.now(), used: 0 }, this.room.autoCap?.() ?? null)
+      if (st.over) this.room.emit('auto-over', { name: this.name, why: st.over })
+      else if (this.bridge.auto) { this.bridge.auto.used = (this.bridge.auto.used ?? 0) + 1; this.room.emit('auto-turn', { name: this.name }) }
+    }
     const turn = renderTurn(this.room, this.name, { intro: false, conv: t.conv })
     this.room.activity(this.name, `woken by ${turn.triggers.map((x) => x.name).join(', ')}`, { claim: turn.triggers.map((x) => x.id), conv: t.conv }).catch(() => {})
     t.offered = turn.triggers.map((x) => x.id); t.offeredAt = Date.now() // what this turn covers; a newer human message preempts it (ACP)
@@ -255,7 +263,8 @@ export class AgentRunner {
         system: renderTurn(this.room, this.name, { intro: true, conv: t.conv }).text.split('\n[room ')[0],
         onActivity: (text, extra) => this.room.activity(this.name, text, { ...extra, conv: t.conv }).catch(() => {}),
         onAsk: (ask) => this.#ask(ask, t),
-        askMinutes: () => askMinutesOf(this.bridge)
+        askMinutes: () => askMinutesOf(this.bridge),
+        env: () => providerEnv(this.bridge)
       })
     }
     const { reply, usage, cancelled } = await t.proc.prompt(turn.text)
@@ -278,6 +287,28 @@ export class AgentRunner {
     for (const t of this.turns.values()) {
       if (!t.proc) continue
       if (t.busy) t.proc.retireAfterTurn = true
+      else { t.proc.stop('idle'); t.proc = null }
+    }
+  }
+
+  // The seat's permission mode changed. Over ACP the open sessions take it now (`session/set_mode`); a cli process
+  // was started with the old flag, so it is retired like a tools change. The bridge object is shared with the
+  // daemon's config, so it already carries the new mode.
+  applyMode (mode) {
+    for (const t of this.turns.values()) {
+      if (!t.proc) continue
+      if (t.proc instanceof AcpProcess) t.proc.setMode(mode).catch(() => {})
+      else if (t.busy) t.proc.retireAfterTurn = true
+      else { t.proc.stop('idle'); t.proc = null }
+    }
+  }
+
+  // The seat's model changed: ACP sessions switch in place; cli processes are retired.
+  applyModel (model) {
+    for (const t of this.turns.values()) {
+      if (!t.proc) continue
+      if (t.proc instanceof AcpProcess) t.proc.setModel(model).catch(() => {})
+      else if (t.busy) t.proc.retireAfterTurn = true
       else { t.proc.stop('idle'); t.proc = null }
     }
   }
@@ -439,7 +470,8 @@ export class ClaudeProcess {
     if (fresh) { sessionId = randomUUID(); agentSession(this.p, this.sessionKey, sessionId) }
     this.sessionId = sessionId
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-      '--permission-mode', this.bridge.permissionMode ?? 'acceptEdits',
+      // the cli names Ask "manual"; our Auto has no ask path here (-p asks nobody), so it runs as Edits
+      '--permission-mode', ({ default: 'manual', auto: 'acceptEdits' })[this.bridge.permissionMode] ?? this.bridge.permissionMode ?? 'acceptEdits',
       fresh ? '--session-id' : '--resume', sessionId]
     if (this.bridge.model) args.push('--model', this.bridge.model)
     const { allow, deny } = resolveTools(this.bridge.tools, this.bridge.dir)
@@ -449,6 +481,7 @@ export class ClaudeProcess {
     // never inherit a parent Claude Code's session markers: this is its own process
     const env = { ...process.env }
     for (const k of Object.keys(env)) if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_SESSION')) delete env[k]
+    Object.assign(env, providerEnv(this.bridge)) // the seat's provider, or nothing: the login
     const child = spawn(this.bridge.command ?? 'claude', args, { cwd: this.bridge.dir, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child
     this.buf = ''; this.stderr = []

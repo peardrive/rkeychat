@@ -12,7 +12,13 @@
 // drive any other ACP agent (Codex, Goose, a Hermes adapter) by changing the command.
 //
 // Never bypass: the session mode is the seat's permissionMode (default acceptEdits), and a
-// request for `bypassPermissions` is turned into acceptEdits.
+// request for `bypassPermissions` is turned into acceptEdits. Our `auto` is not Claude Code's: the session runs
+// acceptEdits and #permission answers yes to whatever the deny rules do not refuse, for as long as the grant lasts
+// (src/seat-settings.js autoState: the seat's minutes and turns, and the room's cap).
+//
+// What the tool list does not settle is asked of a person (2026-11-22, Guy's memo): the ask goes into the
+// conversation as a signed record, one of the owner's own devices answers it (an account-gated control), and the
+// answer comes back here as the agent's choice. Nobody answering within ASK_TIMEOUT_MS is a refusal.
 import { spawn } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
@@ -22,8 +28,10 @@ import { client, ndJsonStream } from '@agentclientprotocol/sdk'
 import { resolveTools } from './tools.js'
 import { agentSession, sessionKeyOf } from './config.js'
 import { MAIN } from './proto.js'
+import { autoState } from './seat-settings.js'
 
 const IDLE_MS = 30 * 60_000
+export const ASK_TIMEOUT_MS = 10 * 60_000 // the default; the runner's askMinutes() says what applies
 const TURN_TIMEOUT_MS = 20 * 60_000
 const require = createRequire(import.meta.url)
 
@@ -33,14 +41,20 @@ export function adapterPath () {
 }
 
 export class AcpProcess {
-  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity }) {
+  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk, askMinutes, env }) {
     this.name = name
     this.room = room
     this.conv = conv
     this.p = participant
-    this.bridge = bridge // { kind: 'claude', via: 'acp', dir, permissionMode?, tools?, model?, command? }
+    this.bridge = bridge // { kind: 'claude', via: 'acp', dir, permissionMode?, tools?, model?, provider?, command? }
     this.system = system
     this.onActivity = onActivity ?? (() => {})
+    // ask a person: ({ tool, what, input, options }) → Promise<{ choice, by, device } | null>; without it, refused
+    this.onAsk = onAsk ?? null
+    this.askMinutes = askMinutes ?? (() => ASK_TIMEOUT_MS / 60_000) // how long that wait is, for the words
+    // extra environment for the adapter (the seat's provider: ANTHROPIC_BASE_URL and token); a throw here stops
+    // the turn with its message instead of running on the login by mistake
+    this.env = env ?? (() => ({}))
     this.child = null
     this.cx = null // ClientContext once connected
     this.sessionId = null
@@ -60,6 +74,10 @@ export class AcpProcess {
   async #connect () {
     const env = { ...process.env }
     for (const k of Object.keys(env)) if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_SESSION')) delete env[k]
+    // the seat's provider (or nothing: the login), and its model as the session's default; the model is also set
+    // on the session once open, so a change takes effect without a restart
+    Object.assign(env, this.env())
+    if (this.bridge.model) env.ANTHROPIC_MODEL = this.bridge.model; else delete env.ANTHROPIC_MODEL
     const command = this.bridge.command ?? process.execPath
     const args = this.bridge.command ? (this.bridge.args ?? []) : [adapterPath()]
     const child = spawn(command, args, { cwd: this.bridge.dir, env, stdio: ['pipe', 'pipe', 'pipe'] })
@@ -111,10 +129,43 @@ export class AcpProcess {
       agentSession(this.p, this.sessionKey, sessionId)
     }
     this.sessionId = sessionId
-    let mode = this.bridge.permissionMode ?? 'acceptEdits'
+    const mode = await this.setMode(this.bridge.permissionMode, { quiet: true })
+    if (this.bridge.model) await this.setModel(this.bridge.model, { quiet: true })
+    this.onActivity(`${saved && sessionId === saved ? 'resumed' : 'started'} Claude Code over ACP in ${cwd} (session ${sessionId.slice(0, 8)}, ${mode}${this.bridge.model ? `, ${this.bridge.model}` : ''}${this.bridge.provider ? `, via ${this.bridge.provider}` : ''})`)
+  }
+
+  // The permission mode, applied to the open session (`session/set_mode`); the next open applies the bridge's.
+  // Never bypass: asked for it, the seat runs acceptEdits and says so. Auto runs acceptEdits in the session and is
+  // answered here (#permission).
+  async setMode (wanted, { quiet = false } = {}) {
+    let mode = wanted ?? 'acceptEdits'
     if (mode === 'bypassPermissions') mode = 'acceptEdits'
-    try { await this.cx.request('session/set_mode', { sessionId, modeId: mode }) } catch (err) { this.onActivity(`could not set mode ${mode}: ${err?.message ?? err}`) }
-    this.onActivity(`${saved && sessionId === saved ? 'resumed' : 'started'} Claude Code over ACP in ${cwd} (session ${sessionId.slice(0, 8)}, ${mode})`)
+    const session = mode === 'auto' ? 'acceptEdits' : mode
+    if (this.cx && this.sessionId) {
+      try {
+        await this.cx.request('session/set_mode', { sessionId: this.sessionId, modeId: session })
+        if (!quiet) this.onActivity(`permission mode: ${mode}${mode === 'auto' ? ' (this device answers yes; the deny rules still refuse)' : ''}`)
+      } catch (err) { this.onActivity(`could not set mode ${mode}: ${err?.message ?? err}`) }
+    }
+    return mode
+  }
+
+  // Is the seat in Auto with a grant that still stands? When the grant has run out the room is told, so the host
+  // puts the seat back in the mode it had (daemon.js #autoOver), and this call is asked of a person as usual.
+  #autoAllows () {
+    if (this.bridge.permissionMode !== 'auto') return false
+    const st = autoState(this.bridge.auto ?? { since: Date.now(), used: 0 }, this.room.autoCap?.() ?? null)
+    if (st.over) { this.room.emit('auto-over', { name: this.name, why: st.over }); return false }
+    return true
+  }
+
+  // The model, applied to the open session (`session/set_config_option` "model"); null is the login's default.
+  async setModel (model, { quiet = false } = {}) {
+    if (!this.cx || !this.sessionId) return
+    try {
+      await this.cx.request('session/set_config_option', { sessionId: this.sessionId, configId: 'model', value: model ?? 'default' })
+      if (!quiet) this.onActivity(`model: ${model ?? 'default'}`)
+    } catch (err) { this.onActivity(`could not set the model ${model ?? 'default'}: ${err?.message ?? err}`) }
   }
 
   // One turn in, one reply out: { reply, usage, cancelled }. Rejects if the agent dies or the
@@ -218,18 +269,58 @@ export class AcpProcess {
 
   // The agent asks whether it may use a tool. Claude Code has already allowed what the
   // mode covers (edits inside the folder under acceptEdits, read-only commands); what
-  // reaches here is the rest, and the seat's tool list decides. No person is asked.
-  #permission ({ toolCall, options }) {
+  // reaches here is the rest. The seat's tool list decides what it can (allow rules, deny
+  // rules); what it does not cover is asked of a person through the room, and the answer
+  // picked from the agent's own options. No answer in time is a refusal.
+  async #permission ({ toolCall, options }) {
     const tool = toolCall?._meta?.claudeCode?.toolName ?? toolCall?.name ?? ''
     const input = toolCall?.rawInput ?? {}
     const what = summarize(input) || toolCall?.title || tool
-    const allowed = permitted(this.rules, tool, input, this.bridge.dir)
     const pick = (kinds) => options?.find((o) => kinds.includes(o.kind)) ?? null
-    const choice = allowed ? pick(['allow_once', 'allow_always']) : pick(['reject_once', 'reject_always'])
-    this.onActivity(`${allowed ? 'allowed' : 'refused'} ${tool}: ${what}`)
-    if (!choice) return { outcome: { outcome: 'cancelled' } }
-    return { outcome: { outcome: 'selected', optionId: choice.optionId } }
+    const answer = (choice) => choice ? { outcome: { outcome: 'selected', optionId: choice.optionId } } : { outcome: { outcome: 'cancelled' } }
+    let v = verdict(this.rules, tool, input, this.bridge.dir)
+    if (v === 'ask' && this.#autoAllows()) {
+      this.onActivity(`allowed (auto) ${tool}: ${what}`)
+      return answer(pick(['allow_once', 'allow_always']))
+    }
+    if (v === 'ask' && this.onAsk) {
+      this.onActivity(`asks for ${tool}: ${what}`)
+      let a = null
+      // the turn's own clock stops while a person is asked: the wait is theirs, not the agent's
+      const pend = this.pending
+      if (pend?.timer) clearTimeout(pend.timer)
+      try {
+        a = await this.onAsk({ tool, what, input: summarizeFull(input), options: (options ?? []).map((o) => ({ id: o.optionId, kind: o.kind, name: o.name })) })
+      } catch (err) { this.onActivity(`could not ask: ${err?.message ?? err}`) } finally {
+        if (pend && this.pending === pend) pend.timer = setTimeout(() => this.stop('turn timed out'), TURN_TIMEOUT_MS)
+      }
+      if (a?.choice) {
+        const chosen = options?.find((o) => o.kind === a.choice) ?? pick(a.choice.startsWith('allow') ? ['allow_once', 'allow_always'] : ['reject_once', 'reject_always'])
+        this.onActivity(`${a.choice.startsWith('allow') ? 'allowed' : 'refused'} by ${a.by ?? 'the owner'}${a.device ? ` (${a.device})` : ''}${a.choice.endsWith('always') ? ', always' : ''}: ${tool}: ${what}`)
+        return answer(chosen)
+      }
+      this.onActivity(`nobody answered in ${this.askMinutes()} minutes: refused ${tool}: ${what}`)
+      v = 'deny'
+    }
+    const allowed = v === 'allow'
+    if (v !== 'ask') this.onActivity(`${allowed ? 'allowed' : 'refused'} ${tool}: ${what}`)
+    else this.onActivity(`refused ${tool}: ${what} (nobody to ask)`)
+    return answer(allowed ? pick(['allow_once', 'allow_always']) : pick(['reject_once', 'reject_always']))
   }
+}
+
+// What the seat's tool list says about one call: 'allow' (an allow rule covers it, no deny rule hits), 'deny' (a
+// deny rule hits, or an empty command), or 'ask' (nothing in the list speaks to it: a person decides).
+export function verdict ({ allow = [], deny = [] } = {}, tool, input = {}, dir = process.cwd()) {
+  if (!tool) return 'deny'
+  const paths = pathsOf(input, dir)
+  if (deny.some((r) => ruleHits(r, tool, input, paths, dir))) return 'deny'
+  if (tool === 'Bash') {
+    const parts = String(input.command ?? '').split(/\s*(?:&&|\|\||;|\|)\s*/).map((s) => s.trim()).filter(Boolean)
+    if (!parts.length) return 'deny'
+    return parts.every((part) => allow.some((r) => ruleHits(r, tool, { command: part }, [], dir))) ? 'allow' : 'ask'
+  }
+  return allow.some((r) => ruleHits(r, tool, input, paths, dir)) ? 'allow' : 'ask'
 }
 
 // ---- the seat's tool list, applied to one tool call ----
@@ -304,6 +395,13 @@ function summarize (input) {
   if (!input || typeof input !== 'object') return ''
   const s = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.query ?? input.description ?? (Object.keys(input).length ? JSON.stringify(input) : '')
   return String(s).replace(/\s+/g, ' ').slice(0, 100)
+}
+
+// the whole input, for the person reading an ask (a command in full, a file and the text it would get)
+function summarizeFull (input) {
+  if (!input || typeof input !== 'object') return ''
+  if (typeof input.command === 'string') return input.command.slice(0, 2000)
+  try { return JSON.stringify(input, null, 1).slice(0, 2000) } catch { return '' }
 }
 
 function firstText (content) {
