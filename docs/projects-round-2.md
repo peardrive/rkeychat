@@ -197,3 +197,26 @@ classifier doubts; with the lab tool list that was nearly every command. Built (
 | A general room maximum | done: the Auto cap on the project pane (`auto` control, owner's keys only); every grant in the room is clamped to it |
 | "Set rounds" | the room's rounds budget already exists (`rkeychat control extend N`); Auto's turn limit is the per-seat count |
 | The Mac app shows none of it | done: `app/dist` rebuilt; the daemon serves the current shell |
+
+## Round 7 (2026-11-23): the quiet thread, from the night's memo, and the phone that had none of it
+
+Guy, on the phone at 2:44, looking at the Leaf Note conversation: "I'm looking at a bunch of messages… none of
+that is relevant to anything or needs to be there. Some random setting, 'default, Claude login', that shouldn't
+show up anywhere except under details of the actual bot that I click on. A ton of just unnecessary text in
+between: 'always allowed', and then boom, right here again, 'always allowed'. Why would we need this between these
+notifications? We were supposed to aggregate." And then, by text: "I don't see any about rounds, no auto mode, no
+new controls at all under agent settings. Did any of the last rounds get pushed to the phone? I'm working
+exclusively from the phone right now." And: "make the text and text space taken in the screen closer to the edges
+so we can fit more. Then make all the font a little bigger."
+
+| Asked for | Status |
+|---|---|
+| The bot's settings lines ("@x now runs: Edits · Default · Claude login") out of the chat; they belong on the bot's details | done: `seat` controls are not lines of the thread (`inThread`); the profile shows them. The host also wrote them six times per room at start (every room's check wrote every room): each room now writes for itself |
+| "allowed always" between the asks: aggregate | done: an answer is never its own line (the card says who answered); between two messages a stretch of steps and settled asks folds into one line, "ran npm install (+4 earlier steps · 3 asks allowed)"; open and refused asks stay as cards, and after the last message every ask does until the bot speaks again; "All steps" unfolds |
+| The phone has none of rounds 5 and 6 | the cause: the phone's daemon is a by-hand copy of `src/` (`rkeychat--mobile/src`) that was last copied in round 4, while the bundle takes the shell from `app/dist` every time. The new shell asked an old daemon for seat rows and got none, so the profile had no Permissions. Fixed: copied and rebuilt; lessons entry `phone-daemon-copy-was-behind-the-shell` with a check that fails the phone build when the copy is behind |
+| Text closer to the edges, all fonts a little bigger | done in PearKit: the type scale one point up across the board (body 13 → 14 px, and so on), the chat list's margin 14 → 8 px, bubbles up to 92% of the width with less padding inside |
+| "I don't see any about rounds" | the rounds budget has no control in the shell yet (CLI `rkeychat control extend N`); Auto's turn limit is what the profile offers. To add when Guy says where it should live |
+
+Also found on the way: a seat whose key file is gone (the Demo project seat lived in a temp folder that was
+cleared) took the whole daemon down at start; now the seat is left out with one warning, and `rkeychat room
+remove NAME` takes its room and it off.

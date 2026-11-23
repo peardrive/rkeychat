@@ -1,7 +1,8 @@
 /**
  * Daemon records → PearKit chat shapes.
  */
-import type { ChatMessage } from '../kit';
+import type { AskAnswer, AskChoice, ChatMessage } from '../kit';
+import { askStatus } from 'pearkit/asks';
 import type { Attachment, Reactions, Rec } from '../types';
 import { autoWords, runLine } from './seatSettings';
 
@@ -68,25 +69,96 @@ export function mergeThread(messages: Rec[], activity: Rec[]): Rec[] {
 }
 
 /**
- * Collapse runs of activity: of each run of consecutive activity records only the last one stays, with the
- * count of the hidden steps folded into its text. "All steps" in the UI turns this off.
+ * What the conversation does not show as a line of its own: a seat's settings (the request and the host's echo
+ * live on the bot's profile, and a host echoes them into every room its seats sit in), and the answer to an ask
+ * (the ask's card says who answered and how). Both still arrive and are kept; `pairAsks` reads the answers.
  */
-export function collapseActivity(items: Rec[]): Rec[] {
+export function inThread(rec: Rec): boolean {
+  return rec.kind !== 'control' || (rec.action !== 'seat' && rec.action !== 'answer');
+}
+
+export type PairedAsk = { rec: Rec; answer: AskAnswer | null };
+
+/** The asks of a thread, each with its answer when one came (the first admitted 'answer' control wins). */
+export function pairAsks(items: Rec[]): Map<string, PairedAsk> {
+  const out = new Map<string, PairedAsk>();
+  for (const r of items) if (r.kind === 'ask') out.set(r.id, { rec: r, answer: null });
+  for (const r of items) {
+    if (r.kind !== 'control' || r.action !== 'answer' || !r.ask) continue;
+    const a = out.get(r.ask);
+    if (a && !a.answer) a.answer = { choice: r.choice as AskChoice, by: r.name, device: r.device || undefined, ts: r.ts };
+  }
+  return out;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * Collapse the quiet stretches of a thread. A run of consecutive steps (activity) and settled asks (allowed, or
+ * lapsed with nobody answering) folds into one line: the last step's text, or the last ask as "asked for Bash:
+ * …", with what is folded in brackets ("+4 earlier steps · 3 asks allowed"). An open ask always stands as its
+ * card, so does a refused one, and after the last message of the thread every ask does: the card the person
+ * just answered stays until the bot has spoken again. "All steps" in the UI turns the folding off.
+ */
+export function collapseActivity(items: Rec[], asks: Map<string, PairedAsk> = new Map(), now = Date.now()): Rec[] {
+  const settled = (r: Rec) => {
+    if (r.kind !== 'ask') return false;
+    const s = askStatus({ expires: r.expires ?? 0 }, asks.get(r.id)?.answer ?? null, now);
+    return s === 'allowed' || s === 'lapsed';
+  };
+  let lastMsg = -1;
+  items.forEach((r, i) => { if (r.kind === 'msg') lastMsg = i; });
   const out: Rec[] = [];
   let run: Rec[] = [];
-  const flush = () => {
+  let runStart = 0;
+  const flush = (tail: boolean) => {
     if (!run.length) return;
-    const last = run[run.length - 1];
-    out.push(run.length > 1 ? { ...last, text: `${last.text}  (+${run.length - 1} earlier ${run.length - 1 === 1 ? 'step' : 'steps'})` } : last);
+    if (tail) {
+      // the end of the thread: the asks stand, the steps between them collapse as ever
+      let steps: Rec[] = [];
+      const step = () => {
+        if (!steps.length) return;
+        const last = steps[steps.length - 1];
+        out.push(steps.length > 1 ? { ...last, text: `${last.text}  (+${plural(steps.length - 1, 'earlier step')})` } : last);
+        steps = [];
+      };
+      for (const r of run) {
+        if (r.kind === 'activity') steps.push(r);
+        else {
+          step();
+          out.push(r);
+        }
+      }
+      step();
+    } else {
+      const last = run[run.length - 1];
+      const hidden = run.slice(0, -1);
+      const stepsHidden = hidden.filter((r) => r.kind === 'activity').length;
+      const asked = run.filter((r) => r.kind === 'ask');
+      const allowed = asked.filter((r) => asks.get(r.id)?.answer).length;
+      const lapsed = asked.length - allowed;
+      const parts: string[] = [];
+      if (stepsHidden) parts.push(`+${plural(stepsHidden, 'earlier step')}`);
+      if (asked.length === 1 && run.length === 1) parts.push(allowed ? 'allowed' : 'lapsed');
+      else {
+        if (allowed) parts.push(`${plural(allowed, 'ask')} allowed`);
+        if (lapsed) parts.push(`${plural(lapsed, 'ask')} lapsed`);
+      }
+      const suffix = parts.length ? `  (${parts.join(' · ')})` : '';
+      if (last.kind === 'activity') out.push(suffix ? { ...last, text: `${last.text}${suffix}` } : last);
+      else out.push({ ...last, kind: 'activity', id: `${last.id}~folded`, text: `asked for ${last.tool ?? 'a tool'}: ${last.what ?? ''}${suffix}` });
+    }
     run = [];
   };
-  for (const r of items) {
-    if (r.kind === 'activity') run.push(r);
-    else {
-      flush();
+  items.forEach((r, i) => {
+    if (r.kind === 'activity' || settled(r)) {
+      if (!run.length) runStart = i;
+      run.push(r);
+    } else {
+      flush(runStart > lastMsg);
       out.push(r);
     }
-  }
-  flush();
+  });
+  flush(runStart > lastMsg);
   return out;
 }

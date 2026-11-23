@@ -98,6 +98,12 @@ Control actions added to the server whitelist: `conv`, `app`.
 `RoomSnapshot.seats[]` rows carry `permissionMode`, `model`, `provider`, `askMinutes`, `providers`; a row for a seat
 another device hosts also has `remote: true` and comes from that host's newest applied `seat` control.
 `GET /api/agents` rows carry the same plus `run` (one line). A `seat` control arriving pushes a fresh `room` snapshot.
+The shell keeps `seat` and `answer` controls out of the conversation (the profile and the ask's card carry them) and
+folds a stretch of steps and settled asks between two messages into one line (`collapseActivity` in
+`app/src/store/mapping.ts`); "All steps" shows everything.
+
+A seat row needs the daemon that made the snapshot to know `seat` controls: the phone runs a copy of `src/`
+(`rkeychat--mobile/src`) that must be the desktop's byte for byte (lessons check `phone-daemon-copy-matches-the-desktop`).
 
 `RoomSnapshot.ownerDevice`: this device's human key is one of the owner's own (it may answer); `owner` still
 means "holds the root key".

@@ -209,8 +209,10 @@ provider names and whether each has a key). A request from a team member's key i
 snapshot's `seats` rows are the host's own config on the host and the newest applied control elsewhere
 (`room.seatsFromLog()`), so the phone's profile shows the truth and changes it; the shell's one path for a change
 is `POST /api/control { action: 'seat', agent, seat }` on every device, the host included. At start a host writes a
-fresh description into any room whose newest one is stale or missing. Both records read as lines in the
-conversation: "guy changed @pear's settings", "@pear now runs: Ask · Opus 5.5 · via ppq".
+fresh description into any room whose newest one is stale or missing (each room checks and writes for itself:
+2026-11-23, writing every room from every room's check put six copies into each). Neither record is a line in the
+conversation any more (2026-11-23 memo: "default, Claude login… shouldn't show up anywhere except under details of
+the actual bot"): the profile is where the settings show; the CLI log still prints them.
 
 CLI: `rkeychat agent mode NAME default|acceptEdits|plan|auto [--minutes N] [--turns N]`, `rkeychat agent model
 NAME MODEL|default [--provider P|claude]`, `rkeychat agent list` prints the run line (with what is left of an Auto

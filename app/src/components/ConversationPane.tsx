@@ -6,11 +6,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, type TextInputRef } from '../hooks';
-import { AskCard, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, type AskAnswer, type AskChoice } from '../kit';
+import { AskCard, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, type AskChoice } from '../kit';
 import { useStore } from '../store/context';
-import type { Rec } from '../types';
 import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
-import { collapseActivity, mergeThread, toChatMessage } from '../store/mapping';
+import { collapseActivity, inThread, mergeThread, pairAsks, toChatMessage } from '../store/mapping';
 import { convKey } from '../store/reducer';
 import { convTitle, selectedConv, selectedRoom, selectedThread, thinkingIn } from '../store/selectors';
 import { FilesView } from './FilesView';
@@ -72,22 +71,16 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
   };
 
   const activity = key ? state.activity[key] : undefined;
+  // the agents' asks in this thread, each with its answer when one came (the first admitted 'answer' control)
+  const asks = useMemo(() => pairAsks(thread?.items ?? []), [thread]);
   const messages = useMemo(() => {
     if (!thread || !key) return [];
     const reactions = topic ? state.details[topic]?.reactions : undefined;
-    const merged = mergeThread(thread.items, activity ?? []);
-    return (allSteps ? merged : collapseActivity(merged)).map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions }));
-  }, [thread, key, topic, activity, state.details, state.me, allSteps]);
+    // a seat's settings and the answers to asks are not lines of their own (the profile and the ask's card carry them)
+    const merged = mergeThread(thread.items.filter(inThread), activity ?? []);
+    return (allSteps ? merged : collapseActivity(merged, asks)).map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions }));
+  }, [thread, key, topic, activity, state.details, state.me, allSteps, asks]);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
-  // the agents' asks in this thread, each with its answer when one came (the first admitted 'answer' control)
-  const asks = useMemo(() => {
-    const out = new Map<string, { rec: Rec; answer: AskAnswer | null }>();
-    for (const r of thread?.items ?? []) if (r.kind === 'ask') out.set(r.id, { rec: r, answer: null });
-    for (const r of thread?.items ?? []) {
-      if (r.kind === 'control' && r.action === 'answer' && r.ask && out.has(r.ask) && !out.get(r.ask)!.answer) out.get(r.ask)!.answer = { choice: r.choice as AskChoice, by: r.name, device: r.device || undefined, ts: r.ts };
-    }
-    return out;
-  }, [thread]);
   const [answering, setAnswering] = useState<string | null>(null);
   // one of the owner's own devices (the daemon's own test, so the phone counts); an older daemon says only `owner`
   const canAnswer = !!state.me?.human && !!(topic && (state.details[topic]?.ownerDevice ?? state.details[topic]?.owner));
@@ -102,7 +95,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
       setAnswering(null);
     }
   };
-  const hasSteps = !!activity?.length;
+  const hasSteps = !!activity?.length || asks.size > 0;
   const favourites = useMemo(() => topEmoji(emojiCounts, 6), [emojiCounts]);
 
   const thinking = topic && convId ? thinkingIn(state, topic, convId) : [];

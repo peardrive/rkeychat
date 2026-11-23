@@ -60,7 +60,18 @@ export class App extends EventEmitter {
   // the local person who signs controls here, if any
   get human () { return Object.entries(this.cfg.participants).find(([, p]) => p.role === 'human')?.[0] ?? null }
 
-  get participants () { return participantSigners(this.cfg) }
+  // a seat whose key file is gone is left out (said once); `rkeychat room remove NAME` takes its room and it off for good
+  get participants () {
+    return participantSigners(this.cfg, {
+      onLost: (name, keyFile) => {
+        this.#lost ??= new Set()
+        if (this.#lost.has(name)) return
+        this.#lost.add(name)
+        console.warn(`[${name}] its key file is gone (${keyFile}): the seat is left out until the folder is back, or remove it`)
+      }
+    })
+  }
+  #lost
 
   // The one identity root for this person. Every room they create hangs off it.
   // (Software key for now; a Satochip / Keycard signer drops in here later.)
@@ -277,17 +288,21 @@ export class App extends EventEmitter {
   // owner's keys, or the control is not admitted anywhere and there is nothing to say).
   announceSeat (name) {
     if (!this.#hosts(name)) return
-    const human = this.human
     const seat = { ...this.seatState(name), applied: true }
-    for (const { room } of this.rooms.values()) {
-      const h = human ? room.local[human] : null
-      if (!room.local[name] || !h || !room.state || !room.isOwnerKey(h.signer.ref)) continue
-      room.control(human, 'seat', { agent: name, seat }).catch((err) => console.error(`[${room.cfg.name}] seat ${name}:`, err.message))
-    }
+    for (const { room } of this.rooms.values()) this.#announceSeatIn(room, name, seat)
+  }
+
+  #announceSeatIn (room, name, seat = { ...this.seatState(name), applied: true }) {
+    const human = this.human
+    const h = human ? room.local[human] : null
+    if (!room.local[name] || !h || !room.state || !room.isOwnerKey(h.signer.ref)) return
+    room.control(human, 'seat', { agent: name, seat }).catch((err) => console.error(`[${room.cfg.name}] seat ${name}:`, err.message))
   }
 
   // At start: a seat whose room has no (or an older) description of how it runs gets one, so a phone that opens
-  // the bot's profile sees the truth. Nothing is written when the newest description already matches.
+  // the bot's profile sees the truth. Nothing is written when the newest description already matches. Only this
+  // room is written: each room runs this for itself (2026-11-23: writing every room from every room's check put
+  // six copies of the same control into each room at one start).
   #announceStaleSeats (room) {
     const known = new Map(room.seatsFromLog().map((s) => [s.name, s]))
     for (const name of Object.keys(this.cfg.participants)) {
@@ -295,7 +310,7 @@ export class App extends EventEmitter {
       const now = this.seatState(name)
       const k = known.get(name)
       const same = k && ['permissionMode', 'model', 'provider', 'askMinutes', 'via', 'dir'].every((f) => (k[f] ?? null) === (now[f] ?? null)) && JSON.stringify(k.providers) === JSON.stringify(now.providers) && JSON.stringify(k.auto ?? null) === JSON.stringify(now.auto ?? null)
-      if (!same) this.announceSeat(name)
+      if (!same) this.#announceSeatIn(room, name, { ...now, applied: true })
     }
   }
 

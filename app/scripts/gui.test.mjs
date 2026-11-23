@@ -246,12 +246,12 @@ test('the bot\'s profile opens from its picture in the chat; its permission mode
     await page.getByRole('button', { name: 'Set' }).tap();
     await page.getByText(/Auto \(5 turns\) · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
     assert.match(await page.getByText(/Now: 5 turns left/).first().textContent(), /5 turns left/, 'the grant and what is left of it');
-    // what was asked and what the host answered are both in the conversation
+    // the settings live on the profile only: the conversation shows no line for the request or the host's word
     await page.getByRole('button', { name: 'Back' }).first().tap();
     await page.waitForTimeout(400);
     await openThread(page, /Reading the folder/);
-    assert.ok((await page.getByText('@rkeychat now runs: Ask · Opus 5.5 · via ppq').count()) >= 1, 'the host\'s word is a line in the chat');
-    assert.ok((await page.getByText('@rkeychat now runs: Auto (5 turns) · Opus 5.5 · via ppq').count()) >= 1, 'the Auto grant too');
+    assert.equal(await page.getByText(/now runs:/).count(), 0, 'no "now runs" line in the chat');
+    assert.equal(await page.getByText(/changed @rkeychat's settings/).count(), 0, 'no "changed the settings" line in the chat');
     assert.deepEqual(errors, []);
   } finally {
     await ctx.close();
