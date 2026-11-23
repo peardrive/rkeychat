@@ -76,6 +76,23 @@ export type PendingRequest = { id: string; name: string; asked: string; home: st
 
 /** Claude Code's permission modes a seat may run in; `bypassPermissions` is never one (the daemon refuses it). */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto';
+/**
+ * The room's round budget (src/turns.js): `rounds` is the standing number a human message resets to, `limit` the
+ * current exchange's (extend tops it up), `remaining` what is left of it (null when open), `until`/`unlimited`
+ * the open states, and per agent the pauses, post limits and posts so far.
+ */
+export type Budget = {
+  paused: boolean;
+  unlimited: boolean;
+  until: number | null;
+  /** Missing from a daemon older than 2026-11-23. */
+  rounds?: number;
+  limit: number;
+  used?: number;
+  remaining: number | null;
+  agents: { paused: string[]; limits: Record<string, number>; posts: Record<string, number> };
+};
+
 /** How long Auto may run: so many minutes, so many turns; null is no limit. A room's cap has the same shape. */
 export type AutoLimit = { minutes: number | null; turns: number | null };
 /** A seat's Auto grant as its host reports it: the limit, since when, turns used, and the mode it goes back to. */
@@ -147,6 +164,9 @@ export type Rec = {
   via?: string;
   redacted?: { by: string; ts: number };
   action?: string;
+  /** budget controls: rounds / extend / limit take `n`; until carries the time */
+  n?: number;
+  until?: number;
   mentions?: string[];
   /** An `ask` (an agent asking a person for a permission): the tool, what it would do, the whole input, when it lapses. */
   tool?: string;
@@ -202,7 +222,7 @@ export type RoomSnapshot = {
   reactions: Reactions;
   charter: Charter;
   style?: unknown;
-  budget?: unknown;
+  budget?: Budget | null;
   spend?: unknown;
   connections?: unknown;
   log: Rec[];
@@ -243,7 +263,7 @@ export type AgentState = 'idle' | 'thinking' | 'waiting' | 'error' | 'offline';
 /* ───────────── push events (SSE) ───────────── */
 
 export type Events = {
-  record: { topic: string; rec: Rec; budget?: unknown };
+  record: { topic: string; rec: Rec; budget?: Budget | null };
   convs: { topic: string; convs: Conversation[] };
   room: RoomSnapshot;
   rooms: RoomSummary[];

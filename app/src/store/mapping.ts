@@ -36,6 +36,16 @@ export function controlLine(rec: Rec): string {
   if (rec.action === 'seat') return rec.seat?.applied ? `@${rec.agent} now runs: ${runLine(rec.seat)}` : `${rec.name} changed @${rec.agent}'s settings`;
   // the room's cap on Auto
   if (rec.action === 'auto') { const w = autoWords(rec.auto); return w ? `${rec.name} capped Auto in this project at ${w}` : `${rec.name} lifted the Auto cap`; }
+  // the round budget (src/turns.js)
+  const n = Number(rec.n) || 0;
+  if (rec.action === 'rounds') return n ? `${rec.name} set ${n} ${n === 1 ? 'round' : 'rounds'} per message` : `${rec.name} put the default rounds back`;
+  if (rec.action === 'extend') return `${rec.name} gave ${n || 1} more ${n === 1 ? 'round' : 'rounds'}`;
+  if (rec.action === 'unlimited') return `${rec.name} lifted the round limit`;
+  if (rec.action === 'until') return `${rec.name} opened the agents for a while`;
+  if (rec.action === 'reset') return `${rec.name} reset the rounds`;
+  if (rec.action === 'limit') return n ? `${rec.name} limited @${rec.agent} to ${n} ${n === 1 ? 'post' : 'posts'} per message` : `${rec.name} lifted @${rec.agent}'s post limit`;
+  if (rec.action === 'pause') return `${rec.name} paused ${rec.agent ? `@${rec.agent}` : 'the agents'}`;
+  if (rec.action === 'resume') return `${rec.name} resumed ${rec.agent ? `@${rec.agent}` : 'the agents'}`;
   return `${rec.name}: ${rec.action ?? 'control'}`;
 }
 

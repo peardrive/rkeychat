@@ -59,7 +59,7 @@ const PAIR_PAGE = (msg) => `<!doctype html><meta name="viewport" content="width=
 <div><div style="font-weight:650;margin-bottom:10px">rkeychat</div><div style="color:#a3a5b0;max-width:320px;line-height:1.5">${msg}</div></div>`
 
 const serializeBudget = (b) => ({
-  paused: b.paused, unlimited: b.unlimited, until: b.until, limit: b.limit, used: b.used,
+  paused: b.paused, unlimited: b.unlimited, until: b.until, rounds: b.rounds, limit: b.limit, used: b.used,
   remaining: b.remaining === Infinity ? null : b.remaining, agents: b.agents
 })
 
@@ -399,7 +399,8 @@ export function serve ({ app }) {
       }
       // the room's cap on Auto (account-gated): { minutes, turns }; both empty lifts it
       if (action === 'auto') return room.control(localHuman(), 'auto', { auto: checkAutoLimit(auto) })
-      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename', 'conv']
+      const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'rounds', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename', 'conv']
+      if (action === 'rounds') need(Number.isInteger(Number(n)) && Number(n) >= 0 && Number(n) <= 1000, 'rounds: a whole number, 1 to 1000 (0 puts the default back)')
       if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
       if (action === 'conv') need(isConvId(conv), 'which conversation?')
       if (action === 'charter' && order !== undefined) need(Array.isArray(order) && order.every((o) => room.participantsList().some((p) => p.name === o && p.role === 'agent')), 'order must list agents in this room')

@@ -57,6 +57,10 @@ export interface Api {
   seatControl(body: { room: string; agent: string; seat: SeatChange }): Promise<Rec>;
   /** The room's cap on Auto: a signed `auto` control (owner's devices only); both fields empty lifts it. */
   autoCap(body: { room: string; auto: AutoLimit }): Promise<Rec>;
+  /** The round budget: `rounds` (standing, 0 = default), `extend` (this exchange), `until` (hours), `unlimited`, `reset`. */
+  rounds(body: { room: string; action: 'rounds' | 'extend' | 'until' | 'unlimited' | 'reset'; n?: number; hours?: number }): Promise<Rec>;
+  /** An agent's posts per human message (0 = no limit). */
+  agentLimit(body: { room: string; agent: string; n: number }): Promise<Rec>;
   providers(): Promise<{ providers: Provider[] }>;
   /** Add or change a provider; the token is written, never read back. Without `token`, the held one is kept. */
   setProvider(body: { name: string; baseUrl?: string; token?: string }): Promise<Provider>;
@@ -141,6 +145,8 @@ export const httpApi: Api = {
   setAgentVia: (b) => post('agents/via', b),
   seatControl: ({ room, agent, seat }) => post('control', { room, action: 'seat', agent, seat }),
   autoCap: ({ room, auto }) => post('control', { room, action: 'auto', auto }),
+  rounds: (b) => post('control', b),
+  agentLimit: ({ room, agent, n }) => post('control', { room, action: 'limit', agent, n }),
   providers: () => get('providers'),
   setProvider: (b) => post('providers', b),
   removeProvider: (b) => post('providers/remove', b),

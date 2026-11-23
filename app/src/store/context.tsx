@@ -65,6 +65,8 @@ export interface Actions {
   setSeat(topic: string, name: string, change: SeatChange): Promise<void>;
   /** The room's cap on Auto grants; the snapshot that follows carries it. */
   setAutoCap(topic: string, auto: AutoLimit): Promise<void>;
+  setRounds(topic: string, change: { action: 'rounds' | 'extend' | 'until' | 'unlimited' | 'reset'; n?: number; hours?: number }): Promise<void>;
+  setAgentLimit(topic: string, agent: string, n: number): Promise<void>;
   react(topic: string, target: string, emoji: string, on: boolean): Promise<void>;
 }
 
@@ -254,6 +256,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       async setAutoCap(topic, auto) {
         await api().autoCap({ room: topic, auto });
       },
+      async setRounds(topic, change) {
+        await api().rounds({ room: topic, ...change });
+      },
+      async setAgentLimit(topic, agent, n) {
+        await api().agentLimit({ room: topic, agent, n });
+      },
       async react(topic, target, emoji, on) {
         await api().react({ room: topic, target, emoji, on });
       },
@@ -290,7 +298,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (reconnect) void actions.reload();
       },
       onDrop: () => dispatch({ type: 'connected', value: false }),
-      record: ({ topic, rec }) => dispatch({ type: 'record', topic, rec }),
+      record: ({ topic, rec, budget }) => {
+        dispatch({ type: 'record', topic, rec });
+        if (budget !== undefined) dispatch({ type: 'budget', topic, budget: budget ?? null });
+      },
       convs: ({ topic, convs }) => dispatch({ type: 'convs', topic, convs }),
       room: (snapshot) => dispatch({ type: 'room', snapshot }),
       rooms: (rooms) => {

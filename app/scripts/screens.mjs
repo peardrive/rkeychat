@@ -159,7 +159,7 @@ await shot('phone-bot-auto', {
     await page.getByRole('radiogroup', { name: 'Permission mode' }).getByRole('radio', { name: 'Auto' }).tap();
     await page.getByText(/Now: no limit/).first().waitFor({ timeout: 4000 });
     await page.getByRole('textbox', { name: 'Auto turns' }).fill('5');
-    await page.getByRole('button', { name: 'Set' }).tap();
+    await page.getByRole('button', { name: 'Set' }).last().tap();
     await page.getByText(/Now: 5 turns left/).first().waitFor({ timeout: 4000 });
     await must(page, page.getByText(/Now: 5 turns left/), 'the grant and what is left');
   },

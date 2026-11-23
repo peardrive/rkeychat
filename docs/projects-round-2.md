@@ -195,7 +195,7 @@ classifier doubts; with the lab tool list that was nearly every command. Built (
 | Auto for a particular amount of time | done: a grant of N minutes, N turns, or both; empty runs until switched; the profile shows what is left and the bot goes back to its old mode when it runs out, saying so in the chat |
 | Per agent: limit one, let another run wild | done: the grant is per seat |
 | A general room maximum | done: the Auto cap on the project pane (`auto` control, owner's keys only); every grant in the room is clamped to it |
-| "Set rounds" | the room's rounds budget already exists (`rkeychat control extend N`); Auto's turn limit is the per-seat count |
+| "Set rounds" | round 7: the standing `rounds` control on the project pane |
 | The Mac app shows none of it | done: `app/dist` rebuilt; the daemon serves the current shell |
 
 ## Round 7 (2026-11-23): the quiet thread, from the night's memo, and the phone that had none of it
@@ -215,7 +215,7 @@ so we can fit more. Then make all the font a little bigger."
 | "allowed always" between the asks: aggregate | done: an answer is never its own line (the card says who answered); between two messages a stretch of steps and settled asks folds into one line, "ran npm install (+4 earlier steps · 3 asks allowed)"; open and refused asks stay as cards, and after the last message every ask does until the bot speaks again; "All steps" unfolds |
 | The phone has none of rounds 5 and 6 | the cause: the phone's daemon is a by-hand copy of `src/` (`rkeychat--mobile/src`) that was last copied in round 4, while the bundle takes the shell from `app/dist` every time. The new shell asked an old daemon for seat rows and got none, so the profile had no Permissions. Fixed: copied and rebuilt; lessons entry `phone-daemon-copy-was-behind-the-shell` with a check that fails the phone build when the copy is behind |
 | Text closer to the edges, all fonts a little bigger | done in PearKit: the type scale one point up across the board (body 13 → 14 px, and so on), the chat list's margin 14 → 8 px, bubbles up to 92% of the width with less padding inside |
-| "I don't see any about rounds" | the rounds budget has no control in the shell yet (CLI `rkeychat control extend N`); Auto's turn limit is what the profile offers. To add when Guy says where it should live |
+| "I don't see any about rounds" | done: a new standing `rounds` control (`rkeychat control rounds N`; `extend` only topped up one exchange and fell back to 3 at the next message). The project pane has "Rounds: 3 rounds per message" with Set, "Open 8 h" and "No limit"; the bot's profile has "Posts per message" (the `limit` control) under Rules. The budget rides on every record push, so the line follows the conversation |
 
 Also found on the way: a seat whose key file is gone (the Demo project seat lived in a temp folder that was
 cleared) took the whole daemon down at start; now the seat is left out with one warning, and `rkeychat room

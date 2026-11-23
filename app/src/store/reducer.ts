@@ -1,7 +1,7 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Conversation, Device, LoginAsk, OpenAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Budget, Conversation, Device, LoginAsk, OpenAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
 import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
@@ -11,7 +11,7 @@ export type Thread = { items: Rec[]; hasOlder: boolean; loaded: boolean; loading
 /** A project asked of another device: shown as a "waiting on …" row until a room answers it (`topic`). */
 export type PendingEntry = { id: string; name: string; asked: string; topic?: string; online?: boolean; via?: string; ts?: number };
 
-export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'ownerDevice' | 'admitted' | 'autoCap'>;
+export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'ownerDevice' | 'admitted' | 'autoCap' | 'budget'>;
 
 export type State = {
   ready: boolean;
@@ -76,6 +76,7 @@ export type Action =
   | { type: 'conv'; topic: string; conv: Conversation }
   | { type: 'select'; topic: string | null; conv: string | null }
   | { type: 'record'; topic: string; rec: Rec }
+  | { type: 'budget'; topic: string; budget: Budget | null }
   | { type: 'log'; topic: string; conv: string; log: Rec[]; hasOlder: boolean; mode: 'replace' | 'older' }
   | { type: 'loadingOlder'; topic: string; conv: string; value: boolean }
   | { type: 'activity'; topic: string; rec: Rec }
@@ -95,6 +96,7 @@ function detailOf(s: RoomSnapshot): RoomDetail {
     charter: s.charter ?? { text: '', order: [], agents: {} },
     seats: s.seats ?? [],
     autoCap: s.autoCap ?? null,
+    budget: s.budget ?? null,
     folder: s.folder ?? null,
     app: s.app ?? null,
     participants: s.participants ?? [],
@@ -177,6 +179,11 @@ export function reducer(state: State, action: Action): State {
       const arrived = state.pendingProjects.filter((p) => p.topic);
       const fresh = action.list.filter((p) => !hidden.has(p.id) && !arrived.some((a) => a.id === p.id)).map((p) => ({ id: p.id, name: p.name, asked: p.asked, online: p.online, via: p.via, ts: p.ts }));
       return { ...state, pendingProjects: [...arrived, ...fresh] };
+    }
+    // every record push carries the room's budget after it (a human message resets the rounds, a control changes them)
+    case 'budget': {
+      const d = state.details[action.topic];
+      return d ? { ...state, details: { ...state.details, [action.topic]: { ...d, budget: action.budget } } } : state;
     }
     case 'room': {
       const snap = action.snapshot;

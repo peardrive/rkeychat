@@ -9,6 +9,7 @@ import { SAFE_TOP, rkc } from '../hooks';
 import { Avatar, Button, Chip, DangerZone, Divider, EmptyState, Icon, IconButton, LinkField, Pane, PaneBody, PaneHeader, SectionLabel, SegmentedControl, StatusDot, Text, TextField, copyToClipboard, useToast, type StatusTone } from '../kit';
 import { useStore } from '../store/context';
 import { archivedConvs, convTitle, homeOf, orgOf, selectedRoom, thinkingIn } from '../store/selectors';
+import { roundsLine } from '../store/budget';
 import type { AgentState, Seat } from '../types';
 import type { ProjectAction } from './ProjectList';
 
@@ -41,11 +42,32 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
   const [savingCap, setSavingCap] = useState(false);
   const capDirty = (Number(capMin) || 0) !== (cap?.minutes ?? 0) || (Number(capTurns) || 0) !== (cap?.turns ?? 0);
 
+  // the round budget: how many agent-to-agent hops a human message buys (standing), or the agents left open
+  const budget = detail?.budget ?? null;
+  const standingRounds = budget?.rounds ?? budget?.limit ?? 3;
+  const [rounds, setRounds] = useState(String(standingRounds));
+  const [savingRounds, setSavingRounds] = useState<string | null>(null);
+  const roundsOpen = !!budget && (budget.unlimited || (!!budget.until && budget.until > Date.now()));
+  const roundsDirty = (Number(rounds) || 0) !== standingRounds || roundsOpen;
+
   useEffect(() => setPrompt(charter), [charter, topic]);
   useEffect(() => {
     setCapMin(cap?.minutes ? String(cap.minutes) : '');
     setCapTurns(cap?.turns ? String(cap.turns) : '');
   }, [cap?.minutes, cap?.turns, topic]);
+  useEffect(() => setRounds(String(standingRounds)), [standingRounds, topic]);
+  const changeRounds = async (change: { action: 'rounds' | 'until' | 'unlimited'; n?: number; hours?: number }, done: string) => {
+    if (!topic) return;
+    setSavingRounds(change.action);
+    try {
+      await actions.setRounds(topic, change);
+      toast({ title: done, tone: 'success', duration: 1500 });
+    } catch (e) {
+      toast({ title: 'Could not change the rounds', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSavingRounds(null);
+    }
+  };
   const saveCap = async () => {
     if (!topic) return;
     setSavingCap(true);
@@ -219,6 +241,23 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
             No agent seat in this project.
           </Text>
         )}
+        {seats.length ? (
+          <View className="gap-1.5 pt-2" accessibilityLabel="Rounds">
+            <View className="flex-row items-center gap-1.5">
+              <Text variant="caption" tone="muted" numberOfLines={2} className="min-w-0 flex-1">
+                Rounds: {roundsLine(budget) || `${standingRounds} rounds per message`}
+              </Text>
+              <TextField value={rounds} onChangeText={(t) => setRounds(t.replace(/[^\d]/g, ''))} placeholder="3" keyboardType="numeric" size="sm" disabled={!ownerDevice} accessibilityLabel="Rounds per message" className="w-[64px]" />
+              <Button label="Set" size="sm" variant="secondary" disabled={!ownerDevice || !roundsDirty || !Number(rounds)} loading={savingRounds === 'rounds'} onPress={() => void changeRounds({ action: 'rounds', n: Number(rounds) }, `${Number(rounds)} rounds per message`)} />
+            </View>
+            {!roundsOpen ? (
+              <View className="flex-row items-center justify-end gap-1.5">
+                <Button label="Open 8 h" size="sm" variant="ghost" disabled={!ownerDevice} loading={savingRounds === 'until'} onPress={() => void changeRounds({ action: 'until', hours: 8 }, 'Agents open for 8 hours')} />
+                <Button label="No limit" size="sm" variant="ghost" disabled={!ownerDevice} loading={savingRounds === 'unlimited'} onPress={() => void changeRounds({ action: 'unlimited' }, 'No round limit')} />
+              </View>
+            ) : null}
+          </View>
+        ) : null}
         {seats.some((s) => s.bridge === 'claude') ? (
           <View className="flex-row items-center gap-1.5 pt-2" accessibilityLabel="Auto cap">
             <Text variant="caption" tone="muted" numberOfLines={2} className="min-w-0 flex-1">

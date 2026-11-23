@@ -17,6 +17,25 @@ test('default budget is 3 rounds and resets when Guy speaks', () => {
   assert.equal(after.allows(1), true)
 })
 
+test('rounds N is standing: every human message resets to it; reset puts 3 back (2026-11-23)', () => {
+  const base = [human('hi'), agent('claude', 1), agent('kimi', 2), agent('claude', 3)]
+  assert.equal(budget(base).rounds, 3)
+  const five = [...base, ctl('rounds', { n: 5 })]
+  assert.equal(budget(five).rounds, 5)
+  assert.equal(budget(five).allows(5), true)
+  assert.equal(budget(five).allows(6), false)
+  // the next human message keeps five, where extend would have fallen back to three
+  const next = [...five, ctl('extend', { n: 10 }), human('more'), agent('claude', 1)]
+  assert.equal(budget(next).limit, 5)
+  assert.equal(budget(next).remaining, 4)
+  assert.equal(budget([...next, ctl('rounds', { n: 0 })]).rounds, 3)
+  assert.equal(budget([...five, ctl('reset')]).rounds, 3)
+  assert.equal(budget([...base, ctl('rounds', { n: 5000 })]).rounds, 1000)
+  // setting rounds is asking for a limit: it ends an unlimited / until grant
+  assert.equal(budget([...base, ctl('unlimited'), ctl('rounds', { n: 4 })]).allows(5), false)
+  assert.equal(budget([...base, ctl('until', { until: 9e15 }), ctl('rounds', { n: 4 })]).unlimited, false)
+})
+
 test('extend, unlimited, until, pause', () => {
   const base = [human('hi'), agent('claude', 1), agent('kimi', 2), agent('claude', 3)]
   assert.equal(budget([...base, ctl('extend', { n: 10 })]).allows(13), true)

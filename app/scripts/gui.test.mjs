@@ -165,6 +165,29 @@ test('phone: a project opens from the list and Back returns to it', async () => 
   }
 });
 
+test('phone: the project pane sets the rounds per message; the line follows (2026-11-23, "set rounds")', async () => {
+  const { page, ctx, errors } = await open();
+  try {
+    await openThread(page);
+    await page.getByRole('button', { name: 'Project' }).first().tap();
+    await page.getByRole('button', { name: 'Back' }).first().waitFor({ timeout: 4000 });
+    await page.getByText(/Rounds: 3 rounds per message/).first().waitFor({ timeout: 4000 });
+    const field = page.getByRole('textbox', { name: 'Rounds per message' });
+    await field.fill('5');
+    await page.getByLabel('Rounds').getByRole('button', { name: 'Set' }).last().tap();
+    await page.getByText(/Rounds: 5 rounds per message/).first().waitFor({ timeout: 4000 });
+    // lifting the limit says so; setting rounds again brings the limit back
+    await page.getByRole('button', { name: 'No limit' }).tap();
+    await page.getByText(/Rounds: no round limit/).first().waitFor({ timeout: 4000 });
+    await field.fill('4');
+    await page.getByLabel('Rounds').getByRole('button', { name: 'Set' }).last().tap();
+    await page.getByText(/Rounds: 4 rounds per message/).first().waitFor({ timeout: 4000 });
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('desktop: Enter sends, Shift+Enter makes a new line', async () => {
   const { page, ctx, errors } = await open({ phone: false });
   try {
@@ -243,7 +266,7 @@ test('the bot\'s profile opens from its picture in the chat; its permission mode
     await page.getByText(/Auto · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
     assert.match(await page.getByText(/Now: no limit/).first().textContent(), /no limit/, 'Auto with nothing set runs until switched');
     await page.getByRole('textbox', { name: 'Auto turns' }).fill('5');
-    await page.getByRole('button', { name: 'Set' }).tap();
+    await page.getByRole('button', { name: 'Set' }).last().tap();
     await page.getByText(/Auto \(5 turns\) · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
     assert.match(await page.getByText(/Now: 5 turns left/).first().textContent(), /5 turns left/, 'the grant and what is left of it');
     // the settings live on the profile only: the conversation shows no line for the request or the host's word

@@ -48,6 +48,7 @@ agents
   rkeychat agent via NAME acp|cli              how the daemon drives it: acp (Agent Client Protocol: permissions answered from the tool list, a person interrupts a turn) or cli (claude -p); init takes --acp
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
+  rkeychat control rounds N                    rounds per human message, standing (0 = the default 3)
   rkeychat control extend N | until HOURS | unlimited | reset
   rkeychat control auto [--minutes N] [--turns N] | auto off   the room's cap on a seat's Auto (both empty = none)
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
@@ -427,6 +428,7 @@ switch (cmd) {
     const [action, a, b] = pos
     const payload = { room: opt.room, action }
     if (action === 'extend') payload.n = Number(a ?? 1)
+    else if (action === 'rounds') payload.n = Number(a ?? 0)
     else if (action === 'until') payload.hours = Number(a ?? 8)
     else if (action === 'limit') { payload.agent = a ?? die('usage: rkeychat control limit AGENT N'); payload.n = Number(b ?? 0) }
     else if ((action === 'pause' || action === 'resume') && a) payload.agent = a

@@ -4,7 +4,7 @@
  */
 import { ApiError, type Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, AutoLimit, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, AutoLimit, Budget, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -26,7 +26,10 @@ type MockRoom = {
   reactions: Record<string, Record<string, string[]>>;
   participants: { name: string; role: 'human' | 'agent'; online: boolean; local: boolean }[];
   autoCap?: AutoLimit | null;
+  budget?: Budget;
 };
+
+const freshBudget = (): Budget => ({ paused: false, unlimited: false, until: null, rounds: 3, limit: 3, remaining: 3, agents: { paused: [], limits: {}, posts: {} } });
 
 const ME = 'guy';
 const DEVICE = 'studio';
@@ -220,6 +223,7 @@ function snapshot(r: MockRoom, conv = 'main'): RoomSnapshot {
     app: r.app,
     seats: r.seats,
     autoCap: r.autoCap ?? null,
+    budget: r.budget ?? (r.budget = freshBudget()),
   };
 }
 
@@ -602,6 +606,42 @@ export const mockApi: Api = {
     const rec: Rec = { id: id(), kind: 'control', action: 'auto', ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: 'main', auto: cap };
     r.log.push(rec);
     emit('record', { topic: r.topic, rec });
+    setTimeout(() => emit('room', snapshot(r)), 40);
+    return rec;
+  },
+  // the round budget, as src/turns.js would compute it from the controls
+  async rounds({ room: key, action, n, hours }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    const b = (r.budget ??= freshBudget());
+    const used = b.limit - (b.remaining ?? b.limit);
+    if (action === 'rounds') {
+      if (!Number.isInteger(Number(n)) || Number(n) < 0 || Number(n) > 1000) throw new ApiError(400, 'rounds: a whole number, 1 to 1000 (0 puts the default back)');
+      b.rounds = Math.max(1, Number(n) || 3);
+      b.limit = b.rounds;
+      b.unlimited = false;
+      b.until = null;
+    } else if (action === 'extend') b.limit += Math.max(1, Number(n) || 1);
+    else if (action === 'unlimited') b.unlimited = true;
+    else if (action === 'until') b.until = Date.now() + (Number(hours) || 8) * 3600_000;
+    else if (action === 'reset') Object.assign(b, { rounds: 3, limit: 3, unlimited: false, until: null });
+    b.remaining = b.unlimited || (b.until && b.until > Date.now()) ? null : Math.max(0, b.limit - used);
+    const rec: Rec = { id: id(), kind: 'control', action, ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: 'main', n: action === 'rounds' || action === 'extend' ? Number(n) || 0 : undefined, until: b.until ?? undefined } as Rec;
+    r.log.push(rec);
+    emit('record', { topic: r.topic, rec, budget: b });
+    setTimeout(() => emit('room', snapshot(r)), 40);
+    return rec;
+  },
+  async agentLimit({ room: key, agent, n }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    if (!r.seats.some((s) => s.name === agent)) throw new ApiError(400, 'which agent?');
+    const b = (r.budget ??= freshBudget());
+    if (Number(n) > 0) b.agents.limits[agent] = Number(n);
+    else delete b.agents.limits[agent];
+    const rec: Rec = { id: id(), kind: 'control', action: 'limit', ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: 'main', agent, n: Number(n) || 0 } as Rec;
+    r.log.push(rec);
+    emit('record', { topic: r.topic, rec, budget: b });
     setTimeout(() => emit('room', snapshot(r)), 40);
     return rec;
   },

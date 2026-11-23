@@ -11,6 +11,7 @@ import { Button, Chip, EmptyState, IconButton, Pane, PaneBody, PaneHeader, Profi
 import { useStore } from '../store/context';
 import { homeOf, thinkingIn } from '../store/selectors';
 import { MODELS, PERMISSION_MODES, autoLeft, autoWords, isCustomModel, permissionModeHint, providerOptions, runLine } from '../store/seatSettings';
+import { agentPostLimit } from '../store/budget';
 import type { PermissionMode, SeatChange } from '../types';
 
 export interface ProfilePageProps {
@@ -39,6 +40,23 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
   const [backupFor, setBackupFor] = useState(rule.backupFor ?? '');
   const [cap, setCap] = useState(rule.tokensPerDay ? String(rule.tokensPerDay) : '');
   const [saving, setSaving] = useState(false);
+  // the agent's posts per human message, from the room's budget ('limit' control; 0 = no limit)
+  const postLimit = agentPostLimit(detail?.budget, name);
+  const [posts, setPosts] = useState(postLimit ? String(postLimit) : '');
+  const [savingPosts, setSavingPosts] = useState(false);
+  useEffect(() => setPosts(postLimit ? String(postLimit) : ''), [postLimit, topic, name]);
+  const savePosts = async () => {
+    if (!topic) return;
+    setSavingPosts(true);
+    try {
+      await actions.setAgentLimit(topic, name, Number(posts) || 0);
+      toast({ title: Number(posts) ? `@${name}: ${Number(posts)} posts per message` : `@${name}: no post limit`, tone: 'success', duration: 1500 });
+    } catch (e) {
+      toast({ title: 'Could not set the limit', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSavingPosts(false);
+    }
+  };
   // the bot's settings: typed values wait for Use / blur; the chips and segments go at once
   const [customModel, setCustomModel] = useState(isCustomModel(seat?.model) ? seat?.model ?? '' : '');
   const [askMin, setAskMin] = useState(seat?.askMinutes ? String(seat.askMinutes) : '');
@@ -167,6 +185,16 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
                 ]
               : []),
             { label: 'Tokens per day', hint: '0 is no cap', control: <TextField value={cap} onChangeText={(t) => setCap(t.replace(/[^\d]/g, ''))} placeholder="0" keyboardType="numeric" size="sm" disabled={!owner} className="w-[120px]" /> },
+            {
+              label: 'Posts per message',
+              hint: `how often it may speak between two of yours; 0 is no limit${postLimit ? `. Now: ${postLimit}` : ''}`,
+              control: (
+                <View className="flex-row items-center gap-1.5">
+                  <TextField value={posts} onChangeText={(t) => setPosts(t.replace(/[^\d]/g, ''))} placeholder="0" keyboardType="numeric" size="sm" disabled={!owner} accessibilityLabel="Posts per message" className="w-[72px]" />
+                  <Button label="Set" size="sm" variant="secondary" disabled={!owner || (Number(posts) || 0) === postLimit} loading={savingPosts} onPress={() => void savePosts()} />
+                </View>
+              ),
+            },
           ],
         },
         ...(claude
