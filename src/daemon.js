@@ -114,7 +114,11 @@ export class App extends EventEmitter {
     // that hosts the seat applies them and writes back how the seat now runs (docs/project-agents.md "The bot's
     // settings"). Account-gated in #admits, like 'project'.
     room.on('seat', (rec) => this.#seatControl(rec, room))
-    room.once('chain', () => setTimeout(() => { if (this.rooms.has(rcfg.topic)) this.#announceStaleSeats(room) }, 2000).unref?.())
+    // once the chain is there (loaded from disk a moment after start, or when it first arrives): say how the seats
+    // hosted here run, if the room's newest word on them is stale or missing
+    const announce = () => { if (this.rooms.has(rcfg.topic) && room.state) this.#announceStaleSeats(room) }
+    room.once('chain', () => setTimeout(announce, 2000).unref?.())
+    setTimeout(announce, 3500).unref?.()
     // the owner ended this room from another device: take it off this one (its seat and records go)
     room.on('closed', (rec) => {
       if (this.closing.has(rcfg.topic)) return
