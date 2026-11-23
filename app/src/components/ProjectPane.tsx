@@ -34,8 +34,30 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
   const [saving, setSaving] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [invite, setInvite] = useState<string | null>(null);
+  // the room's cap on Auto: the most any seat here runs without asking, per grant
+  const cap = detail?.autoCap ?? null;
+  const [capMin, setCapMin] = useState(cap?.minutes ? String(cap.minutes) : '');
+  const [capTurns, setCapTurns] = useState(cap?.turns ? String(cap.turns) : '');
+  const [savingCap, setSavingCap] = useState(false);
+  const capDirty = (Number(capMin) || 0) !== (cap?.minutes ?? 0) || (Number(capTurns) || 0) !== (cap?.turns ?? 0);
 
   useEffect(() => setPrompt(charter), [charter, topic]);
+  useEffect(() => {
+    setCapMin(cap?.minutes ? String(cap.minutes) : '');
+    setCapTurns(cap?.turns ? String(cap.turns) : '');
+  }, [cap?.minutes, cap?.turns, topic]);
+  const saveCap = async () => {
+    if (!topic) return;
+    setSavingCap(true);
+    try {
+      await actions.setAutoCap(topic, { minutes: Number(capMin) || null, turns: Number(capTurns) || null });
+      toast({ title: Number(capMin) || Number(capTurns) ? 'Auto cap set' : 'Auto cap lifted', tone: 'success', duration: 1500 });
+    } catch (e) {
+      toast({ title: 'Could not set the cap', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSavingCap(false);
+    }
+  };
   useEffect(() => {
     setInvite(null);
     if (!topic || !room?.owner) return;
@@ -94,6 +116,7 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
   }
 
   const seats = detail?.seats ?? [];
+  const ownerDevice = !!(detail?.ownerDevice ?? room.owner);
   const members = (detail?.participants ?? []).filter((p) => !seats.some((s) => s.name === p.name));
   const archived = archivedConvs(state, room.topic);
   const bridge = rkc();
@@ -196,6 +219,16 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
             No agent seat in this project.
           </Text>
         )}
+        {seats.some((s) => s.bridge === 'claude') ? (
+          <View className="flex-row items-center gap-1.5 pt-2" accessibilityLabel="Auto cap">
+            <Text variant="caption" tone="muted" numberOfLines={2} className="min-w-0 flex-1">
+              Auto at most {cap?.minutes || cap?.turns ? '' : '(no cap)'}
+            </Text>
+            <TextField value={capMin} onChangeText={(t) => setCapMin(t.replace(/[^\d]/g, ''))} placeholder="min" keyboardType="numeric" size="sm" disabled={!ownerDevice} accessibilityLabel="Auto cap minutes" className="w-[64px]" />
+            <TextField value={capTurns} onChangeText={(t) => setCapTurns(t.replace(/[^\d]/g, ''))} placeholder="turns" keyboardType="numeric" size="sm" disabled={!ownerDevice} accessibilityLabel="Auto cap turns" className="w-[64px]" />
+            <Button label="Set" size="sm" variant="secondary" disabled={!ownerDevice || !capDirty} loading={savingCap} onPress={() => void saveCap()} />
+          </View>
+        ) : null}
 
         {/* Members */}
         <SectionLabel label="Members" count={members.length || undefined} inset="none" className="pb-1 pt-4" />

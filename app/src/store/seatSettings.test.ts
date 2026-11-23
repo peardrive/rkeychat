@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSION_MODES, isCustomModel, modelName, permissionModeHint, providerOptions, runLine } from './seatSettings';
+import { PERMISSION_MODES, autoLeft, autoWords, isCustomModel, modelName, permissionModeHint, providerOptions, runLine } from './seatSettings';
 
 describe('the bot\'s settings as the profile reads them', () => {
   it('offers the four modes and never bypass; the default mode is Edits', () => {
@@ -33,5 +33,26 @@ describe('the bot\'s settings as the profile reads them', () => {
     expect(runLine({ permissionMode: 'default', model: 'claude-opus-5-5', provider: 'ppq' })).toBe('Ask · Opus 5.5 · via ppq');
     expect(runLine({})).toBe('Edits · Default · Claude login');
     expect(runLine(null)).toBe('');
+  });
+});
+
+describe('Auto with a grant', () => {
+  it('words for a grant or a cap, and the line under the name', () => {
+    expect(autoWords({ minutes: 30, turns: 5 })).toBe('30 min, 5 turns');
+    expect(autoWords({ minutes: null, turns: 1 })).toBe('1 turn');
+    expect(autoWords(null)).toBe('');
+    expect(runLine({ permissionMode: 'auto', auto: { minutes: null, turns: 5 }, model: null, provider: null })).toBe('Auto (5 turns) · Default · Claude login');
+    expect(runLine({ permissionMode: 'auto', auto: null, model: null, provider: null })).toBe('Auto · Default · Claude login');
+  });
+
+  it('where the grant stands: the tighter of the seat\'s own limit and the room\'s cap', () => {
+    const now = 10_000_000;
+    const grant = { since: now - 10 * 60_000, minutes: 30, turns: 5, used: 2 };
+    expect(autoLeft(grant, null, now)).toBe('20 min left · 3 turns left');
+    expect(autoLeft(grant, { minutes: 15, turns: null }, now)).toBe('5 min left · 3 turns left');
+    expect(autoLeft(grant, { minutes: null, turns: 2 }, now)).toBe('over');
+    expect(autoLeft(grant, null, now + 25 * 60_000)).toBe('over');
+    expect(autoLeft({ since: now, minutes: null, turns: null }, null, now)).toBe('no limit');
+    expect(autoLeft(null, { minutes: 10, turns: null }, now)).toBe('10 min left');
   });
 });

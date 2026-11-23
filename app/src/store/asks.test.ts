@@ -49,6 +49,14 @@ describe('an agent asking for a permission', () => {
     expect(s.feed.length).toBe(0);
     expect(toChatMessage(req)).toMatchObject({ system: true, text: "guy changed @pear's settings" });
     expect(toChatMessage(echo)).toMatchObject({ system: true, text: '@pear now runs: Ask · Opus 5.5 · via ppq' });
+    // Auto with a grant, and the room's cap, read as lines too
+    const autoEcho: Rec = { ...echo, id: 'seat3', ts: 1602, seat: { applied: true, permissionMode: 'auto', auto: { since: 1602, minutes: 30, turns: 5, used: 0, back: 'default' }, model: null, provider: null } };
+    expect(toChatMessage(autoEcho).text).toBe('@pear now runs: Auto (30 min, 5 turns) · Default · Claude login');
+    const cap: Rec = { id: 'cap1', kind: 'control', action: 'auto', ts: 1603, name: 'guy', device: 'guy-phone', human: true, text: '', conv: 'main', auto: { minutes: 60, turns: null } };
+    s = reducer(s, { type: 'record', topic: 't1', rec: cap });
+    expect(s.threads['t1/main'].items.map((x) => x.id)).toEqual(['seat1', 'seat2', 'cap1']);
+    expect(toChatMessage(cap).text).toBe('guy capped Auto in this project at 60 min');
+    expect(toChatMessage({ ...cap, auto: { minutes: null, turns: null } }).text).toBe('guy lifted the Auto cap');
   });
 
   it('reads as a line in the chat: the ask names the tool, the answer says who allowed it', () => {

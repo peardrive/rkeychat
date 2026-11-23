@@ -87,8 +87,9 @@ Control actions added to the server whitelist: `conv`, `app`.
 
 | Route | Body / query | Returns | Notes |
 |---|---|---|---|
-| `POST /api/control` | `{ room, action: 'seat', agent, seat: { permissionMode?, model?, provider?, askMinutes?, via? } }` | the signed `seat` control | the one path for the shell on every device: account-gated; the seat's host applies it and writes back `seat.applied: true` with how it runs and its `providers: [{ name, hasToken }]` |
-| `POST /api/agents/mode` | `{ name, mode }` | `{ name, permissionMode }` | on the host: `default \| acceptEdits \| plan \| auto`; `bypassPermissions` is refused |
+| `POST /api/control` | `{ room, action: 'seat', agent, seat: { permissionMode?, auto?: { minutes, turns }, model?, provider?, askMinutes?, via? } }` | the signed `seat` control | the one path for the shell on every device: account-gated; the seat's host applies it and writes back `seat.applied: true` with how it runs, its `providers: [{ name, hasToken }]` and, in Auto, `auto: { since, minutes, turns, used, back }` |
+| `POST /api/control` | `{ room, action: 'auto', auto: { minutes, turns } }` | the signed `auto` control | the room's cap on Auto grants (account-gated); both empty lifts it; `RoomSnapshot.autoCap` follows |
+| `POST /api/agents/mode` | `{ name, mode, auto? }` | `{ name, permissionMode, auto, run }` | on the host: `default \| acceptEdits \| plan \| auto`; `bypassPermissions` is refused; `auto` is the grant `{ minutes, turns }` (1 up, or empty for no limit) |
 | `POST /api/agents/model` | `{ name, model?, provider? }` | `{ name, model, provider, run }` | `model` null/`default` is the login's own; `provider` null/`claude` is the login; a provider must exist on this device |
 | `GET /api/providers` | — | `{ providers: [{ name, baseUrl, hasToken }] }` | never the token |
 | `POST /api/providers` | `{ name, baseUrl?, token? }` | `{ name, baseUrl, hasToken }` | add or change; without `token` the held one is kept |

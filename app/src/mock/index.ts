@@ -4,7 +4,7 @@
  */
 import { ApiError, type Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, AutoLimit, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -25,6 +25,7 @@ type MockRoom = {
   log: Rec[];
   reactions: Record<string, Record<string, string[]>>;
   participants: { name: string; role: 'human' | 'agent'; online: boolean; local: boolean }[];
+  autoCap?: AutoLimit | null;
 };
 
 const ME = 'guy';
@@ -218,6 +219,7 @@ function snapshot(r: MockRoom, conv = 'main'): RoomSnapshot {
     folder: r.folder,
     app: r.app,
     seats: r.seats,
+    autoCap: r.autoCap ?? null,
   };
 }
 
@@ -575,15 +577,33 @@ export const mockApi: Api = {
     emit('record', { topic: r.topic, rec: req });
     const change = { ...seat };
     delete change.applied;
+    delete change.auto;
+    const prev = s.permissionMode ?? 'acceptEdits';
     Object.assign(s, change);
+    // Auto takes a grant and remembers the mode to go back to; leaving Auto drops it
+    if (seat.permissionMode === 'auto' || seat.auto !== undefined) {
+      s.permissionMode = 'auto';
+      s.auto = { since: Date.now(), minutes: seat.auto?.minutes ?? null, turns: seat.auto?.turns ?? null, used: 0, back: prev === 'auto' ? s.auto?.back ?? 'default' : prev };
+    } else if (seat.permissionMode !== undefined) s.auto = null;
     s.providers = mockProviders.map(({ name, hasToken }) => ({ name, hasToken }));
-    const echo: Rec = { id: id(), kind: 'control', action: 'seat', ts: Date.now() + 1, name: ME, device: DEVICE, human: true, text: '', conv: 'main', agent, seat: { applied: true, permissionMode: s.permissionMode, model: s.model ?? null, provider: s.provider ?? null, askMinutes: s.askMinutes ?? null, via: s.via ?? 'acp', dir: s.dir, providers: s.providers } };
+    const echo: Rec = { id: id(), kind: 'control', action: 'seat', ts: Date.now() + 1, name: ME, device: DEVICE, human: true, text: '', conv: 'main', agent, seat: { applied: true, permissionMode: s.permissionMode, auto: s.auto ?? null, model: s.model ?? null, provider: s.provider ?? null, askMinutes: s.askMinutes ?? null, via: s.via ?? 'acp', dir: s.dir, providers: s.providers } };
     r.log.push(echo);
     setTimeout(() => {
       emit('record', { topic: r.topic, rec: echo });
       emit('room', snapshot(r));
     }, 60);
     return req;
+  },
+  async autoCap({ room: key, auto }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    const cap = { minutes: auto.minutes || null, turns: auto.turns || null };
+    r.autoCap = cap.minutes == null && cap.turns == null ? null : cap;
+    const rec: Rec = { id: id(), kind: 'control', action: 'auto', ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: 'main', auto: cap };
+    r.log.push(rec);
+    emit('record', { topic: r.topic, rec });
+    setTimeout(() => emit('room', snapshot(r)), 40);
+    return rec;
   },
   async providers() {
     await sleep(LATENCY);

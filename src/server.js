@@ -13,7 +13,7 @@ import { isRemote, authorized, newPairToken, redeem, sessions, revokeSession, ta
 import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
-import { describeProviders, checkPermissionMode } from './seat-settings.js'
+import { describeProviders, checkPermissionMode, checkAutoLimit } from './seat-settings.js'
 import { MAX_BLOB, mimeOf } from './room.js'
 import { MAIN, isConvId } from './proto.js'
 import { existsSync, statSync } from 'node:fs'
@@ -71,7 +71,7 @@ const seatsOf = (room, cfg) => {
   const local = Object.entries(cfg?.participants ?? {}).filter(([name, p]) => p.role === 'agent' && room.local[name] && room.state?.isActive(room.local[name].signer.ref))
     .map(([name, p]) => ({
       name, bridge: p.bridge?.kind ?? 'stream', via: p.bridge?.kind === 'claude' ? (p.bridge.via ?? 'cli') : null, dir: p.bridge?.dir ?? null,
-      ...(p.bridge?.kind === 'claude' ? { permissionMode: p.bridge.permissionMode ?? 'acceptEdits', model: p.bridge.model ?? null, provider: p.bridge.provider ?? null, askMinutes: p.bridge.askMinutes ?? null, providers } : {})
+      ...(p.bridge?.kind === 'claude' ? { permissionMode: p.bridge.permissionMode ?? 'acceptEdits', auto: p.bridge.permissionMode === 'auto' ? (p.bridge.auto ?? null) : null, model: p.bridge.model ?? null, provider: p.bridge.provider ?? null, askMinutes: p.bridge.askMinutes ?? null, providers } : {})
     }))
   const here = new Set(local.map((s) => s.name))
   return [...local, ...room.seatsFromLog().filter((s) => !here.has(s.name)).map(({ ts, ...s }) => s)]
@@ -96,6 +96,7 @@ export function roomSnapshot (room, { conv = MAIN, cfg } = {}) {
     convs: room.conversations(),
     conv,
     seats: seatsOf(room, cfg),
+    autoCap: room.autoCap(), // the most Auto a seat gets in this room: { minutes, turns } or null
     participants,
     members: room.members(),
     budget: serializeBudget(room.budget()),
@@ -151,7 +152,7 @@ export function serve ({ app }) {
       // in a room snapshot would not reach
       if (rec.kind === 'redact' && rec.target) push('redact', { topic: t, id: rec.target, by: rec.name, ts: rec.ts })
       if (rec.kind === 'redact' || rec.kind === 'invite') return pushRoom()
-      if (rec.kind === 'control' && rec.action === 'seat') pushRoom() // the snapshot's seat rows follow the host's word
+      if (rec.kind === 'control' && (rec.action === 'seat' || rec.action === 'auto')) pushRoom() // the snapshot's seat rows and auto cap follow the record
       push('record', () => ({ topic: t, rec: room.decorate(rec), budget: serializeBudget(room.budget()) }))
       pushRooms()
     })
@@ -318,9 +319,9 @@ export function serve ({ app }) {
     },
     // the seat's permission mode: default (ask), acceptEdits, plan, auto; bypass is refused
     'POST /api/agents/mode': async (req) => {
-      const { name, mode } = await body(req)
+      const { name, mode, auto } = await body(req)
       need(name, 'which agent?')
-      return app.setPermissionMode(name, mode)
+      return app.setPermissionMode(name, mode, { auto })
     },
     // the seat's model (null or "default": the login's own) and provider (null or "claude": the login)
     'POST /api/agents/model': async (req) => {
@@ -385,7 +386,7 @@ export function serve ({ app }) {
       return { ...rec, roomName: room.cfg.name, fixes: fixed.fixes }
     },
     'POST /api/control': async (req) => {
-      const { room: key, action, n, until, hours, agent, style, text, order, agents, name, conv, archived, runtime, seat } = await body(req)
+      const { room: key, action, n, until, hours, agent, style, text, order, agents, name, conv, archived, runtime, seat, auto } = await body(req)
       const { room } = pick(key)
       // a seat's settings from the bot's profile: a signed, account-gated request the seat's host applies (and
       // writes back how the seat now runs); the same path on the host itself
@@ -393,8 +394,11 @@ export function serve ({ app }) {
         need(agent && room.participantsList().some((p) => p.name === agent && p.role === 'agent'), 'which seat?')
         need(seat && typeof seat === 'object' && Object.keys(seat).length, 'what should change?')
         if (seat.permissionMode !== undefined) checkPermissionMode(seat.permissionMode)
+        if (seat.auto !== undefined && seat.auto !== null) checkAutoLimit(seat.auto)
         return room.control(localHuman(), 'seat', { agent, seat: { ...seat, applied: false } })
       }
+      // the room's cap on Auto (account-gated): { minutes, turns }; both empty lifts it
+      if (action === 'auto') return room.control(localHuman(), 'auto', { auto: checkAutoLimit(auto) })
       const ok = agent ? ['pause', 'resume', 'limit'] : ['extend', 'unlimited', 'until', 'pause', 'resume', 'reset', 'style', 'charter', 'rename', 'conv']
       if (action === 'rename') need(String(name ?? '').trim(), 'a room needs a name')
       if (action === 'conv') need(isConvId(conv), 'which conversation?')

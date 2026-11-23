@@ -10,7 +10,7 @@ import { SAFE_TOP } from '../hooks';
 import { Button, Chip, EmptyState, IconButton, Pane, PaneBody, PaneHeader, ProfileCard, SegmentedControl, StatusDot, Text, TextField, useToast, type ProfileSection } from '../kit';
 import { useStore } from '../store/context';
 import { homeOf, thinkingIn } from '../store/selectors';
-import { MODELS, PERMISSION_MODES, isCustomModel, permissionModeHint, providerOptions, runLine } from '../store/seatSettings';
+import { MODELS, PERMISSION_MODES, autoLeft, autoWords, isCustomModel, permissionModeHint, providerOptions, runLine } from '../store/seatSettings';
 import type { PermissionMode, SeatChange } from '../types';
 
 export interface ProfilePageProps {
@@ -42,7 +42,11 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
   // the bot's settings: typed values wait for Use / blur; the chips and segments go at once
   const [customModel, setCustomModel] = useState(isCustomModel(seat?.model) ? seat?.model ?? '' : '');
   const [askMin, setAskMin] = useState(seat?.askMinutes ? String(seat.askMinutes) : '');
+  // Auto's grant: typed, then Set; the host's echo fills the fields back in
+  const [autoMin, setAutoMin] = useState(seat?.auto?.minutes ? String(seat.auto.minutes) : '');
+  const [autoTurns, setAutoTurns] = useState(seat?.auto?.turns ? String(seat.auto.turns) : '');
   const [sending, setSending] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     setRole(rule.role ?? '');
@@ -55,6 +59,16 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
     setCustomModel(isCustomModel(seat?.model) ? seat?.model ?? '' : '');
     setAskMin(seat?.askMinutes ? String(seat.askMinutes) : '');
   }, [seat?.model, seat?.askMinutes]);
+  useEffect(() => {
+    setAutoMin(seat?.auto?.minutes ? String(seat.auto.minutes) : '');
+    setAutoTurns(seat?.auto?.turns ? String(seat.auto.turns) : '');
+  }, [seat?.auto?.minutes, seat?.auto?.turns, seat?.auto?.since]);
+  // the minutes left tick down while the page is open
+  useEffect(() => {
+    if (seat?.permissionMode !== 'auto') return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [seat?.permissionMode]);
 
   // the room's owner edits the role and rules (charter); the owner's own devices change how the seat runs
   const owner = !!room?.owner;
@@ -107,6 +121,9 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
   const mode: PermissionMode = seat?.permissionMode ?? 'acceptEdits';
   const providers = providerOptions(seat?.providers ?? []);
   const canRun = ownerDevice && claude;
+  const roomCap = detail?.autoCap ?? null;
+  const autoNow = mode === 'auto' ? autoLeft(seat?.auto, roomCap, now) : '';
+  const grantDirty = (Number(autoMin) || 0) !== (seat?.auto?.minutes ?? 0) || (Number(autoTurns) || 0) !== (seat?.auto?.turns ?? 0);
 
   const badges = isAgent
     ? [
@@ -161,7 +178,7 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
                 rows: [
                   {
                     label: 'Mode',
-                    hint: permissionModeHint(mode),
+                    hint: mode === 'auto' ? `${permissionModeHint(mode)} Now: ${autoNow}.` : permissionModeHint(mode),
                     control: (
                       <SegmentedControl
                         size="sm"
@@ -173,6 +190,21 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
                       />
                     ),
                   },
+                  ...(mode === 'auto'
+                    ? [
+                        {
+                          label: 'For',
+                          hint: `Empty is no limit. When it runs out the bot goes back to ${PERMISSION_MODES.find((m) => m.value === (seat?.auto?.back ?? 'default'))?.label ?? 'Ask'}.${roomCap && autoWords(roomCap) ? ` This project caps Auto at ${autoWords(roomCap)}.` : ''}`,
+                          control: (
+                            <View className="flex-row items-center gap-1.5">
+                              <TextField value={autoMin} onChangeText={(t) => setAutoMin(t.replace(/[^\d]/g, ''))} placeholder="min" keyboardType="numeric" size="sm" disabled={!canRun} accessibilityLabel="Auto minutes" className="w-[72px]" />
+                              <TextField value={autoTurns} onChangeText={(t) => setAutoTurns(t.replace(/[^\d]/g, ''))} placeholder="turns" keyboardType="numeric" size="sm" disabled={!canRun} accessibilityLabel="Auto turns" className="w-[72px]" />
+                              <Button label="Set" size="sm" variant="secondary" disabled={!canRun || !grantDirty} loading={sending === 'auto'} onPress={() => void change('auto', { permissionMode: 'auto', auto: { minutes: Number(autoMin) || null, turns: Number(autoTurns) || null } })} />
+                            </View>
+                          ),
+                        },
+                      ]
+                    : []),
                   {
                     label: 'An ask waits',
                     hint: 'minutes before an unanswered question counts as no (1–120; empty is the device default)',

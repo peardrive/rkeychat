@@ -63,7 +63,7 @@ test('the phone asks, the host hears it; jeff\'s signed request is refused; the 
     assert.equal(echo.seat.applied, true)
     assert.ok(!JSON.stringify(echo).includes('never'), 'a provider row carries its name and whether a token is held, nothing else')
     const [seat] = room.seatsFromLog()
-    assert.deepEqual({ ...seat, ts: undefined }, { name: 'pear', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive', permissionMode: 'default', model: 'claude-opus-5-5', provider: 'ppq', askMinutes: null, providers: [{ name: 'ppq', hasToken: true }], remote: true, ts: undefined })
+    assert.deepEqual({ ...seat, ts: undefined }, { name: 'pear', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive', permissionMode: 'default', auto: null, model: 'claude-opus-5-5', provider: 'ppq', askMinutes: null, providers: [{ name: 'ppq', hasToken: true }], remote: true, ts: undefined })
 
     // a newer echo wins; an older one arriving late does not
     const later = await room.control('guy', 'seat', { agent: 'pear', seat: { applied: true, permissionMode: 'plan', model: null, provider: null, via: 'acp', dir: '/Users/guy/Anjou/peardrive', providers: [] } })
@@ -77,5 +77,34 @@ test('the phone asks, the host hears it; jeff\'s signed request is refused; the 
     const ghost = await room.control('guy', 'seat', { agent: 'nobody', seat: { applied: true, permissionMode: 'auto' } })
     assert.ok(ghost)
     assert.equal(room.seatsFromLog().length, 1)
+  } finally { done() }
+})
+
+test('Auto with a grant: the phone asks for 30 minutes and 5 turns; the room\'s cap (owner\'s keys only) is what the host clamps to; the echo carries the grant', async () => {
+  const { room, phone, jeff, done } = await ownedRoom()
+  try {
+    const heard = []
+    room.on('seat', (rec) => heard.push(rec))
+    const req = await makeControl(phone, { room: room.topic, action: 'seat', agent: 'pear', seat: { permissionMode: 'auto', auto: { minutes: 30, turns: 5 } } })
+    assert.equal(room.receive(req), 'ok')
+    assert.deepEqual(heard[0].seat, { permissionMode: 'auto', auto: { minutes: 30, turns: 5 } })
+
+    // the room's cap: jeff may not set one; the phone may; both empty lifts it
+    assert.equal(room.autoCap(), null)
+    const forged = await makeControl(jeff, { room: room.topic, action: 'auto', auto: { minutes: 1, turns: 1 } })
+    assert.equal(room.receive(forged), 'scope')
+    const cap = await makeControl(phone, { room: room.topic, action: 'auto', auto: { minutes: 20, turns: '' } })
+    assert.equal(room.receive(cap), 'ok')
+    assert.deepEqual(room.autoCap(), { minutes: 20, turns: null })
+    const lift = await makeControl(phone, { room: room.topic, action: 'auto', auto: {} })
+    assert.equal(room.receive(lift), 'ok')
+    assert.equal(room.autoCap(), null)
+
+    // the host's echo says since when, how many turns are used and where it goes back to
+    await room.control('guy', 'seat', { agent: 'pear', seat: { applied: true, permissionMode: 'auto', auto: { since: 1000, minutes: 30, turns: 5, used: 2, back: 'acceptEdits' }, model: null, provider: null, via: 'acp', dir: '/x', providers: [] } })
+    assert.deepEqual(room.seatsFromLog()[0].auto, { since: 1000, minutes: 30, turns: 5, used: 2, back: 'acceptEdits' })
+    // out of Auto, the grant is gone
+    await room.control('guy', 'seat', { agent: 'pear', seat: { applied: true, permissionMode: 'acceptEdits', auto: null, via: 'acp', dir: '/x', providers: [] } })
+    assert.equal(room.seatsFromLog()[0].auto, null)
   } finally { done() }
 })

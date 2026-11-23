@@ -175,3 +175,25 @@ The memo (debug note 2026-11-22T18-09-52, recorded on the phone after the Leaf N
 Not in the memo but left from it: a provider's key is entered on the computer that runs the seat (Settings, or the
 CLI from stdin); the phone picks providers by name only, the key never travels. `allow_always` still does not
 widen the seat's tool list on disk.
+
+## Round 6 (2026-11-22, late): Auto that asks nobody, for as long as you say
+
+Guy, after an evening of approving the Leaf Note bot's Bash commands one by one: "I still can't set the agent to
+auto. I'm having to approve something every few seconds which is unworkable long term. I want to be able to set
+rounds and then let agents go on auto mode for a particular amount of time if I want. Both in room settings and
+individual agent settings so I can limit one agent (if it's most expensive) and let another run wild, or whatever
+combo I like. But then have a general room maximum as well. But more than anything complex like that I would like
+to just have a 'manual approve / auto' modes available in the agent settings page."
+
+Two things were wrong. The Mac's served shell (`app/dist`) was built before the profile work, so the Electron app
+had no Permissions section at all. And Auto was Claude Code's own Auto mode, which still asks for what its
+classifier doubts; with the lab tool list that was nearly every command. Built (project-agents.md "Auto is ours"):
+
+| Asked for | Status |
+|---|---|
+| Manual approve / Auto on the agent settings page | done: Ask / Edits / Plan / Auto on the profile; Auto means this device answers yes to everything the deny rules allow, and no ask reaches you |
+| Auto for a particular amount of time | done: a grant of N minutes, N turns, or both; empty runs until switched; the profile shows what is left and the bot goes back to its old mode when it runs out, saying so in the chat |
+| Per agent: limit one, let another run wild | done: the grant is per seat |
+| A general room maximum | done: the Auto cap on the project pane (`auto` control, owner's keys only); every grant in the room is clamped to it |
+| "Set rounds" | the room's rounds budget already exists (`rkeychat control extend N`); Auto's turn limit is the per-seat count |
+| The Mac app shows none of it | done: `app/dist` rebuilt; the daemon serves the current shell |

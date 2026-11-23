@@ -11,7 +11,7 @@ export type Thread = { items: Rec[]; hasOlder: boolean; loaded: boolean; loading
 /** A project asked of another device: shown as a "waiting on …" row until a room answers it (`topic`). */
 export type PendingEntry = { id: string; name: string; asked: string; topic?: string; online?: boolean; via?: string; ts?: number };
 
-export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'ownerDevice' | 'admitted'>;
+export type RoomDetail = Pick<RoomSnapshot, 'charter' | 'seats' | 'folder' | 'app' | 'participants' | 'members' | 'reactions' | 'owner' | 'ownerDevice' | 'admitted' | 'autoCap'>;
 
 export type State = {
   ready: boolean;
@@ -94,6 +94,7 @@ function detailOf(s: RoomSnapshot): RoomDetail {
   return {
     charter: s.charter ?? { text: '', order: [], agents: {} },
     seats: s.seats ?? [],
+    autoCap: s.autoCap ?? null,
     folder: s.folder ?? null,
     app: s.app ?? null,
     participants: s.participants ?? [],
@@ -227,7 +228,7 @@ export function reducer(state: State, action: Action): State {
       // an agent asking a person: in the thread (the card), and in Needs you; the answer: in the thread (the card
       // learns its outcome), and the ask leaves Needs you
       // a seat's settings (the request, and the host's word on how the bot now runs) read as lines in the thread
-      if (rec.kind === 'ask' || (rec.kind === 'control' && (rec.action === 'answer' || rec.action === 'seat'))) {
+      if (rec.kind === 'ask' || (rec.kind === 'control' && (rec.action === 'answer' || rec.action === 'seat' || rec.action === 'auto'))) {
         const key = convKey(action.topic, rec.conv!);
         const thread = state.threads[key];
         const threads = thread ? { ...state.threads, [key]: { ...thread, items: upsert(thread.items, rec) } } : state.threads;

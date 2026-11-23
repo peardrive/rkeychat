@@ -18,7 +18,7 @@ import { RoomSearch } from './search.js'
 // messages they point at; invites are addressed to one device)
 export const FEED_SKIP = ['react', 'redact', 'invite']
 // controls only the owner's own keys may write (see #admits); 'close' ends the room for everyone
-export const ACCOUNT_GATED = ['project', 'home', 'seat', 'watch', 'close', 'answer']
+export const ACCOUNT_GATED = ['project', 'home', 'seat', 'auto', 'watch', 'close', 'answer']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -228,9 +228,21 @@ export class Room extends EventEmitter {
     for (const r of this.store.ordered) {
       if (r.kind !== 'control' || r.action !== 'seat' || !r.agent || !r.seat?.applied || !active.has(r.agent)) continue
       const s = r.seat
-      out.set(r.agent, { name: r.agent, bridge: 'claude', via: s.via ?? 'acp', dir: s.dir ?? null, permissionMode: s.permissionMode ?? 'acceptEdits', model: s.model ?? null, provider: s.provider ?? null, askMinutes: s.askMinutes ?? null, providers: s.providers ?? [], remote: true, ts: r.ts })
+      out.set(r.agent, { name: r.agent, bridge: 'claude', via: s.via ?? 'acp', dir: s.dir ?? null, permissionMode: s.permissionMode ?? 'acceptEdits', auto: s.permissionMode === 'auto' ? (s.auto ?? null) : null, model: s.model ?? null, provider: s.provider ?? null, askMinutes: s.askMinutes ?? null, providers: s.providers ?? [], remote: true, ts: r.ts })
     }
     return [...out.values()]
+  }
+
+  // The room's cap on Auto: the newest 'auto' control (account-gated) as { minutes, turns }, or null when there is
+  // none or both were emptied. A seat's own grant is clamped to it by its host (src/seat-settings.js autoState).
+  autoCap () {
+    let cap = null
+    for (const r of this.store.ordered) {
+      if (r.kind !== 'control' || r.action !== 'auto') continue
+      const a = r.auto ?? {}
+      cap = a.minutes == null && a.turns == null ? null : { minutes: a.minutes ?? null, turns: a.turns ?? null }
+    }
+    return cap
   }
 
   #stateOf (name) { return this.agentState.get(name) ?? this.#remoteState(name) ?? 'idle' }

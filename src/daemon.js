@@ -19,7 +19,7 @@ import { RoomStore } from './store.js'
 import { Room, joinRequest } from './room.js'
 import { AgentRunner, askSettings } from './agents.js'
 import { parseTools, resolveTools, describeTools } from './tools.js'
-import { providerSettings, checkPermissionMode, checkModel, checkProviderName, checkBaseUrl, describeProviders, describeRun } from './seat-settings.js'
+import { providerSettings, checkPermissionMode, checkModel, checkProviderName, checkBaseUrl, checkAutoLimit, describeProviders, describeRun, MODE_WORDS, PERMISSION_MODES } from './seat-settings.js'
 import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
 import { Login } from './login.js'
@@ -114,6 +114,9 @@ export class App extends EventEmitter {
     // that hosts the seat applies them and writes back how the seat now runs (docs/project-agents.md "The bot's
     // settings"). Account-gated in #admits, like 'project'.
     room.on('seat', (rec) => this.#seatControl(rec, room))
+    // a seat in Auto whose grant ran out (so many minutes or turns, its own or the room's cap): back to its old mode
+    room.on('auto-over', ({ name, why }) => this.#autoOver(name, why))
+    room.on('auto-turn', () => saveConfig(this.cfg)) // the turn count lives on the bridge object, which is the config's
     // once the chain is there (loaded from disk a moment after start, or when it first arrives): say how the seats
     // hosted here run, if the room's newest word on them is stale or missing
     const announce = () => { if (this.rooms.has(rcfg.topic) && room.state) this.#announceStaleSeats(room) }
@@ -236,7 +239,20 @@ export class App extends EventEmitter {
   // How a seat runs, for the 'seat' control this device writes back and for the snapshot's seat rows.
   seatState (name) {
     const b = this.cfg.participants[name]?.bridge ?? {}
-    return { permissionMode: b.permissionMode ?? 'acceptEdits', model: b.model ?? null, provider: b.provider ?? null, askMinutes: b.askMinutes ?? null, via: b.via ?? 'cli', dir: b.dir ?? null, providers: describeProviders(this.cfg.providers).map(({ name, hasToken }) => ({ name, hasToken })) }
+    return { permissionMode: b.permissionMode ?? 'acceptEdits', auto: b.permissionMode === 'auto' ? (b.auto ?? null) : null, model: b.model ?? null, provider: b.provider ?? null, askMinutes: b.askMinutes ?? null, via: b.via ?? 'cli', dir: b.dir ?? null, providers: describeProviders(this.cfg.providers).map(({ name, hasToken }) => ({ name, hasToken })) }
+  }
+
+  // A seat's Auto grant ran out: back to the mode it had, said in every room it sits in, and announced.
+  #autoOver (name, why) {
+    const raw = this.cfg.participants[name]
+    if (!this.#hosts(name) || raw.bridge.permissionMode !== 'auto') return
+    const b = raw.bridge.auto?.back
+    const back = b && b !== 'auto' && PERMISSION_MODES.includes(b) ? b : 'default'
+    this.setPermissionMode(name, back, { quiet: true })
+    for (const { room } of this.rooms.values()) {
+      if (room.local[name] && room.state) room.activity(name, `auto is over (${why}): back to ${MODE_WORDS[back].name}`).catch(() => {})
+    }
+    this.announceSeat(name)
   }
 
   // A 'seat' control arrived (the view: `name` is its author). A request for a seat hosted here is applied, then this
@@ -248,7 +264,7 @@ export class App extends EventEmitter {
     const s = rec.seat ?? {}
     try {
       if (s.via !== undefined) this.setAgentVia(name, s.via, { quiet: true })
-      if (s.permissionMode !== undefined) this.setPermissionMode(name, s.permissionMode, { quiet: true })
+      if (s.permissionMode !== undefined || s.auto !== undefined) this.setPermissionMode(name, s.permissionMode ?? 'auto', { quiet: true, auto: s.auto })
       if (s.model !== undefined || s.provider !== undefined) this.setAgentModel(name, { model: s.model, provider: s.provider }, { quiet: true })
       if (s.askMinutes !== undefined) this.setAskMinutes(name, s.askMinutes, { quiet: true })
     } catch (err) {
@@ -278,22 +294,27 @@ export class App extends EventEmitter {
       if (!this.#hosts(name) || !room.local[name]) continue
       const now = this.seatState(name)
       const k = known.get(name)
-      const same = k && ['permissionMode', 'model', 'provider', 'askMinutes', 'via', 'dir'].every((f) => (k[f] ?? null) === (now[f] ?? null)) && JSON.stringify(k.providers) === JSON.stringify(now.providers)
+      const same = k && ['permissionMode', 'model', 'provider', 'askMinutes', 'via', 'dir'].every((f) => (k[f] ?? null) === (now[f] ?? null)) && JSON.stringify(k.providers) === JSON.stringify(now.providers) && JSON.stringify(k.auto ?? null) === JSON.stringify(now.auto ?? null)
       if (!same) this.announceSeat(name)
     }
   }
 
   // The seat's permission mode (default = ask, acceptEdits, plan, auto; never bypass). Live: open ACP sessions
   // switch now; cli processes are retired and the next turn starts with the flag.
-  setPermissionMode (name, mode, { quiet = false } = {}) {
+  // Auto takes a grant `{ minutes, turns }` (nothing = no limit) and remembers the mode to go back to when it runs
+  // out; setting Auto again starts the clock and the count over.
+  setPermissionMode (name, mode, { quiet = false, auto } = {}) {
     const raw = this.#claudeSeat(name)
     mode = checkPermissionMode(mode)
+    const prev = raw.bridge.permissionMode ?? 'acceptEdits'
+    if (mode === 'auto') raw.bridge.auto = { since: Date.now(), ...checkAutoLimit(auto), used: 0, back: prev === 'auto' ? (raw.bridge.auto?.back ?? 'default') : prev }
+    else delete raw.bridge.auto
     raw.bridge.permissionMode = mode
     saveConfig(this.cfg)
     for (const { runners } of this.rooms.values()) runners.get(name)?.applyMode?.(mode)
     this.emit('agents-changed')
     if (!quiet) this.announceSeat(name)
-    return { name, permissionMode: mode }
+    return { name, permissionMode: mode, auto: raw.bridge.auto ?? null, run: describeRun(raw.bridge) }
   }
 
   // The seat's model (null: the login's default) and provider (null: this computer's Claude login). A provider must
@@ -394,7 +415,7 @@ export class App extends EventEmitter {
     return Object.entries(this.cfg.participants).filter(([, p]) => p.role === 'agent').map(([name, p]) => ({
       name, bridge: p.bridge?.kind ?? 'stream', via: p.bridge?.kind === 'claude' ? (p.bridge.via ?? 'cli') : null, dir: p.bridge?.dir ?? null, keyFile: p.keyFile ?? null, ref: p.ref,
       tools: p.bridge?.kind === 'claude' ? describeTools(p.bridge.tools) : null,
-      ...(p.bridge?.kind === 'claude' ? { permissionMode: p.bridge.permissionMode ?? 'acceptEdits', model: p.bridge.model ?? null, provider: p.bridge.provider ?? null, askMinutes: p.bridge.askMinutes ?? null, run: describeRun(p.bridge) } : {}),
+      ...(p.bridge?.kind === 'claude' ? { permissionMode: p.bridge.permissionMode ?? 'acceptEdits', auto: p.bridge.permissionMode === 'auto' ? (p.bridge.auto ?? null) : null, model: p.bridge.model ?? null, provider: p.bridge.provider ?? null, askMinutes: p.bridge.askMinutes ?? null, run: describeRun(p.bridge) } : {}),
       sessions: p.keyFile ? (() => { try { return readKeyFile(p.keyFile).sessions ?? {} } catch { return {} } })() : {},
       rooms: [...this.rooms.values()].map(({ room, runners }) => ({ name: room.cfg.name, topic: room.topic, enrolled: !!(room.state && room.local[name] && room.state.isActive(room.local[name].signer.ref)), state: room.agentState.get(name) ?? 'idle', busy: !!runners.get(name)?.busy }))
     }))

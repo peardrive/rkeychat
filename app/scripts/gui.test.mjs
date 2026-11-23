@@ -238,11 +238,20 @@ test('the bot\'s profile opens from its picture in the chat; its permission mode
     await page.getByText(/Ask · Opus 5.5 · Claude login/).first().waitFor({ timeout: 4000 });
     await page.getByRole('radiogroup', { name: 'Provider' }).getByRole('radio', { name: 'ppq' }).tap();
     await page.getByText(/Ask · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
+    // Auto: one tap, no limit; then a grant of five turns, with how much is left under the mode
+    await modes.getByRole('radio', { name: 'Auto' }).tap();
+    await page.getByText(/Auto · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
+    assert.match(await page.getByText(/Now: no limit/).first().textContent(), /no limit/, 'Auto with nothing set runs until switched');
+    await page.getByRole('textbox', { name: 'Auto turns' }).fill('5');
+    await page.getByRole('button', { name: 'Set' }).tap();
+    await page.getByText(/Auto \(5 turns\) · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
+    assert.match(await page.getByText(/Now: 5 turns left/).first().textContent(), /5 turns left/, 'the grant and what is left of it');
     // what was asked and what the host answered are both in the conversation
     await page.getByRole('button', { name: 'Back' }).first().tap();
     await page.waitForTimeout(400);
     await openThread(page, /Reading the folder/);
     assert.ok((await page.getByText('@rkeychat now runs: Ask · Opus 5.5 · via ppq').count()) >= 1, 'the host\'s word is a line in the chat');
+    assert.ok((await page.getByText('@rkeychat now runs: Auto (5 turns) · Opus 5.5 · via ppq').count()) >= 1, 'the Auto grant too');
     assert.deepEqual(errors, []);
   } finally {
     await ctx.close();

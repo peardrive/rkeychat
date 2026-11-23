@@ -103,10 +103,25 @@ function cleanSeat (seat) {
   if (seat.askMinutes !== undefined) out.askMinutes = seat.askMinutes === null ? null : Number(seat.askMinutes)
   if (seat.applied) out.applied = true
   if (Array.isArray(seat.providers)) out.providers = seat.providers.slice(0, 16).map((p) => ({ name: String(p?.name ?? '').slice(0, 24), hasToken: !!p?.hasToken }))
+  if (seat.auto !== undefined) out.auto = seat.auto === null ? null : cleanAuto(seat.auto, { grant: true })
   return out
 }
 
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, seat, ts = Date.now() }) {
+// An Auto grant or cap: { minutes, turns } (null = no limit); a host's echo of a seat's grant also says since when,
+// how many turns it has used and which mode it goes back to.
+const num = (v) => (v == null || v === '' ? null : Number(v))
+function cleanAuto (auto, { grant = false } = {}) {
+  if (!auto || typeof auto !== 'object') return { minutes: null, turns: null }
+  const out = { minutes: num(auto.minutes), turns: num(auto.turns) }
+  if (grant) {
+    if (auto.since !== undefined) out.since = Number(auto.since)
+    if (auto.used !== undefined) out.used = Number(auto.used)
+    if (auto.back !== undefined) out.back = String(auto.back).slice(0, 24)
+  }
+  return out
+}
+
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, seat, auto, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
@@ -130,7 +145,9 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
     ask: ask === undefined ? undefined : String(ask).slice(0, 32),
     choice: choice === undefined ? undefined : String(choice).slice(0, 16),
     // a 'seat' control (`agent` names the seat): the settings asked for, or how it now runs (seat-settings.js)
-    seat: cleanSeat(seat)
+    seat: cleanSeat(seat),
+    // an 'auto' control: the room's cap on Auto grants
+    auto: auto === undefined ? undefined : cleanAuto(auto)
   })
 }
 

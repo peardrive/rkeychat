@@ -1,7 +1,7 @@
 // A seat's permission mode, model and provider (src/seat-settings.js), as the daemon checks and applies them.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkPermissionMode, checkModel, checkProviderName, checkBaseUrl, providerEnv, describeProviders, describeRun, PERMISSION_MODES } from '../src/seat-settings.js'
+import { checkPermissionMode, checkModel, checkProviderName, checkBaseUrl, checkAutoLimit, autoState, describeAuto, providerEnv, describeProviders, describeRun, PERMISSION_MODES } from '../src/seat-settings.js'
 
 test('the permission modes are Claude Code\'s four; bypass is refused by name and by alias', () => {
   for (const m of PERMISSION_MODES) assert.equal(checkPermissionMode(m), m)
@@ -45,4 +45,27 @@ test('what the API and the list say: never the token', () => {
   assert.ok(!JSON.stringify(d).includes('sk-test'))
   assert.equal(describeRun({ kind: 'claude' }), 'mode: Edits · model: default · this computer\'s Claude login')
   assert.equal(describeRun({ kind: 'claude', permissionMode: 'default', model: 'claude-opus-5-5', provider: 'ppq' }), 'mode: Ask · model: Opus 5.5 · provider: ppq')
+})
+
+test('an Auto grant: minutes and turns from 1 up, nothing for no limit; where it stands is the tighter of the seat\'s and the room\'s', () => {
+  assert.deepEqual(checkAutoLimit(undefined), { minutes: null, turns: null })
+  assert.deepEqual(checkAutoLimit({ minutes: '30', turns: 0 }), { minutes: 30, turns: null })
+  assert.deepEqual(checkAutoLimit({ minutes: '', turns: 5.7 }), { minutes: null, turns: 5 })
+  assert.throws(() => checkAutoLimit({ minutes: -1 }), /minutes/)
+  assert.throws(() => checkAutoLimit({ turns: 5000 }), /turns/)
+  assert.throws(() => checkAutoLimit('30'), /minutes, turns/)
+
+  const now = 10_000_000
+  const grant = { since: now - 10 * 60_000, minutes: 30, turns: 5, used: 2 }
+  assert.deepEqual(autoState(null, null, now), { on: false, until: null, turnsLeft: null, over: null })
+  assert.deepEqual(autoState(grant, null, now), { on: true, until: now + 20 * 60_000, turnsLeft: 3, over: null })
+  assert.deepEqual(autoState({ since: now, minutes: null, turns: null, used: 9 }, null, now), { on: true, until: null, turnsLeft: null, over: null }, 'no limit')
+  // the room's cap is tighter: 15 minutes from since, 2 turns
+  assert.deepEqual(autoState(grant, { minutes: 15, turns: 2 }, now), { on: true, until: now + 5 * 60_000, turnsLeft: 0, over: '2 turns are done' })
+  assert.equal(autoState(grant, null, now + 21 * 60_000).over, '30 minutes are up')
+  assert.equal(autoState({ since: now, minutes: null, turns: 3, used: 1 }, { minutes: 1 }, now + 60_000).over, '1 minute is up')
+  assert.equal(describeAuto(grant, null, now), '20 min left, 3 turns left')
+  assert.equal(describeAuto({ since: now }, null, now), 'no limit')
+  assert.equal(describeAuto(null), '')
+  assert.match(describeRun({ permissionMode: 'auto', auto: { since: Date.now(), minutes: null, turns: 4, used: 1 } }), /mode: Auto \(3 turns left\)/)
 })

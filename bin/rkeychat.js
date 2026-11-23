@@ -49,6 +49,7 @@ agents
   rkeychat control pause|resume [AGENT]        everyone, or one agent
   rkeychat control limit AGENT N               max posts per human message (0 = no limit)
   rkeychat control extend N | until HOURS | unlimited | reset
+  rkeychat control auto [--minutes N] [--turns N] | auto off   the room's cap on a seat's Auto (both empty = none)
   rkeychat send --file PATH [TEXT]         share a file by hash (any size); rkeychat files lists them, rkeychat get ROOT fetches one
   rkeychat send --conv ID TEXT...          post into one conversation of the room (default: the one the answered message is in, else main)
   rkeychat convs [--room R]                the room's conversations; rkeychat convs new TITLE | rename ID TITLE | archive ID | unarchive ID
@@ -58,7 +59,7 @@ agents
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat asks [--room R]                 what agents wait on a person for; answer: rkeychat answer ASK allow|deny [--always]
   rkeychat agent ask-minutes NAME|all N    how long an ask waits for a person (1–120 min; default 10)
-  rkeychat agent mode NAME default|acceptEdits|plan|auto   the seat's permission mode (default = ask; never bypass); live
+  rkeychat agent mode NAME default|acceptEdits|plan|auto [--minutes N] [--turns N]   default = ask; auto = this device says yes (deny rules still refuse), for N minutes / turns or until switched; never bypass; live
   rkeychat agent model NAME MODEL|default [--provider P|claude]   which model answers, and from where (the login, or a provider below)
   rkeychat provider [list]                 providers on this device (an Anthropic-shaped API bought elsewhere: PPQ, a gateway)
   rkeychat provider set NAME URL [--token-stdin]   e.g. rkeychat provider set ppq https://api.ppq.ai --token-stdin < key.txt (the token is kept, never printed)
@@ -86,6 +87,8 @@ const { values: opt, positionals: pos } = parseArgs({
     permission: { type: 'string' },
     provider: { type: 'string' },
     'token-stdin': { type: 'boolean' },
+    minutes: { type: 'string' },
+    turns: { type: 'string' },
     tools: { type: 'string' },
     acp: { type: 'boolean' },
     conv: { type: 'string' },
@@ -235,9 +238,10 @@ switch (cmd) {
     if (sub === 'mode') {
       // the seat's permission mode; never bypass. Live: open ACP sessions switch at once
       const [, name, mode] = pos
-      if (!name || !mode) die('usage: rkeychat agent mode NAME default|acceptEdits|plan|auto   (default = ask before every change)')
-      const r = await api('POST', '/api/agents/mode', { name, mode })
-      console.log(`@${r.name}: permission mode ${r.permissionMode}${r.permissionMode === 'default' ? ' (asks)' : ''}; open sessions switched, the rest from their next turn`)
+      if (!name || !mode) die('usage: rkeychat agent mode NAME default|acceptEdits|plan|auto [--minutes N] [--turns N]   (default = ask before every change; auto = yes to everything the deny rules allow)')
+      const auto = mode === 'auto' ? { minutes: opt.minutes, turns: opt.turns } : undefined
+      const r = await api('POST', '/api/agents/mode', { name, mode, auto })
+      console.log(`@${r.name}: ${r.run}${r.permissionMode === 'default' ? ' (asks)' : ''}; open sessions switched, the rest from their next turn`)
       break
     }
     if (sub === 'model') {
@@ -426,6 +430,7 @@ switch (cmd) {
     else if (action === 'until') payload.hours = Number(a ?? 8)
     else if (action === 'limit') { payload.agent = a ?? die('usage: rkeychat control limit AGENT N'); payload.n = Number(b ?? 0) }
     else if ((action === 'pause' || action === 'resume') && a) payload.agent = a
+    else if (action === 'auto') payload.auto = a === 'off' ? {} : { minutes: opt.minutes, turns: opt.turns }
     console.log(fmt({ ...(await api('POST', '/api/control', payload)), name: 'you' }))
     break
   }

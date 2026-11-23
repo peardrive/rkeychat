@@ -150,6 +150,20 @@ await shot('phone-bot', {
     await must(page, page.getByRole('radiogroup', { name: 'Provider' }), 'the provider control');
   },
 });
+await shot('phone-bot-auto', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    await page.getByText(/Reading the folder/).first().tap();
+    await page.getByRole('button', { name: 'Open rkeychat\'s profile' }).first().tap();
+    await page.getByRole('radiogroup', { name: 'Permission mode' }).getByRole('radio', { name: 'Auto' }).tap();
+    await page.getByText(/Now: no limit/).first().waitFor({ timeout: 4000 });
+    await page.getByRole('textbox', { name: 'Auto turns' }).fill('5');
+    await page.getByRole('button', { name: 'Set' }).tap();
+    await page.getByText(/Now: 5 turns left/).first().waitFor({ timeout: 4000 });
+    await must(page, page.getByText(/Now: 5 turns left/), 'the grant and what is left');
+  },
+});
 await shot('phone-note-bubble', {
   ...phone,
   before: async (page) => {

@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, Rec, RoomSummary, SearchHit, Seat, SeatChange, StateResponse } from './types';
+import type { AgentInfo, AutoLimit, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, Rec, RoomSummary, SearchHit, Seat, SeatChange, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -55,6 +55,8 @@ export interface Api {
    * device hosting the seat applies it and writes back how the seat now runs (the snapshot's seat row follows).
    */
   seatControl(body: { room: string; agent: string; seat: SeatChange }): Promise<Rec>;
+  /** The room's cap on Auto: a signed `auto` control (owner's devices only); both fields empty lifts it. */
+  autoCap(body: { room: string; auto: AutoLimit }): Promise<Rec>;
   providers(): Promise<{ providers: Provider[] }>;
   /** Add or change a provider; the token is written, never read back. Without `token`, the held one is kept. */
   setProvider(body: { name: string; baseUrl?: string; token?: string }): Promise<Provider>;
@@ -138,6 +140,7 @@ export const httpApi: Api = {
   debugShare: (b) => post('debug/share', b),
   setAgentVia: (b) => post('agents/via', b),
   seatControl: ({ room, agent, seat }) => post('control', { room, action: 'seat', agent, seat }),
+  autoCap: ({ room, auto }) => post('control', { room, action: 'auto', auto }),
   providers: () => get('providers'),
   setProvider: (b) => post('providers', b),
   removeProvider: (b) => post('providers/remove', b),

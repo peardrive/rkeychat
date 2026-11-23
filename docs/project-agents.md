@@ -166,10 +166,33 @@ the project's seat list, and from the "is thinking" line.
 
 | Setting | Values | Where it bites |
 | --- | --- | --- |
-| permission mode | `default` (Ask), `acceptEdits` (Edits, the default), `plan`, `auto` — never `bypassPermissions`, refused by name and alias | ACP: `session/set_mode` on the open session, at once; cli: the process is retired and the next turn starts with `--permission-mode` |
+| permission mode | `default` (Ask), `acceptEdits` (Edits, the default), `plan`, `auto` — never `bypassPermissions`, refused by name and alias | ACP: `session/set_mode` on the open session, at once; cli: the process is retired and the next turn starts with `--permission-mode` (the cli calls Ask `manual`) |
+| Auto's grant | `{ minutes, turns }`, each 1 up or empty for no limit; the room may cap both | counted by the host per turn and checked at every ask; when it runs out the seat goes back to the mode it had, and the room is told |
 | model | `null` (the login's own) or an id; the profile offers Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5 and takes any id | ACP: `session/set_config_option` "model" at once, and `ANTHROPIC_MODEL` for the next process; cli: `--model` |
 | provider | `null` (this computer's Claude login) or a provider on the host | the process environment: `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`; a change retires the process |
 | ask minutes | 1–120, or the device default | the next ask |
+
+**Auto is ours, not Claude Code's** (2026-11-22, late: "I'm having to approve something every few seconds, which is
+unworkable … more than anything I would like to just have manual approve / auto"). Claude Code's own Auto mode still
+sends up whatever its classifier doubts, and a seat with the lab tool list was asked for nearly every Bash command
+even in Edits, so Auto as a session mode changed nothing. Now a seat in `auto` runs its ACP session in acceptEdits
+and the host answers every `session/request_permission` itself (`AcpProcess #autoAllows`): yes to whatever the
+seat's deny rules do not refuse, said in the activity as "allowed (auto) Bash: …"; nothing reaches a person. The
+deny rules still win, so the folders beside a project that start with `_` stay unreadable. Bypass is still never
+used: Claude Code's own permission system runs; this device is the one answering it.
+
+**For how long.** A grant is `{ minutes, turns }` (`bridge.auto = { since, minutes, turns, used, back }`): Auto for
+30 minutes, or 5 turns (a turn = the bot woken once and answering), or both, or neither (until switched). The
+runner counts a turn before it runs and checks the clock there and at every ask; when either runs out the host puts
+the seat back in the mode it had (`back`), writes "auto is over (5 turns are done): back to Edits" into the
+conversation, and announces the seat. A **room cap** is a signed, account-gated `auto` control
+(`{ action: 'auto', auto: { minutes, turns } }`, `room.autoCap()`, the newest wins, both empty lifts it): every
+seat's grant in that room is clamped to it (`autoState` takes the tighter of the two), so one bot may run wild
+within the room's limit and another be held shorter. The cap sits on the project pane under the seats; the grant
+under the mode on the bot's profile, with what is left of it ("Now: 23 min left · 3 turns left"). From the phone
+it is the same `seat` control with `auto` in it; the host's echo carries the grant, since when and the turns used.
+CLI: `rkeychat agent mode NAME auto [--minutes N] [--turns N]`, `rkeychat control auto [--minutes N] [--turns N] |
+auto off`. The cli runtime has no ask path (`-p` asks nobody), so Auto there runs as Edits.
 
 **Providers** are a device setting on the host (`providers` in config.json: `{ ppq: { baseUrl, token } }`), because the
 token is a secret that stays where the seat runs. `rkeychat provider set ppq https://api.ppq.ai --token-stdin < key.txt`
@@ -189,12 +212,13 @@ is `POST /api/control { action: 'seat', agent, seat }` on every device, the host
 fresh description into any room whose newest one is stale or missing. Both records read as lines in the
 conversation: "guy changed @pear's settings", "@pear now runs: Ask · Opus 5.5 · via ppq".
 
-CLI: `rkeychat agent mode NAME default|acceptEdits|plan|auto`, `rkeychat agent model NAME MODEL|default
-[--provider P|claude]`, `rkeychat agent list` prints the run line. Tests: `test/seat-settings.test.js` (the lists,
-bypass refused, the environment, the URL, nothing prints a token), `test/seat-control.test.js` (the phone's request
-is heard and jeff's refused; the host's echo is what the room reads; a newer echo wins), the shell's
-`seatSettings.test.ts` and the seat lines in `asks.test.ts`, and the GUI test "the bot's profile opens from its
-picture in the chat".
+CLI: `rkeychat agent mode NAME default|acceptEdits|plan|auto [--minutes N] [--turns N]`, `rkeychat agent model
+NAME MODEL|default [--provider P|claude]`, `rkeychat agent list` prints the run line (with what is left of an Auto
+grant). Tests: `test/seat-settings.test.js` (the lists, bypass refused, the environment, the URL, nothing prints a
+token; the Auto grant's bounds and where it stands against a cap), `test/seat-control.test.js` (the phone's request
+is heard and jeff's refused; the host's echo is what the room reads; a newer echo wins; a grant travels, a cap is
+the owner's alone), the shell's `seatSettings.test.ts` and the seat lines in `asks.test.ts`, and the GUI test "the
+bot's profile opens from its picture in the chat" (Ask, Opus, ppq, Auto, a five-turn grant).
 
 ## What it does not do yet
 

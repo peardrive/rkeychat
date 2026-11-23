@@ -20,7 +20,7 @@ import { MAIN } from './proto.js'
 import { agentSession, sessionKeyOf } from './config.js'
 import { AcpProcess } from './acp.js'
 import { resolveTools } from './tools.js'
-import { providerEnv } from './seat-settings.js'
+import { providerEnv, autoState } from './seat-settings.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
 // turn per process means a listener reconnects immediately, and it must not be
@@ -241,6 +241,13 @@ export class AgentRunner {
   async #runClaude (t) {
     t.busy = true
     this.room.setAgentState(this.name, 'thinking', t.conv)
+    // Auto counts its turns here; a grant that has run out puts the seat back in its old mode before this turn
+    // (the daemon hears 'auto-over' and changes the shared bridge object now; the room hears why)
+    if (this.bridge.permissionMode === 'auto') {
+      const st = autoState(this.bridge.auto ?? { since: Date.now(), used: 0 }, this.room.autoCap?.() ?? null)
+      if (st.over) this.room.emit('auto-over', { name: this.name, why: st.over })
+      else if (this.bridge.auto) { this.bridge.auto.used = (this.bridge.auto.used ?? 0) + 1; this.room.emit('auto-turn', { name: this.name }) }
+    }
     const turn = renderTurn(this.room, this.name, { intro: false, conv: t.conv })
     this.room.activity(this.name, `woken by ${turn.triggers.map((x) => x.name).join(', ')}`, { claim: turn.triggers.map((x) => x.id), conv: t.conv }).catch(() => {})
     t.offered = turn.triggers.map((x) => x.id); t.offeredAt = Date.now() // what this turn covers; a newer human message preempts it (ACP)
@@ -463,7 +470,8 @@ export class ClaudeProcess {
     if (fresh) { sessionId = randomUUID(); agentSession(this.p, this.sessionKey, sessionId) }
     this.sessionId = sessionId
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
-      '--permission-mode', this.bridge.permissionMode ?? 'acceptEdits',
+      // the cli names Ask "manual"; our Auto has no ask path here (-p asks nobody), so it runs as Edits
+      '--permission-mode', ({ default: 'manual', auto: 'acceptEdits' })[this.bridge.permissionMode] ?? this.bridge.permissionMode ?? 'acceptEdits',
       fresh ? '--session-id' : '--resume', sessionId]
     if (this.bridge.model) args.push('--model', this.bridge.model)
     const { allow, deny } = resolveTools(this.bridge.tools, this.bridge.dir)

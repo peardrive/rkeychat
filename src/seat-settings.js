@@ -10,7 +10,51 @@ export const MODE_WORDS = {
   default: { name: 'Ask', hint: 'asks before every change; the tool list still answers what it covers' },
   acceptEdits: { name: 'Edits', hint: 'edits inside its folder without asking; everything else asks' },
   plan: { name: 'Plan', hint: 'reads and plans only; no change until the mode is switched' },
-  auto: { name: 'Auto', hint: 'Claude Code decides most permissions itself; the deny rules still win' }
+  auto: { name: 'Auto', hint: 'runs without asking: every call is allowed except what the deny rules refuse; give it minutes or turns, or let it run' }
+}
+
+// Auto (Guy, 2026-11-22 evening: "manual approve / auto"). In Auto the seat's host answers every permission Claude
+// Code asks for with yes, except what the seat's deny rules refuse; nothing reaches a person. Claude Code's own
+// Auto mode is not what runs: it still asks for whatever its classifier doubts, which was every few seconds. The
+// session runs acceptEdits underneath and this layer answers. A grant may be bounded (so many minutes, so many
+// turns; a room may cap both); when it runs out the seat goes back to the mode it had before.
+export const AUTO_MAX = { minutes: 24 * 60, turns: 1000 }
+
+// { minutes, turns } with null for "no limit"; 0, '' and null all mean no limit.
+export function checkAutoLimit (limit) {
+  if (limit == null) return { minutes: null, turns: null }
+  if (typeof limit !== 'object') throw new Error('an auto limit is { minutes, turns }')
+  const one = (k) => {
+    const v = limit[k]
+    if (v == null || v === '' || Number(v) === 0) return null
+    const n = Math.floor(Number(v))
+    if (!Number.isFinite(n) || n < 1 || n > AUTO_MAX[k]) throw new Error(`${k}: a whole number from 1 to ${AUTO_MAX[k]}, or nothing for no limit`)
+    return n
+  }
+  return { minutes: one('minutes'), turns: one('turns') }
+}
+
+// Where a grant stands: the seat's own bounds and the room's cap, whichever is tighter. `auto` is the bridge's
+// { since, minutes, turns, used, back }; `cap` the room's { minutes, turns } or null. `over` names what ran out.
+export function autoState (auto, cap = null, now = Date.now()) {
+  if (!auto) return { on: false, until: null, turnsLeft: null, over: null }
+  const tight = (k) => [auto[k], cap?.[k]].filter((v) => v != null).reduce((a, b) => Math.min(a, b), Infinity)
+  const minutes = tight('minutes')
+  const turns = tight('turns')
+  const until = minutes === Infinity ? null : (auto.since ?? now) + minutes * 60_000
+  const turnsLeft = turns === Infinity ? null : Math.max(0, turns - (auto.used ?? 0))
+  const over = until !== null && now >= until ? `${minutes} minute${minutes === 1 ? ' is' : 's are'} up` : turnsLeft === 0 ? `${turns} turn${turns === 1 ? ' is' : 's are'} done` : null
+  return { on: true, until, turnsLeft, over }
+}
+
+// "23 min left, 7 turns left" / "no limit" / "" when not in auto.
+export function describeAuto (auto, cap = null, now = Date.now()) {
+  const s = autoState(auto, cap, now)
+  if (!s.on) return ''
+  const parts = []
+  if (s.until !== null) parts.push(`${Math.max(0, Math.ceil((s.until - now) / 60_000))} min left`)
+  if (s.turnsLeft !== null) parts.push(`${s.turnsLeft} turn${s.turnsLeft === 1 ? '' : 's'} left`)
+  return parts.join(', ') || 'no limit'
 }
 
 export function checkPermissionMode (mode) {
@@ -76,5 +120,6 @@ export function providerEnv (bridge, providers = providerSettings.providers) {
 // One line for `rkeychat agent list`.
 export function describeRun (bridge) {
   const mode = bridge?.permissionMode ?? 'acceptEdits'
-  return `mode: ${MODE_WORDS[mode]?.name ?? mode} · model: ${modelName(bridge?.model ?? null)} · ${bridge?.provider ? `provider: ${bridge.provider}` : 'this computer\'s Claude login'}`
+  const auto = mode === 'auto' ? ` (${describeAuto(bridge.auto ?? { since: Date.now() })})` : ''
+  return `mode: ${MODE_WORDS[mode]?.name ?? mode}${auto} · model: ${modelName(bridge?.model ?? null)} · ${bridge?.provider ? `provider: ${bridge.provider}` : 'this computer\'s Claude login'}`
 }

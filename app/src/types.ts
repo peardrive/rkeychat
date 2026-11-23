@@ -76,6 +76,10 @@ export type PendingRequest = { id: string; name: string; asked: string; home: st
 
 /** Claude Code's permission modes a seat may run in; `bypassPermissions` is never one (the daemon refuses it). */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto';
+/** How long Auto may run: so many minutes, so many turns; null is no limit. A room's cap has the same shape. */
+export type AutoLimit = { minutes: number | null; turns: number | null };
+/** A seat's Auto grant as its host reports it: the limit, since when, turns used, and the mode it goes back to. */
+export type AutoGrant = AutoLimit & { since?: number; used?: number; back?: PermissionMode };
 export type Seat = {
   name: string;
   bridge: 'claude' | 'hermes' | 'stream';
@@ -83,6 +87,8 @@ export type Seat = {
   dir: string | null;
   /** The bot's settings (claude seats only), changed from its profile. */
   permissionMode?: PermissionMode;
+  /** In Auto: the grant (null = no limit, runs until switched); otherwise null. */
+  auto?: AutoGrant | null;
   /** null: the login's own default model. */
   model?: string | null;
   /** null: this computer's Claude login; else a provider named in `GET /api/providers`. */
@@ -96,7 +102,7 @@ export type Seat = {
 };
 
 /** A `seat` control's payload: what one of the owner's devices asks for, or (`applied`) how the host says it runs. */
-export type SeatChange = Partial<Pick<Seat, 'permissionMode' | 'model' | 'provider' | 'askMinutes' | 'via' | 'dir' | 'providers'>> & { applied?: boolean };
+export type SeatChange = Partial<Pick<Seat, 'permissionMode' | 'auto' | 'model' | 'provider' | 'askMinutes' | 'via' | 'dir' | 'providers'>> & { applied?: boolean };
 
 /** `GET /api/providers`: where a seat's model is bought when not from the login. The token is never sent. */
 export type Provider = { name: string; baseUrl: string | null; hasToken: boolean };
@@ -154,6 +160,8 @@ export type Rec = {
   /** A `seat` control: which seat, and the settings asked for or applied. */
   agent?: string;
   seat?: SeatChange;
+  /** An `auto` control: the room's cap on Auto grants (both null lifts it). */
+  auto?: AutoLimit;
   /** Local only: an optimistic send that the daemon has not confirmed yet. */
   pending?: boolean;
 };
@@ -204,6 +212,8 @@ export type RoomSnapshot = {
   folder: string | null;
   app: AppRecord;
   seats: Seat[];
+  /** The most Auto any seat gets in this room, or null. */
+  autoCap?: AutoLimit | null;
 };
 
 export type DeviceInfo = {

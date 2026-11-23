@@ -12,7 +12,9 @@
 // drive any other ACP agent (Codex, Goose, a Hermes adapter) by changing the command.
 //
 // Never bypass: the session mode is the seat's permissionMode (default acceptEdits), and a
-// request for `bypassPermissions` is turned into acceptEdits.
+// request for `bypassPermissions` is turned into acceptEdits. Our `auto` is not Claude Code's: the session runs
+// acceptEdits and #permission answers yes to whatever the deny rules do not refuse, for as long as the grant lasts
+// (src/seat-settings.js autoState: the seat's minutes and turns, and the room's cap).
 //
 // What the tool list does not settle is asked of a person (2026-11-22, Guy's memo): the ask goes into the
 // conversation as a signed record, one of the owner's own devices answers it (an account-gated control), and the
@@ -26,6 +28,7 @@ import { client, ndJsonStream } from '@agentclientprotocol/sdk'
 import { resolveTools } from './tools.js'
 import { agentSession, sessionKeyOf } from './config.js'
 import { MAIN } from './proto.js'
+import { autoState } from './seat-settings.js'
 
 const IDLE_MS = 30 * 60_000
 export const ASK_TIMEOUT_MS = 10 * 60_000 // the default; the runner's askMinutes() says what applies
@@ -132,17 +135,28 @@ export class AcpProcess {
   }
 
   // The permission mode, applied to the open session (`session/set_mode`); the next open applies the bridge's.
-  // Never bypass: asked for it, the seat runs acceptEdits and says so.
+  // Never bypass: asked for it, the seat runs acceptEdits and says so. Auto runs acceptEdits in the session and is
+  // answered here (#permission).
   async setMode (wanted, { quiet = false } = {}) {
     let mode = wanted ?? 'acceptEdits'
     if (mode === 'bypassPermissions') mode = 'acceptEdits'
+    const session = mode === 'auto' ? 'acceptEdits' : mode
     if (this.cx && this.sessionId) {
       try {
-        await this.cx.request('session/set_mode', { sessionId: this.sessionId, modeId: mode })
-        if (!quiet) this.onActivity(`permission mode: ${mode}`)
+        await this.cx.request('session/set_mode', { sessionId: this.sessionId, modeId: session })
+        if (!quiet) this.onActivity(`permission mode: ${mode}${mode === 'auto' ? ' (this device answers yes; the deny rules still refuse)' : ''}`)
       } catch (err) { this.onActivity(`could not set mode ${mode}: ${err?.message ?? err}`) }
     }
     return mode
+  }
+
+  // Is the seat in Auto with a grant that still stands? When the grant has run out the room is told, so the host
+  // puts the seat back in the mode it had (daemon.js #autoOver), and this call is asked of a person as usual.
+  #autoAllows () {
+    if (this.bridge.permissionMode !== 'auto') return false
+    const st = autoState(this.bridge.auto ?? { since: Date.now(), used: 0 }, this.room.autoCap?.() ?? null)
+    if (st.over) { this.room.emit('auto-over', { name: this.name, why: st.over }); return false }
+    return true
   }
 
   // The model, applied to the open session (`session/set_config_option` "model"); null is the login's default.
@@ -265,6 +279,10 @@ export class AcpProcess {
     const pick = (kinds) => options?.find((o) => kinds.includes(o.kind)) ?? null
     const answer = (choice) => choice ? { outcome: { outcome: 'selected', optionId: choice.optionId } } : { outcome: { outcome: 'cancelled' } }
     let v = verdict(this.rules, tool, input, this.bridge.dir)
+    if (v === 'ask' && this.#autoAllows()) {
+      this.onActivity(`allowed (auto) ${tool}: ${what}`)
+      return answer(pick(['allow_once', 'allow_always']))
+    }
     if (v === 'ask' && this.onAsk) {
       this.onActivity(`asks for ${tool}: ${what}`)
       let a = null
