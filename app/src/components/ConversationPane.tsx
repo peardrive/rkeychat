@@ -6,7 +6,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, type TextInputRef } from '../hooks';
-import { AskCard, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, type AskChoice } from '../kit';
+import { AskCard, AskFold, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, type AskChoice, type ChatMessage } from '../kit';
+import type { Rec } from '../types';
 import { useStore } from '../store/context';
 import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
 import { collapseActivity, inThread, mergeThread, pairAsks, toChatMessage } from '../store/mapping';
@@ -73,12 +74,13 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
   const activity = key ? state.activity[key] : undefined;
   // the agents' asks in this thread, each with its answer when one came (the first admitted 'answer' control)
   const asks = useMemo(() => pairAsks(thread?.items ?? []), [thread]);
-  const messages = useMemo(() => {
-    if (!thread || !key) return [];
+  const { messages, folds } = useMemo(() => {
+    if (!thread || !key) return { messages: [] as ChatMessage[], folds: new Map<string, Rec>() };
     const reactions = topic ? state.details[topic]?.reactions : undefined;
     // a seat's settings and the answers to asks are not lines of their own (the profile and the ask's card carry them)
     const merged = mergeThread(thread.items.filter(inThread), activity ?? []);
-    return (allSteps ? merged : collapseActivity(merged, asks)).map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions }));
+    const shown = allSteps ? merged : collapseActivity(merged, asks);
+    return { messages: shown.map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions })), folds: new Map(shown.filter((r) => r.kind === 'fold').map((r) => [r.id, r])) };
   }, [thread, key, topic, activity, state.details, state.me, allSteps, asks]);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const [answering, setAnswering] = useState<string | null>(null);
@@ -226,6 +228,9 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
             messages={messages}
             currentUserId={state.me?.human ?? undefined}
             renderMessage={(m) => {
+              // the permissions of one stretch of work, as one block (collapseActivity)
+              const f = folds.get(m.id);
+              if (f?.fold) return <AskFold agent={f.name} asks={f.fold.asks} steps={f.fold.steps} className="my-0.5" />;
               const a = asks.get(m.id);
               if (!a) return undefined;
               return <AskCard agent={a.rec.name} tool={a.rec.tool ?? ''} what={a.rec.what ?? ''} detail={a.rec.input} ts={a.rec.ts} expires={a.rec.expires ?? 0} answer={a.answer} canAnswer={canAnswer} lockHint="Only the owner's own devices can answer" busy={answering === m.id} onAnswer={(c) => void answerAsk(m.id, c)} className="my-1" />;

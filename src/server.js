@@ -202,6 +202,8 @@ export function serve ({ app }) {
   // an agent replying without naming a room answers wherever it was given a turn
   const roomForAgent = (as, key) => key ? pick(key) : ([...app.rooms.values()].find((r) => r.runners.get(as)?.busy) ?? pick())
   const notes = new DebugNotes(app)
+  // the other devices' notes this one follows: joined again, and what arrived while we were off is fetched
+  notes.followAll().catch((err) => console.error('[debug] follow:', err.message))
 
   const routes = {
     // no-store: the page is read from disk every request, so a reload should always be the UI that is on disk now.
@@ -493,6 +495,17 @@ export function serve ({ app }) {
       const { link, wait } = await body(req)
       need(link, 'paste the notes link')
       return notes.pull(link, { waitMs: Math.min(Number(wait) || 45_000, 180_000) })
+    },
+    // follow another device's notes: fetched whenever that device is heard from, from now on (see DebugNotes.follow)
+    'POST /api/debug/follow': async (req) => {
+      const { link } = await body(req)
+      need(link, 'paste the notes link')
+      return notes.follow(link)
+    },
+    'POST /api/debug/unfollow': async (req) => {
+      const { host } = await body(req)
+      need(host, 'which device? (rkeychat notes: "following …")')
+      return notes.unfollow(host)
     },
 
     'GET /api/invite': (req, res, url) => {

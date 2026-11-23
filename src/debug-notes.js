@@ -46,6 +46,10 @@ export class DebugNotes {
     // fetched a note before a restart is forgotten, and the note shows as waiting again; that is honest enough.
     this.readers = new Map()
     this.lastReject = null // { at, from, reason }: the last refusal a peer sent us (a pull that is not going to work says why)
+    // the other devices' notes spaces this device follows (see follow()): topic → host, and the fetch in flight per topic
+    this.followed = new Map()
+    this.fetching = new Map()
+    this.timers = new Map()
   }
 
   // The space, made on first use. Readable by anyone holding the link and writable by nobody else:
@@ -82,9 +86,9 @@ export class DebugNotes {
   async info () {
     try {
       const s = await this.open()
-      return { dir: this.dir, sharelink: s.sharelink, topic: s.topicHash, count: this.list().length }
+      return { dir: this.dir, sharelink: s.sharelink, topic: s.topicHash, count: this.list().length, following: Object.keys(this.following()) }
     } catch (err) {
-      return { dir: this.dir, sharelink: null, topic: null, count: this.list().length, error: err.message }
+      return { dir: this.dir, sharelink: null, topic: null, count: this.list().length, following: Object.keys(this.following()), error: err.message }
     }
   }
 
@@ -160,10 +164,8 @@ export class DebugNotes {
     return all.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
   }
 
-  // Read another device's notes by the link it shows under Settings → Debug: join that space (we can read, not
-  // write), wait for its file list, and fetch what we do not have yet into from/<host>/notes/<id>/. The other
-  // device has to be awake with rKeyChat open: it is the only one holding the files.
-  async pull (link, { waitMs = 45_000 } = {}) {
+  // The link another device shows under Settings → Debug: which device's notes it names.
+  #parseLink (link) {
     link = String(link ?? '').trim()
     let d = null
     try { d = decodeShareLink(link) } catch {}
@@ -173,25 +175,33 @@ export class DebugNotes {
     const [kind, old] = sn.split(':')
     const host = std ? std[1] : (kind === SPACE ? old : null)
     if (!d || !host) throw new Error(`that isn't a debug-notes link${sn ? ` (it names "${sn}")` : ''}`)
+    return { link, d, host }
+  }
+
+  async #joinSpace (link, d) {
     const core = this.app.core
     let space = (await core.space.list()).find((s) => s.sharelink === link || s.spaceName === d.spaceName)
     if (!space) space = await core.space.join(link)
+    return space
+  }
+
+  #peersOn (topic) { try { return this.app.core.managers.sockets.getConnectedSockets({ topics: [topic] }).length } catch { return 0 } }
+  #listing (topic) { return Object.entries(this.app.core.managers.spaceFileList.get(topic) ?? {}).filter(([p]) => /^\/?notes\//.test(p)) }
+
+  // Fetch what we do not have yet of another device's note files into from/<host>/notes/<id>/. `give`: a file
+  // that cannot be fetched (its device went away, it refused) is logged and the rest tried, instead of thrown.
+  async #fetchFiles (space, host, files, { give = false } = {}) {
     const topic = space.topicHash
-    const peers = () => { try { return core.managers.sockets.getConnectedSockets({ topics: [topic] }).length } catch { return 0 } }
-    const listing = () => Object.entries(core.managers.spaceFileList.get(topic) ?? {}).filter(([p]) => /^\/?notes\//.test(p))
-    const t0 = Date.now()
-    while (!listing().length && Date.now() - t0 < waitMs) await new Promise((r) => setTimeout(r, 1000))
-    const files = listing()
-    if (!files.length) throw new Error(`no notes seen from ${host} after ${Math.round(waitMs / 1000)}s (${peers()} of its peers connected). Is their rKeyChat open, and have they saved a note?`)
-    const browser = core.drives.get(space)
+    const browser = this.app.core.drives.get(space)
     const base = join(this.dir, 'from', host)
-    const ids = new Set(); let pulled = 0
+    const ids = new Set(); const newNotes = []; let pulled = 0
     for (const [path, variants] of files) {
       const [id, ...rest] = path.replace(/^\/?notes\//, '').split('/'); const file = rest.join('/')
       if (!id || !file || id.startsWith('.') || file.includes('..')) continue
       ids.add(id)
       const dest = join(base, 'notes', id, file)
       if (existsSync(dest)) continue
+      if (give && !this.#peersOn(topic)) { console.error(`[debug] ${host} is not connected: ${id}/${file} waits for next time`); break }
       // the newest variant of the path, by its providers' timestamps
       const newest = (v) => Math.max(0, ...Object.values(v.peers ?? {}).map((p) => Number(p.timestamp) || 0))
       const root = Object.entries(variants).sort((a, b) => newest(b[1]) - newest(a[1]))[0]?.[0]
@@ -202,19 +212,117 @@ export class DebugNotes {
       const started = Date.now()
       // pearcore (this version) drops a peer's refusal on the floor and the download waits for ever; we watch for
       // the refusal ourselves and say what it was, and give up on a file after FILE_WAIT either way
-      await new Promise((resolve, reject) => {
-        let done = false
-        const finish = (fn) => { if (done) return; done = true; clearInterval(tick); clearTimeout(t); fn() }
-        const t = setTimeout(() => finish(() => reject(new Error(`timed out fetching ${id}/${file} after ${Math.round(FILE_WAIT / 1000)}s (${peers()} of its peers connected). Is their rKeyChat open?`))), FILE_WAIT); t.unref?.()
-        const tick = setInterval(() => {
-          const r = this.lastReject
-          if (r && r.at >= started) finish(() => reject(new Error(`${host} refused ${id}/${file}: ${r.reason}`)))
-        }, 500); tick.unref?.()
-        task.onComplete(() => finish(resolve)); task.onError?.((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))))
-      })
+      try {
+        await new Promise((resolve, reject) => {
+          let done = false
+          const finish = (fn) => { if (done) return; done = true; clearInterval(tick); clearTimeout(t); fn() }
+          const t = setTimeout(() => finish(() => reject(new Error(`timed out fetching ${id}/${file} after ${Math.round(FILE_WAIT / 1000)}s (${this.#peersOn(topic)} of its peers connected). Is their rKeyChat open?`))), FILE_WAIT); t.unref?.()
+          const tick = setInterval(() => {
+            const r = this.lastReject
+            if (r && r.at >= started) finish(() => reject(new Error(`${host} refused ${id}/${file}: ${r.reason}`)))
+          }, 500); tick.unref?.()
+          task.onComplete(() => finish(resolve)); task.onError?.((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))))
+        })
+      } catch (err) {
+        if (!give) throw err
+        console.error(`[debug] ${err.message}`)
+        continue
+      }
       pulled++
+      if (file === 'note.json') newNotes.push(id)
     }
-    return { host, topic, peers: peers(), notes: [...ids].sort().reverse(), files: files.length, pulled, dir: base }
+    return { ids: [...ids].sort().reverse(), pulled, newNotes, dir: base }
+  }
+
+  // Read another device's notes by the link it shows under Settings → Debug: join that space (we can read, not
+  // write), wait for its file list, and fetch what we do not have yet. The other device has to be awake with
+  // rKeyChat open: it is the only one holding the files. A pulled device is followed from then on (see follow()).
+  async pull (link, { waitMs = 45_000 } = {}) {
+    const parsed = this.#parseLink(link); link = parsed.link
+    const { d, host } = parsed
+    const space = await this.#joinSpace(link, d)
+    const topic = space.topicHash
+    this.#remember(host, link); this.#watch(topic, host)
+    const t0 = Date.now()
+    while (!this.#listing(topic).length && Date.now() - t0 < waitMs) await new Promise((r) => setTimeout(r, 1000))
+    const files = this.#listing(topic)
+    if (!files.length) throw new Error(`no notes seen from ${host} after ${Math.round(waitMs / 1000)}s (${this.#peersOn(topic)} of its peers connected). Is their rKeyChat open, and have they saved a note?`)
+    const r = await this.#fetchFiles(space, host, files)
+    return { host, topic, peers: this.#peersOn(topic), notes: r.ids, files: files.length, pulled: r.pulled, dir: r.dir }
+  }
+
+  // ── following another device's notes ────────────────────────────────────────────────────────────────────
+  // A phone serves its files only while its app is on the screen, and it is on the screen right after a note is
+  // saved: that is the moment to fetch, not whenever someone remembers to pull. So the links this device was given
+  // are kept (follow.json: { "<host>": "<link>" }), their spaces joined at start, and whenever a followed device is
+  // heard from (it connects, it announces a note) what is missing is fetched at once.
+  #followFile () { return join(this.dir, 'follow.json') }
+  following () {
+    try { return JSON.parse(readFileSync(this.#followFile(), 'utf8')) } catch { return {} }
+  }
+
+  #remember (host, link) {
+    const all = this.following()
+    if (all[host] === link) return
+    all[host] = link
+    mkdirSync(this.dir, { recursive: true })
+    writeFileSync(this.#followFile(), JSON.stringify(all, null, 2))
+  }
+
+  async follow (link) {
+    const parsed = this.#parseLink(link); link = parsed.link
+    const { d, host } = parsed
+    const space = await this.#joinSpace(link, d)
+    this.#remember(host, link)
+    this.#watch(space.topicHash, host)
+    this.#fetchSoon(space.topicHash, 0)
+    return { host, topic: space.topicHash, peers: this.#peersOn(space.topicHash), notes: this.#listing(space.topicHash).length }
+  }
+
+  async unfollow (host) {
+    const all = this.following()
+    if (!all[host]) throw new Error(`not following ${host} (following: ${Object.keys(all).join(', ') || 'nobody'})`)
+    delete all[host]
+    writeFileSync(this.#followFile(), JSON.stringify(all, null, 2))
+    for (const [topic, h] of this.followed) if (h === host) this.followed.delete(topic)
+    return { host, following: Object.keys(all) }
+  }
+
+  // At start: join every followed space again and fetch what arrived while this device was off.
+  async followAll () {
+    const out = []
+    for (const [host, link] of Object.entries(this.following())) {
+      try { out.push(await this.follow(link)) } catch (err) { console.error(`[debug] following ${host}:`, err.message) }
+    }
+    return out
+  }
+
+  #watch (topic, host) {
+    this.#listen()
+    this.followed.set(topic, host)
+  }
+
+  #fetchSoon (topic, delay = 1500) {
+    clearTimeout(this.timers.get(topic))
+    const t = setTimeout(() => { this.timers.delete(topic); this.#fetchMissing(topic).catch((err) => console.error('[debug] fetch:', err.message)) }, delay)
+    t.unref?.()
+    this.timers.set(topic, t)
+  }
+
+  async #fetchMissing (topic) {
+    if (this.fetching.has(topic)) return this.fetching.get(topic)
+    const host = this.followed.get(topic)
+    if (!host) return
+    const p = (async () => {
+      const space = (await this.app.core.space.list()).find((s) => s.topicHash === topic)
+      if (!space) return
+      const files = this.#listing(topic)
+      if (!files.length) return
+      const r = await this.#fetchFiles(space, host, files, { give: true })
+      if (r.pulled) console.error(`[debug] fetched ${r.pulled} note file${r.pulled === 1 ? '' : 's'} from ${host}${r.newNotes.length ? ` · new note${r.newNotes.length === 1 ? '' : 's'}: ${r.newNotes.join(', ')}` : ''}`)
+    })()
+    this.fetching.set(topic, p)
+    try { await p } finally { this.fetching.delete(topic) }
   }
 
   // This device's own downloads in flight (a pull that is taking long): what each one waits for.
@@ -276,6 +384,14 @@ export class DebugNotes {
     const onTopic = ({ topics }) => { if (this.space && topics?.includes(this.space.topicHash)) this.announce() }
     em.on('Connection', onTopic)
     em.on('SpaceHashList', onTopic)
+    // a followed device is heard from (it connected, listed its files, announced a note): fetch what is missing
+    const heard = (ctx) => {
+      const topics = ctx?.topics ?? (ctx?.message?.topic ? [ctx.message.topic] : [])
+      for (const t of topics) { const h = hexOf(t); if (this.followed.has(h)) this.#fetchSoon(h) }
+    }
+    em.on('Connection', heard)
+    em.on('SpaceHashList', heard)
+    em.on('SpaceFileEvent', heard)
     // the serving side: who is fetching which note (status())
     em.on('SpaceFileTreeRequest', ({ info, message }) => this.#asked('tree', info, message))
     em.on('SpaceFileContentRequest', ({ info, message }) => this.#asked('content', info, message))

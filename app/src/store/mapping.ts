@@ -2,7 +2,7 @@
  * Daemon records → PearKit chat shapes.
  */
 import type { AskAnswer, AskChoice, ChatMessage } from '../kit';
-import { askStatus } from 'pearkit/asks';
+import { askFoldLine, askStatus, type FoldedAsk } from 'pearkit/asks';
 import type { Attachment, Reactions, Rec } from '../types';
 import { autoWords, runLine } from './seatSettings';
 
@@ -51,14 +51,14 @@ export function controlLine(rec: Rec): string {
 
 /** A message, an activity record, an ask or a control as the chat list shows it. */
 export function toChatMessage(rec: Rec, opts: { me?: string | null; reactions?: Reactions } = {}): ChatMessage {
-  const system = rec.kind === 'activity' || rec.kind === 'control';
+  const system = rec.kind === 'activity' || rec.kind === 'control' || rec.kind === 'fold';
   const ask = rec.kind === 'ask';
   return {
     id: rec.id,
     author: { id: rec.name, name: rec.name, agent: !rec.human },
     ts: rec.ts,
     // A record may carry no text at all (an attachment-only message, an older redaction): Markdown needs a string.
-    text: rec.kind === 'activity' ? `${rec.name}: ${rec.text ?? ''}` : rec.kind === 'control' ? controlLine(rec) : ask ? `asks for ${rec.tool ?? 'a tool'}: ${rec.what ?? ''}` : rec.text ?? '',
+    text: rec.kind === 'activity' ? `${rec.name}: ${rec.text ?? ''}` : rec.kind === 'fold' ? `${rec.name} ${rec.text ?? ''}` : rec.kind === 'control' ? controlLine(rec) : ask ? `asks for ${rec.tool ?? 'a tool'}: ${rec.what ?? ''}` : rec.text ?? '',
     re: rec.re?.length ? rec.re : undefined,
     reactions: system ? undefined : reactionsOf(opts.reactions, rec.id, opts.me ?? null),
     attachments: rec.att?.length ? rec.att.map(attachmentOf) : undefined,
@@ -104,60 +104,42 @@ export function pairAsks(items: Rec[]): Map<string, PairedAsk> {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /**
- * Collapse the quiet stretches of a thread. A run of consecutive steps (activity) and settled asks (allowed, or
- * lapsed with nobody answering) folds into one line: the last step's text, or the last ask as "asked for Bash:
- * …", with what is folded in brackets ("+4 earlier steps · 3 asks allowed"). An open ask always stands as its
- * card, so does a refused one, and after the last message of the thread every ask does: the card the person
- * just answered stays until the bot has spoken again. "All steps" in the UI turns the folding off.
+ * Collapse the quiet stretches of a thread. A run of consecutive steps (activity) and settled asks (answered, or
+ * lapsed with nobody answering) between two messages becomes one line. With no asks in it: the last step's text,
+ * with the rest counted ("+4 earlier steps"). With asks: ONE `fold` record, the block of permissions asked
+ * ("asked for 3 permissions · 3 allowed · 8 steps"), which the UI opens to one line per ask (2026-11-23 memo:
+ * "they only ever take up one block"). An open ask always stands as its card. At the end of the thread the block
+ * comes first and the live step line under it, so what the bot is doing now stays in view. "All steps" in the UI
+ * turns the folding off.
  */
 export function collapseActivity(items: Rec[], asks: Map<string, PairedAsk> = new Map(), now = Date.now()): Rec[] {
-  const settled = (r: Rec) => {
-    if (r.kind !== 'ask') return false;
-    const s = askStatus({ expires: r.expires ?? 0 }, asks.get(r.id)?.answer ?? null, now);
-    return s === 'allowed' || s === 'lapsed';
-  };
+  const status = (r: Rec) => askStatus({ expires: r.expires ?? 0 }, asks.get(r.id)?.answer ?? null, now);
+  const settled = (r: Rec) => r.kind === 'ask' && status(r) !== 'open';
+  const folded = (r: Rec): FoldedAsk => ({ id: r.id, tool: r.tool ?? 'a tool', what: r.what ?? '', status: status(r), by: asks.get(r.id)?.answer?.by ?? null });
   let lastMsg = -1;
   items.forEach((r, i) => { if (r.kind === 'msg') lastMsg = i; });
   const out: Rec[] = [];
   let run: Rec[] = [];
   let runStart = 0;
+  const stepLine = (steps: Rec[]) => {
+    if (!steps.length) return;
+    const last = steps[steps.length - 1];
+    out.push(steps.length > 1 ? { ...last, text: `${last.text}  (+${plural(steps.length - 1, 'earlier step')})` } : last);
+  };
+  const fold = (asked: Rec[], steps: number) => {
+    const first = asked[0];
+    const list = asked.map(folded);
+    out.push({ ...first, kind: 'fold', id: `${first.id}~fold`, text: askFoldLine(list, steps), fold: { asks: list, steps } });
+  };
   const flush = (tail: boolean) => {
     if (!run.length) return;
-    if (tail) {
-      // the end of the thread: the asks stand, the steps between them collapse as ever
-      let steps: Rec[] = [];
-      const step = () => {
-        if (!steps.length) return;
-        const last = steps[steps.length - 1];
-        out.push(steps.length > 1 ? { ...last, text: `${last.text}  (+${plural(steps.length - 1, 'earlier step')})` } : last);
-        steps = [];
-      };
-      for (const r of run) {
-        if (r.kind === 'activity') steps.push(r);
-        else {
-          step();
-          out.push(r);
-        }
-      }
-      step();
-    } else {
-      const last = run[run.length - 1];
-      const hidden = run.slice(0, -1);
-      const stepsHidden = hidden.filter((r) => r.kind === 'activity').length;
-      const asked = run.filter((r) => r.kind === 'ask');
-      const allowed = asked.filter((r) => asks.get(r.id)?.answer).length;
-      const lapsed = asked.length - allowed;
-      const parts: string[] = [];
-      if (stepsHidden) parts.push(`+${plural(stepsHidden, 'earlier step')}`);
-      if (asked.length === 1 && run.length === 1) parts.push(allowed ? 'allowed' : 'lapsed');
-      else {
-        if (allowed) parts.push(`${plural(allowed, 'ask')} allowed`);
-        if (lapsed) parts.push(`${plural(lapsed, 'ask')} lapsed`);
-      }
-      const suffix = parts.length ? `  (${parts.join(' · ')})` : '';
-      if (last.kind === 'activity') out.push(suffix ? { ...last, text: `${last.text}${suffix}` } : last);
-      else out.push({ ...last, kind: 'activity', id: `${last.id}~folded`, text: `asked for ${last.tool ?? 'a tool'}: ${last.what ?? ''}${suffix}` });
-    }
+    const steps = run.filter((r) => r.kind === 'activity');
+    const asked = run.filter((r) => r.kind === 'ask');
+    if (!asked.length) stepLine(steps);
+    else if (tail) {
+      fold(asked, 0);
+      stepLine(steps);
+    } else fold(asked, steps.length);
     run = [];
   };
   items.forEach((r, i) => {

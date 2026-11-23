@@ -58,6 +58,8 @@ agents
   rkeychat room remove NAME                take a room off this device (its seat and records go; the folder stays)
   rkeychat notes share ID --room ROOM      share a saved debug note into a room (its files by hash, no agent turn)
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
+  rkeychat notes follow LINK               keep fetching that device's notes whenever it is heard from (pull follows too)
+  rkeychat notes unfollow DEVICE           stop following a device's notes
   rkeychat asks [--room R]                 what agents wait on a person for; answer: rkeychat answer ASK allow|deny [--always]
   rkeychat agent ask-minutes NAME|all N    how long an ask waits for a person (1–120 min; default 10)
   rkeychat agent mode NAME default|acceptEdits|plan|auto [--minutes N] [--turns N]   default = ask; auto = this device says yes (deny rules still refuse), for N minutes / turns or until switched; never bypass; live
@@ -447,15 +449,28 @@ switch (cmd) {
       for (const id of r.notes) console.log(`  ${id}    rkeychat notes ${id}`)
       break
     }
+    if (pos[0] === 'follow') {
+      const link = pos[1] ?? die('usage: rkeychat notes follow LINK   (the pearcore:// link under their Settings → Debug)')
+      const r = await api('POST', '/api/debug/follow', { link })
+      console.log(`following ${r.host}: ${r.notes} note file${r.notes === 1 ? '' : 's'} listed, ${r.peers} of its peers connected now; new notes are fetched whenever it is heard from`)
+      break
+    }
+    if (pos[0] === 'unfollow') {
+      const host = pos[1] ?? die('usage: rkeychat notes unfollow DEVICE')
+      const r = await api('POST', '/api/debug/unfollow', { host })
+      console.log(`no longer following ${r.host}${r.following.length ? ` (still following ${r.following.join(', ')})` : ''}`)
+      break
+    }
     if (pos[0] === 'share') {
       const id = pos[1] ?? die('usage: rkeychat notes share ID --room ROOM')
       const r = await api('POST', '/api/debug/share', { id, room: opt.room })
       console.log(`shared ${r.files} files to "${r.roomName}": ${r.text}`)
       break
     }
-    const { notes, dir, sharelink } = await api('GET', '/api/debug/notes')
+    const { notes, dir, sharelink, following = [] } = await api('GET', '/api/debug/notes')
     const id = pos[0]
     if (!id) {
+      if (following.length) console.log(`following ${following.join(', ')}`)
       if (!notes.length) { console.log(`no notes yet (${dir})`); break }
       for (const n of notes) console.log(`${n.id}  ${String(n.steps ?? '?').padStart(4)} steps  ${String(n.seconds ?? '?').padStart(7)}s  ${n.room ?? ''}${n.from ? `  (from ${n.from})` : ''}`)
       if (sharelink) console.log(`\nshare: ${sharelink}`)

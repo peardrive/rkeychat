@@ -92,28 +92,41 @@ describe('the quiet thread (2026-11-23 memo)', () => {
     expect(asks.get('q2')?.answer).toBeNull();
   });
 
-  it('folds answered asks into the step line between two messages; the open ask and the thread\'s tail stand', async () => {
+  it('folds the asks between two messages into ONE block; the open ask stands; the answered one at the tail joins the block at once (8:58 memo)', async () => {
     const { collapseActivity, inThread, pairAsks } = await import('./mapping');
     const items: Rec[] = [m('g1', 1), ask('q1', 2), ans('n1', 'q1', 3), a('s1', 4), a('s2', 5), ask('q2', 6), ans('n2', 'q2', 7), a('s3', 8), m('b1', 9), ask('q3', 10), ans('n3', 'q3', 11), a('s4', 12), ask('q4', 13)];
     const asks = pairAsks(items);
     const out = collapseActivity(items.filter(inThread), asks, NOW);
-    expect(out.map((r) => r.id)).toEqual(['g1', 's3', 'b1', 'q3', 's4', 'q4']);
-    // between guy's message and the bot's reply: two asks, both allowed, and three steps of which two are hidden
-    expect(out[1].text).toBe('step s3  (+2 earlier steps · 2 asks allowed)');
-    // the tail: the answered ask q3 is still its card (the person just answered it), the step after it stays, q4 is open
-    expect(out[3].kind).toBe('ask');
+    expect(out.map((r) => r.id)).toEqual(['g1', 'q1~fold', 'b1', 'q3~fold', 's4', 'q4']);
+    // between guy's message and the bot's reply: one block, two asks allowed, three steps folded with it
+    expect(out[1]).toMatchObject({ kind: 'fold', name: 'rkeychat', text: 'asked for 2 permissions · 2 allowed · 3 steps' });
+    expect(out[1].fold?.asks.map((x) => [x.what, x.status, x.by])).toEqual([['cmd q1', 'allowed', 'guy'], ['cmd q2', 'allowed', 'guy']]);
+    // the tail: the ask just answered is a line of its block (not a card), the live step line is under it, q4 is open
+    expect(out[3]).toMatchObject({ kind: 'fold', text: 'asked for Bash: cmd q3 · allowed' });
+    expect(out[4]).toMatchObject({ kind: 'activity', text: 'step s4' });
     expect(out[5].kind).toBe('ask');
   });
 
-  it('a stretch that ends on an ask reads as "asked for …"; a refused ask stands; a lapsed one folds', async () => {
+  it('ten allows are ten lines of one block, never ten blocks', async () => {
+    const { collapseActivity, inThread, pairAsks } = await import('./mapping');
+    const items: Rec[] = [m('g1', 0)];
+    for (let i = 1; i <= 10; i++) items.push(ask(`q${i}`, i * 3), ans(`n${i}`, `q${i}`, i * 3 + 1), a(`s${i}`, i * 3 + 2));
+    items.push(m('b1', 100));
+    const out = collapseActivity(items.filter(inThread), pairAsks(items), NOW);
+    expect(out.map((r) => r.id)).toEqual(['g1', 'q1~fold', 'b1']);
+    expect(out[1].text).toBe('asked for 10 permissions · 10 allowed · 10 steps');
+    expect(out[1].fold?.asks).toHaveLength(10);
+  });
+
+  it('a refused ask and a lapsed one are lines of the block too, said so; steps alone keep their one line', async () => {
     const { collapseActivity, pairAsks } = await import('./mapping');
     const lapsed: Rec = { ...ask('q0', 1), expires: NOW - 1 };
-    const items: Rec[] = [m('g1', 0), lapsed, a('s1', 2), ask('q1', 3), ans('n1', 'q1', 4, 'reject_once'), m('b1', 5), ask('q2', 6, 'brew install jq'), ans('n2', 'q2', 7), m('b2', 8)];
+    const items: Rec[] = [m('g1', 0), lapsed, a('s1', 2), ask('q1', 3), ans('n1', 'q1', 4, 'reject_once'), m('b1', 5), a('s2', 6), a('s3', 7), m('b2', 8)];
     const asks = pairAsks(items);
     const out = collapseActivity(items.filter((r) => r.kind !== 'control'), asks, NOW);
-    expect(out.map((r) => r.id)).toEqual(['g1', 's1', 'q1', 'b1', 'q2~folded', 'b2']);
-    expect(out[1].text).toBe('step s1  (1 ask lapsed)');
-    expect(out[2].kind).toBe('ask'); // refused: worth seeing
-    expect(out[4]).toMatchObject({ kind: 'activity', name: 'rkeychat', text: 'asked for Bash: brew install jq  (allowed)' });
+    expect(out.map((r) => r.id)).toEqual(['g1', 'q0~fold', 'b1', 's3', 'b2']);
+    expect(out[1].text).toBe('asked for 2 permissions · 1 refused · 1 lapsed · 1 step');
+    expect(out[1].fold?.asks.map((x) => x.status)).toEqual(['lapsed', 'refused']);
+    expect(out[3].text).toBe('step s3  (+1 earlier step)');
   });
 });

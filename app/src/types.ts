@@ -1,3 +1,5 @@
+import type { FoldedAsk } from 'pearkit/asks';
+
 /**
  * Shapes from docs/projects-api.md plus the record fields the daemon already emits (src/room.js view()).
  * The contract is fixed; anything not in the document is typed loosely and read defensively.
@@ -184,6 +186,8 @@ export type Rec = {
   auto?: AutoLimit;
   /** Local only: an optimistic send that the daemon has not confirmed yet. */
   pending?: boolean;
+  /** Local only (a `fold` record the shell makes): the asks of one stretch of work, folded into one block. */
+  fold?: { asks: FoldedAsk[]; steps: number };
 };
 
 /** `GET /api/asks`: an open ask, with its room. */

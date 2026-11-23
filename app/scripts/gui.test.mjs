@@ -86,6 +86,27 @@ test('send: the message appears at the bottom, the field clears, the list stays 
   }
 });
 
+test('a word with no spaces (a pasted link) wraps inside its bubble instead of running off the screen (2026-11-23)', async () => {
+  const { page, ctx, errors } = await open();
+  try {
+    await openThread(page);
+    const link = 'pearcore://EmJqNuSyW3a7eBiFnKrPvTzX4b8fCjGoLsQwU1Y5c9gDkHpMtRxV2Z6dAhEmJqNuSyW3a7eBiFnKrPvTzX4b8fCjGoLsQwU1Y5c9gDkHpMtRxV2Z6dAhEmJqNuSyW3a7eBiFnKrPvTzX4b8fCjGoLsQwU1Y5c9gDkHpMtRxV2Z6dAhEmJqNuSyW3a7eBiFnKrPvTzX4b'; // a made-up link of the real shape (never a real one: a notes link reads someone's notes)
+    await page.getByLabel('Message PearDrive').fill(link);
+    await page.getByRole('button', { name: 'Send' }).tap();
+    const bubble = page.getByRole('button', { name: /^guy: pearcore:\/\// });
+    await bubble.waitFor({ timeout: 4000 });
+    const b = await box(bubble);
+    assert.ok(b.x >= 0, `the bubble starts on screen (x ${Math.round(b.x)})`);
+    assert.ok(b.x + b.width <= PHONE.width, `the bubble ends on screen (right edge ${Math.round(b.x + b.width)} of ${PHONE.width})`);
+    assert.ok(b.height > 60, `the link wraps onto several lines (height ${Math.round(b.height)})`);
+    const page_w = await page.evaluate(() => document.documentElement.scrollWidth);
+    assert.equal(page_w, PHONE.width, 'the page did not grow sideways');
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('keyboard: the chat slides up as one piece; the last message stays above the field; nothing jumps', async () => {
   const { page, ctx, errors } = await open();
   try {
@@ -300,10 +321,18 @@ test('an agent asks for a permission: the card sits in the conversation; Allow o
     assert.ok(await page.getByText('asks for Bash').first().isVisible(), 'the ask is in Needs you');
     await openThread(page, /Reading the folder/);
     await page.locator('[data-ask-state="open"]').getByRole('button', { name: 'Allow once' }).tap();
-    const done = page.locator('[data-ask-state="allowed"]');
-    await done.waitFor({ timeout: 4000 });
-    assert.match(await done.textContent(), /allowed once by guy \(studio\)/);
-    assert.equal(await done.getByRole('button', { name: 'Allow once' }).count(), 0, 'the buttons are gone');
+    // answered, the card is gone: the ask is one line of the block of permissions asked (the 8:58 memo), closed
+    const fold = page.locator('[data-ask-fold]');
+    await fold.waitFor({ timeout: 4000 });
+    assert.equal(await page.locator('[data-ask-state]').count(), 0, 'no card is left once the ask is answered');
+    assert.match(await fold.textContent(), /rkeychat asked for Bash: npm run release -- --tag 0\.4\.0 · allowed/);
+    assert.equal(await fold.getAttribute('data-ask-fold'), 'closed');
+    await fold.getByRole('button').first().tap();
+    await page.waitForTimeout(300);
+    assert.equal(await fold.getAttribute('data-ask-fold'), 'open');
+    assert.match(await fold.textContent(), /Bash: npm run release.*allowed · guy/s, 'open: one line per ask with its answer');
+    const foldBox = await box(fold);
+    assert.ok(foldBox.x >= 0 && foldBox.x + foldBox.width <= PHONE.width, 'the block fits the screen');
     // and it left Needs you
     await page.getByRole('button', { name: 'Back' }).first().tap();
     await page.getByRole('tab', { name: 'Home' }).tap();

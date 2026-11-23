@@ -220,3 +220,25 @@ so we can fit more. Then make all the font a little bigger."
 Also found on the way: a seat whose key file is gone (the Demo project seat lived in a temp folder that was
 cleared) took the whole daemon down at start; now the seat is left out with one warning, and `rkeychat room
 remove NAME` takes its room and it off.
+
+## Round 8 (2026-11-23): the bubble off the screen, the notes nobody fetched, and the permissions in one block
+
+Three memos from the phone in one morning. 8:58, looking at a Leaf Note thread: "allowed autobash, blah blah blah,
+plus eight earlier steps, plus nine earlier steps, plus ten. What I wanted is for that text to basically go away,
+aside from live details. For the approvals specifically, I wanted them to exist in this block… if I hit allow on
+10 different items, they should hit one by one in a list in this block, one line each: requested this, requested
+this, and then my approval or rejection at each one. So that I can still expand those out, but unexpanded they
+only ever take up one block." 10:50: "this note is way, way, way off screen. I can't see any of the note. It's not
+adhering to the width of the screen and wrapping. This needs to be a lesson; it wasn't happening, so clearly
+something we changed recently caused it." And by text: "It acts like literally none of the debug notes are being
+fetched. Figure out what's wrong with that as well."
+
+| Asked for | Status |
+|---|---|
+| The message off the screen | found: a word with no spaces (the pasted pearcore:// link) sets a flex item's minimum width, and the 92% cap on the wrapper cannot shrink a child whose minimum is wider; `word-wrap: break-word` does not lower that minimum. Not the night's widening; the fault was always there and showed the first time a link was pasted on a phone. Fixed in PearKit (`max-w-full` on the bubble); GUI test sends the link at phone width; lesson `chat-bubble-grew-to-an-unbreakable-word` with check `chat-bubble-caps-its-width` |
+| The approvals in one block, one line each, expandable | done: between two messages a stretch with asks is now ONE `fold` record, "@bot asked for 3 permissions · 3 allowed · 8 steps", a PearKit `AskFold` that opens to one line per ask (tool: what · allowed/refused/lapsed · who). An ask that was just answered joins the block at once (no card lingers); only the open ask stands as its card. Steps alone keep their one line ("step (+4 earlier steps)") as the live detail under the block |
+| None of the debug notes are fetched | found: a pull happened only when someone ran one, and a phone serves files only while its app is on the screen; the two never met (the pull at 10:5x: "0 of its peers connected"). Done: `rkeychat notes follow <link>` keeps the link and fetches whatever is missing the moment the phone is heard from on its space; followed again at every start. The Mac follows guy-phone now |
+
+What is left by hand: the notes link has to be given to the Mac once; the owner's devices do not yet exchange
+notes links through a room. And the three phone memos of this round were read over the cable, since the Mac was
+not following yet when they were saved.

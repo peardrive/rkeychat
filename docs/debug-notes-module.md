@@ -129,3 +129,25 @@ and the GUI test "debug note: a bubble at the bottom…" drives the whole thing 
 download, so a pull of a file the other side refuses waited ten minutes in silence. The daemon now listens for
 `Reject`, logs it (`[debug] <peer> refused a request: <reason>`), and a pull fails within 90 s per file naming the
 refusal. `GET /api/debug/downloads` lists this device's downloads in flight (providers, whether the tree is known).
+
+## Following a device (2026-11-23)
+
+Pulling by link only works at the moment someone runs it, and a phone serves its files only while its app is on
+the screen. Those two moments almost never meet: the owner records a note, puts the phone down, and the Mac that
+would read it pulls an hour later into silence ("it acts like literally none of the debug notes are being
+fetched"). So a device now **follows** the others:
+
+- `rkeychat notes follow <link>` keeps the link (`~/.rkeychat/debug-notes/follow.json`, `{ "<host>": "<link>" }`),
+  joins the space, and from then on fetches whatever note files are missing **the moment the followed device is
+  heard from** on that space: it connects, it lists its files, it announces a new note. `pull` follows too.
+  `rkeychat notes unfollow <device>` stops. `rkeychat notes` says who is followed; `GET /api/debug/notes` and
+  `/api/debug/space` carry `following: [hosts]`. API: `POST /api/debug/follow { link }`, `/api/debug/unfollow { host }`.
+- At daemon start every followed space is joined again and what arrived while the device was off is fetched.
+- While the followed device is not connected nothing is tried (a download would wait 90 s for a phone that is
+  not there); a file that fails is logged (`[debug] …`) and tried again next time the device is heard from.
+- A fetched note is listed with `from: <host>` and sits under `from/<host>/notes/<id>/`; the daemon logs
+  `[debug] fetched N note files from <host> · new note: <id>`.
+
+The phone's side is unchanged: it announces its files on every connection to the space, and its bubble and dot
+(above) show the Mac fetching. What is still by hand: the link has to be given to the Mac once (`notes follow`);
+the owner's devices do not yet exchange their notes links through a room they share.
