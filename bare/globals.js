@@ -2,6 +2,7 @@
 import process from 'bare-process'
 import { TextEncoder, TextDecoder } from 'bare-encoding'
 import nodeCrypto from 'crypto'
+import { installAbortController } from './abort-controller.js'
 
 globalThis.process = process
 globalThis.TextEncoder ??= TextEncoder
@@ -12,5 +13,7 @@ globalThis.crypto ??= {
   randomUUID: () => nodeCrypto.randomUUID(),
   subtle: nodeCrypto.webcrypto?.subtle
 }
+// pearcore's file delivery needs AbortController; Bare has none (every file request was refused "internal error")
+installAbortController()
 process.env.PEARCORE_LOG_LEVEL ??= 'warn'
 process.env.NODE_ENV ??= 'production'
