@@ -151,3 +151,11 @@ fetched"). So a device now **follows** the others:
 The phone's side is unchanged: it announces its files on every connection to the space, and its bubble and dot
 (above) show the Mac fetching. What is still by hand: the link has to be given to the Mac once (`notes follow`);
 the owner's devices do not yet exchange their notes links through a room they share.
+
+**And why nothing had ever arrived (2026-11-23, the same day).** Following made the Mac ask the moment the phone came
+up, and the phone refused every file: `guy-phone refused 2026-11-23T15-49-33/note.m4a: internal error`. The
+phone's log had the cause on every request: `ReferenceError: AbortController is not defined` in pearcore's
+`delivery.manager.js createTask`. Bare has no AbortController, so the phone could list its files but never serve
+one, to anyone, since the first build. rkeychat--mobile `bare/abort-controller.js` gives Bare one, installed from
+`bare/globals.js`; lessons entry `phone-refused-every-file-request`, check `bare-has-abort-controller`. A failed
+download on the reading side is now stopped and dropped (it kept listeners and an open file handle).

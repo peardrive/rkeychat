@@ -224,6 +224,9 @@ export class DebugNotes {
           task.onComplete(() => finish(resolve)); task.onError?.((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))))
         })
       } catch (err) {
+        // drop the task: a download that failed keeps its listeners and an open file handle until it is stopped
+        try { await task.stop?.() } catch {}
+        try { const m = this.app.core.managers.spaceFiles?.downloadTasks; if (m) for (const [k, v] of m) if (v === task) m.delete(k) } catch {}
         if (!give) throw err
         console.error(`[debug] ${err.message}`)
         continue
