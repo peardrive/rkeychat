@@ -38,17 +38,20 @@ export function adapterPath () {
 }
 
 export class AcpProcess {
-  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk, askMinutes }) {
+  constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk, askMinutes, env }) {
     this.name = name
     this.room = room
     this.conv = conv
     this.p = participant
-    this.bridge = bridge // { kind: 'claude', via: 'acp', dir, permissionMode?, tools?, model?, command? }
+    this.bridge = bridge // { kind: 'claude', via: 'acp', dir, permissionMode?, tools?, model?, provider?, command? }
     this.system = system
     this.onActivity = onActivity ?? (() => {})
     // ask a person: ({ tool, what, input, options }) → Promise<{ choice, by, device } | null>; without it, refused
     this.onAsk = onAsk ?? null
     this.askMinutes = askMinutes ?? (() => ASK_TIMEOUT_MS / 60_000) // how long that wait is, for the words
+    // extra environment for the adapter (the seat's provider: ANTHROPIC_BASE_URL and token); a throw here stops
+    // the turn with its message instead of running on the login by mistake
+    this.env = env ?? (() => ({}))
     this.child = null
     this.cx = null // ClientContext once connected
     this.sessionId = null
@@ -68,6 +71,10 @@ export class AcpProcess {
   async #connect () {
     const env = { ...process.env }
     for (const k of Object.keys(env)) if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_SESSION')) delete env[k]
+    // the seat's provider (or nothing: the login), and its model as the session's default; the model is also set
+    // on the session once open, so a change takes effect without a restart
+    Object.assign(env, this.env())
+    if (this.bridge.model) env.ANTHROPIC_MODEL = this.bridge.model; else delete env.ANTHROPIC_MODEL
     const command = this.bridge.command ?? process.execPath
     const args = this.bridge.command ? (this.bridge.args ?? []) : [adapterPath()]
     const child = spawn(command, args, { cwd: this.bridge.dir, env, stdio: ['pipe', 'pipe', 'pipe'] })
@@ -119,10 +126,32 @@ export class AcpProcess {
       agentSession(this.p, this.sessionKey, sessionId)
     }
     this.sessionId = sessionId
-    let mode = this.bridge.permissionMode ?? 'acceptEdits'
+    const mode = await this.setMode(this.bridge.permissionMode, { quiet: true })
+    if (this.bridge.model) await this.setModel(this.bridge.model, { quiet: true })
+    this.onActivity(`${saved && sessionId === saved ? 'resumed' : 'started'} Claude Code over ACP in ${cwd} (session ${sessionId.slice(0, 8)}, ${mode}${this.bridge.model ? `, ${this.bridge.model}` : ''}${this.bridge.provider ? `, via ${this.bridge.provider}` : ''})`)
+  }
+
+  // The permission mode, applied to the open session (`session/set_mode`); the next open applies the bridge's.
+  // Never bypass: asked for it, the seat runs acceptEdits and says so.
+  async setMode (wanted, { quiet = false } = {}) {
+    let mode = wanted ?? 'acceptEdits'
     if (mode === 'bypassPermissions') mode = 'acceptEdits'
-    try { await this.cx.request('session/set_mode', { sessionId, modeId: mode }) } catch (err) { this.onActivity(`could not set mode ${mode}: ${err?.message ?? err}`) }
-    this.onActivity(`${saved && sessionId === saved ? 'resumed' : 'started'} Claude Code over ACP in ${cwd} (session ${sessionId.slice(0, 8)}, ${mode})`)
+    if (this.cx && this.sessionId) {
+      try {
+        await this.cx.request('session/set_mode', { sessionId: this.sessionId, modeId: mode })
+        if (!quiet) this.onActivity(`permission mode: ${mode}`)
+      } catch (err) { this.onActivity(`could not set mode ${mode}: ${err?.message ?? err}`) }
+    }
+    return mode
+  }
+
+  // The model, applied to the open session (`session/set_config_option` "model"); null is the login's default.
+  async setModel (model, { quiet = false } = {}) {
+    if (!this.cx || !this.sessionId) return
+    try {
+      await this.cx.request('session/set_config_option', { sessionId: this.sessionId, configId: 'model', value: model ?? 'default' })
+      if (!quiet) this.onActivity(`model: ${model ?? 'default'}`)
+    } catch (err) { this.onActivity(`could not set the model ${model ?? 'default'}: ${err?.message ?? err}`) }
   }
 
   // One turn in, one reply out: { reply, usage, cancelled }. Rejects if the agent dies or the

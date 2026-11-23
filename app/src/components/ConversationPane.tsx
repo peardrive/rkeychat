@@ -239,6 +239,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
             }}
             onReact={react}
             quickReactions={favourites}
+            onAuthorPress={(a) => onOpenProfile(a.name)}
             onMore={(m) => setPickerFor(m.id)}
             onReply={(id) => {
               const m = byId.get(id);

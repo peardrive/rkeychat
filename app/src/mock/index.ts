@@ -2,9 +2,9 @@
  * In-memory daemon for `npm run dev:mock` (VITE_MOCK=1): two projects, one chat, a few conversations with
  * messages, one agent mid-turn. Simulated latency; a reply arrives a few seconds after each send.
  */
-import type { Api } from '../api';
+import { ApiError, type Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -89,7 +89,7 @@ const peardrive = room({
   name: 'PearDrive',
   org: 'Anjou',
   folder: '/Users/guy/Anjou/peardrive',
-  seats: [{ name: 'rkeychat', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive' }],
+  seats: [{ name: 'rkeychat', bridge: 'claude', via: 'acp', dir: '/Users/guy/Anjou/peardrive', permissionMode: 'acceptEdits', model: null, provider: null, askMinutes: null, providers: [{ name: 'ppq', hasToken: true }] }],
   charter:
     'PearDrive is the file sharing app on pearcore. Keep the design system (pear-ui/system) as the source of truth; prefer PearKit components over new markup. Ask before touching the sync engine.',
   convs: [
@@ -562,4 +562,48 @@ export const mockApi: Api = {
     for (const r of rooms.values()) if (r.seats.some((s) => s.name === name)) emit('room', snapshot(r));
     return { ok: true };
   },
+  // the bot's settings: the request lands in the log, the "host" applies it and its echo refreshes the snapshot
+  async seatControl({ room: key, agent, seat }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    const s = r.seats.find((x) => x.name === agent);
+    if (!s) throw new ApiError(400, 'which seat?');
+    if (seat.permissionMode === ('bypassPermissions' as never)) throw new ApiError(400, 'bypassPermissions is never used for a seat');
+    if (seat.provider && !mockProviders.some((p) => p.name === seat.provider)) throw new ApiError(400, `no provider "${seat.provider}" on this device`);
+    const req: Rec = { id: id(), kind: 'control', action: 'seat', ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: 'main', agent, seat: { ...seat } };
+    r.log.push(req);
+    emit('record', { topic: r.topic, rec: req });
+    const change = { ...seat };
+    delete change.applied;
+    Object.assign(s, change);
+    s.providers = mockProviders.map(({ name, hasToken }) => ({ name, hasToken }));
+    const echo: Rec = { id: id(), kind: 'control', action: 'seat', ts: Date.now() + 1, name: ME, device: DEVICE, human: true, text: '', conv: 'main', agent, seat: { applied: true, permissionMode: s.permissionMode, model: s.model ?? null, provider: s.provider ?? null, askMinutes: s.askMinutes ?? null, via: s.via ?? 'acp', dir: s.dir, providers: s.providers } };
+    r.log.push(echo);
+    setTimeout(() => {
+      emit('record', { topic: r.topic, rec: echo });
+      emit('room', snapshot(r));
+    }, 60);
+    return req;
+  },
+  async providers() {
+    await sleep(LATENCY);
+    return { providers: mockProviders.map((p) => ({ ...p })) };
+  },
+  async setProvider({ name, baseUrl, token }) {
+    await sleep(LATENCY);
+    const cur = mockProviders.find((p) => p.name === name);
+    const next: Provider = { name, baseUrl: baseUrl ?? cur?.baseUrl ?? null, hasToken: !!token || !!cur?.hasToken };
+    if (cur) Object.assign(cur, next);
+    else mockProviders.push(next);
+    return { ...next };
+  },
+  async removeProvider({ name }) {
+    await sleep(LATENCY);
+    const i = mockProviders.findIndex((p) => p.name === name);
+    if (i < 0) throw new ApiError(400, `no provider "${name}" on this device`);
+    mockProviders.splice(i, 1);
+    return { removed: name };
+  },
 };
+
+const mockProviders: Provider[] = [{ name: 'ppq', baseUrl: 'https://api.ppq.ai', hasToken: true }];

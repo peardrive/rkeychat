@@ -83,6 +83,21 @@ Control actions added to the server whitelist: `conv`, `app`.
 
 | `POST /api/agents/ask-minutes` | `{ name?, minutes }` | `{ name, minutes, default }` | how long an ask waits (1–120 min); without `name`, this device's default |
 
+## The bot's settings (2026-11-22)
+
+| Route | Body / query | Returns | Notes |
+|---|---|---|---|
+| `POST /api/control` | `{ room, action: 'seat', agent, seat: { permissionMode?, model?, provider?, askMinutes?, via? } }` | the signed `seat` control | the one path for the shell on every device: account-gated; the seat's host applies it and writes back `seat.applied: true` with how it runs and its `providers: [{ name, hasToken }]` |
+| `POST /api/agents/mode` | `{ name, mode }` | `{ name, permissionMode }` | on the host: `default \| acceptEdits \| plan \| auto`; `bypassPermissions` is refused |
+| `POST /api/agents/model` | `{ name, model?, provider? }` | `{ name, model, provider, run }` | `model` null/`default` is the login's own; `provider` null/`claude` is the login; a provider must exist on this device |
+| `GET /api/providers` | — | `{ providers: [{ name, baseUrl, hasToken }] }` | never the token |
+| `POST /api/providers` | `{ name, baseUrl?, token? }` | `{ name, baseUrl, hasToken }` | add or change; without `token` the held one is kept |
+| `POST /api/providers/remove` | `{ name }` | `{ removed }` | refused while a seat runs on it |
+
+`RoomSnapshot.seats[]` rows carry `permissionMode`, `model`, `provider`, `askMinutes`, `providers`; a row for a seat
+another device hosts also has `remote: true` and comes from that host's newest applied `seat` control.
+`GET /api/agents` rows carry the same plus `run` (one line). A `seat` control arriving pushes a fresh `room` snapshot.
+
 `RoomSnapshot.ownerDevice`: this device's human key is one of the owner's own (it may answer); `owner` still
 means "holds the root key".
 

@@ -155,3 +155,23 @@ Guy, after the debug note: "Let's get the approval commands sorted with a strict
 'my account devices' since this will be important working with the other people on my team." Built as
 project-agents.md "Asking a person": the agent's `ask` record, the owner's `answer` control under the account
 gate, PearKit's `AskCard` in the conversation and a Needs-you dialog, `rkeychat asks` / `rkeychat answer`.
+
+## Round 5 (2026-11-22): the bot's settings, from the day's memo
+
+The memo (debug note 2026-11-22T18-09-52, recorded on the phone after the Leaf Note failure), as a list:
+
+| Asked for | Status |
+|---|---|
+| The bot could not get permission to search PearKit and PearDrive, and nothing to approve ever showed in the chat | done: the `ask` record and `AskCard` (above) |
+| That approval gated by my key, so it is secure with the team | done: `answer` is account-gated; a team member's key is refused everywhere |
+| Some way, right in the chat, to approve things like that | done: the card sits where it happened, plus Needs you |
+| Switch the mode: auto mode, approval mode, "the three modes" | done: Ask / Edits / Plan / Auto on the bot's profile (never bypass), live over ACP |
+| Change the model and provider: a PPQ API switched to directly | done: providers on the host (`rkeychat provider set`, Settings › Providers), the seat picks one; `ANTHROPIC_BASE_URL` + token |
+| Change the model, Fable to Opus 5.5, in the bot's settings | done: model chips and a free id on the profile; `session/set_config_option` live |
+| Click the bot's profile icon and get straight to those details | done: the picture and the name in any message open the profile (PearKit `onAuthorPress`) |
+| (implied) all of it from the phone | done: the settings travel as an account-gated `seat` control the host applies and echoes; the phone's profile reads the echo |
+| How customizable is the approval timeout | done: 1–120 min per seat or per device, on the profile and `rkeychat agent ask-minutes` |
+
+Not in the memo but left from it: a provider's key is entered on the computer that runs the seat (Settings, or the
+CLI from stdin); the phone picks providers by name only, the key never travels. `allow_always` still does not
+widen the seat's tool list on disk.

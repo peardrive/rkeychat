@@ -20,6 +20,7 @@ import { MAIN } from './proto.js'
 import { agentSession, sessionKeyOf } from './config.js'
 import { AcpProcess } from './acp.js'
 import { resolveTools } from './tools.js'
+import { providerEnv } from './seat-settings.js'
 
 // A turn already handed to a listener isn't handed over again for this long: one
 // turn per process means a listener reconnects immediately, and it must not be
@@ -255,7 +256,8 @@ export class AgentRunner {
         system: renderTurn(this.room, this.name, { intro: true, conv: t.conv }).text.split('\n[room ')[0],
         onActivity: (text, extra) => this.room.activity(this.name, text, { ...extra, conv: t.conv }).catch(() => {}),
         onAsk: (ask) => this.#ask(ask, t),
-        askMinutes: () => askMinutesOf(this.bridge)
+        askMinutes: () => askMinutesOf(this.bridge),
+        env: () => providerEnv(this.bridge)
       })
     }
     const { reply, usage, cancelled } = await t.proc.prompt(turn.text)
@@ -278,6 +280,28 @@ export class AgentRunner {
     for (const t of this.turns.values()) {
       if (!t.proc) continue
       if (t.busy) t.proc.retireAfterTurn = true
+      else { t.proc.stop('idle'); t.proc = null }
+    }
+  }
+
+  // The seat's permission mode changed. Over ACP the open sessions take it now (`session/set_mode`); a cli process
+  // was started with the old flag, so it is retired like a tools change. The bridge object is shared with the
+  // daemon's config, so it already carries the new mode.
+  applyMode (mode) {
+    for (const t of this.turns.values()) {
+      if (!t.proc) continue
+      if (t.proc instanceof AcpProcess) t.proc.setMode(mode).catch(() => {})
+      else if (t.busy) t.proc.retireAfterTurn = true
+      else { t.proc.stop('idle'); t.proc = null }
+    }
+  }
+
+  // The seat's model changed: ACP sessions switch in place; cli processes are retired.
+  applyModel (model) {
+    for (const t of this.turns.values()) {
+      if (!t.proc) continue
+      if (t.proc instanceof AcpProcess) t.proc.setModel(model).catch(() => {})
+      else if (t.busy) t.proc.retireAfterTurn = true
       else { t.proc.stop('idle'); t.proc = null }
     }
   }
@@ -449,6 +473,7 @@ export class ClaudeProcess {
     // never inherit a parent Claude Code's session markers: this is its own process
     const env = { ...process.env }
     for (const k of Object.keys(env)) if (k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_SESSION')) delete env[k]
+    Object.assign(env, providerEnv(this.bridge)) // the seat's provider, or nothing: the login
     const child = spawn(this.bridge.command ?? 'claude', args, { cwd: this.bridge.dir, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child
     this.buf = ''; this.stderr = []

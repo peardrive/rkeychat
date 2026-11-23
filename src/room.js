@@ -219,6 +219,20 @@ export class Room extends EventEmitter {
     return [...byName.values()]
   }
 
+  // The seats as their hosts last described them: the newest `applied` 'seat' control per agent. This is how a
+  // device that hosts no seat (a phone) knows a bot's mode, model and provider, and which providers its host has.
+  // Only active agents count; a stale control for a seat that left the room is dropped.
+  seatsFromLog () {
+    const active = new Set(this.participantsList().filter((p) => p.role === 'agent' && p.status === 'active').map((p) => p.name))
+    const out = new Map()
+    for (const r of this.store.ordered) {
+      if (r.kind !== 'control' || r.action !== 'seat' || !r.agent || !r.seat?.applied || !active.has(r.agent)) continue
+      const s = r.seat
+      out.set(r.agent, { name: r.agent, bridge: 'claude', via: s.via ?? 'acp', dir: s.dir ?? null, permissionMode: s.permissionMode ?? 'acceptEdits', model: s.model ?? null, provider: s.provider ?? null, askMinutes: s.askMinutes ?? null, providers: s.providers ?? [], remote: true, ts: r.ts })
+    }
+    return [...out.values()]
+  }
+
   #stateOf (name) { return this.agentState.get(name) ?? this.#remoteState(name) ?? 'idle' }
 
   // an agent that reported activity in the last while is working, even between turns
@@ -494,6 +508,8 @@ export class Room extends EventEmitter {
     if (rec.kind === 'control' && rec.action === 'close') this.emit('closed', this.view(rec))
     // a person answered an agent's ask: the waiting runner hears it (awaitAnswer)
     if (rec.kind === 'control' && rec.action === 'answer') this.emit('answer', this.view(rec))
+    // one of the owner's devices changed a seat's settings (or its host said how it now runs): the host applies it
+    if (rec.kind === 'control' && rec.action === 'seat' && rec.agent) this.emit('seat', this.view(rec))
     // a debug note shared from another device (a phone, mostly): fetch its files now, while that device is
     // awake, so a helper can read them later from here. Phones don't; they're the ones sleeping.
     if (!quiet && rec.kind === 'msg' && rec.via === 'note' && typeof Bare === 'undefined') {

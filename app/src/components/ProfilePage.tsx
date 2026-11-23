@@ -1,5 +1,7 @@
 /**
- * A profile: a bot (seat) in a project, or a person. The owner edits the bot's role, rules and runtime.
+ * A profile: a bot (seat) in a project, or a person. The owner edits the bot's role, rules and runtime; from any of
+ * the owner's devices (the phone too) the bot's settings — permission mode, model and provider, how long an ask
+ * waits — go to the device that hosts the seat as a signed `seat` control, and come back as how it now runs.
  * Built on PearKit's ProfileCard (sections of settings rows).
  */
 import React, { useEffect, useState } from 'react';
@@ -8,6 +10,8 @@ import { SAFE_TOP } from '../hooks';
 import { Button, Chip, EmptyState, IconButton, Pane, PaneBody, PaneHeader, ProfileCard, SegmentedControl, StatusDot, Text, TextField, useToast, type ProfileSection } from '../kit';
 import { useStore } from '../store/context';
 import { homeOf, thinkingIn } from '../store/selectors';
+import { MODELS, PERMISSION_MODES, isCustomModel, permissionModeHint, providerOptions, runLine } from '../store/seatSettings';
+import type { PermissionMode, SeatChange } from '../types';
 
 export interface ProfilePageProps {
   topic: string;
@@ -35,6 +39,10 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
   const [backupFor, setBackupFor] = useState(rule.backupFor ?? '');
   const [cap, setCap] = useState(rule.tokensPerDay ? String(rule.tokensPerDay) : '');
   const [saving, setSaving] = useState(false);
+  // the bot's settings: typed values wait for Use / blur; the chips and segments go at once
+  const [customModel, setCustomModel] = useState(isCustomModel(seat?.model) ? seat?.model ?? '' : '');
+  const [askMin, setAskMin] = useState(seat?.askMinutes ? String(seat.askMinutes) : '');
+  const [sending, setSending] = useState<string | null>(null);
 
   useEffect(() => {
     setRole(rule.role ?? '');
@@ -43,8 +51,14 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
     setCap(rule.tokensPerDay ? String(rule.tokensPerDay) : '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [topic, name, rule.role, rule.wake, rule.backupFor, rule.tokensPerDay]);
+  useEffect(() => {
+    setCustomModel(isCustomModel(seat?.model) ? seat?.model ?? '' : '');
+    setAskMin(seat?.askMinutes ? String(seat.askMinutes) : '');
+  }, [seat?.model, seat?.askMinutes]);
 
+  // the room's owner edits the role and rules (charter); the owner's own devices change how the seat runs
   const owner = !!room?.owner;
+  const ownerDevice = !!(detail?.ownerDevice ?? room?.owner);
   const isAgent = !!seat || participant?.role === 'agent';
   const home = homeOf(room, state.me?.ref);
   const thinking = !!room && (state.convs[topic] ?? []).some((c) => !c.archived && thinkingIn(state, topic, c.conv).includes(name));
@@ -62,6 +76,19 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
     }
   };
 
+  // one change at a time to the seat; the host's answer updates the row this page reads
+  const change = async (what: string, c: SeatChange) => {
+    setSending(what);
+    try {
+      await actions.setSeat(topic, name, c);
+      if (seat?.remote) toast({ title: `Sent to ${home.name ?? 'its device'}`, description: 'The bot runs with it as soon as its device applies it.', duration: 2500 });
+    } catch (e) {
+      toast({ title: 'Could not change it', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setSending(null);
+    }
+  };
+
   const header = <PaneHeader title={isAgent ? 'Bot' : 'Person'} subtitle={room?.name} size={phone ? 'display' : 'title'} style={phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined} leading={<IconButton icon="chevron-left" size="sm" hitSlop={10} accessibilityLabel="Back" onPress={onBack} className="-ml-1 mr-1" />} />;
 
   if (!room) {
@@ -76,12 +103,16 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
   const otherSeats = (detail?.seats ?? []).filter((s) => s.name !== name).map((s) => s.name);
   const homeDevice = state.devices.find((d) => d.name === home.name);
   const runsOn = home.name ?? state.me?.device ?? 'this device';
+  const claude = seat?.bridge === 'claude';
+  const mode: PermissionMode = seat?.permissionMode ?? 'acceptEdits';
+  const providers = providerOptions(seat?.providers ?? []);
+  const canRun = ownerDevice && claude;
 
   const badges = isAgent
     ? [
         { label: 'agent', icon: 'people' as const, tone: 'primary' as const },
         ...(home.name ? [{ label: home.here ? 'runs here' : `runs on ${home.name}`, icon: 'folder' as const }] : []),
-        ...(seat?.bridge === 'claude' ? [{ label: seat.via ?? 'acp', icon: 'refresh' as const }] : seat ? [{ label: seat.bridge }] : []),
+        ...(claude ? [{ label: seat?.via ?? 'acp', icon: 'refresh' as const }] : seat ? [{ label: seat.bridge }] : []),
         ...(thinking ? [{ label: 'thinking…', tone: 'success' as const }] : []),
       ]
     : [{ label: participant?.local ? 'you' : 'member', tone: participant?.local ? ('primary' as const) : undefined }, ...(participant?.online ? [{ label: 'online', tone: 'success' as const }] : [])];
@@ -121,8 +152,88 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
             { label: 'Tokens per day', hint: '0 is no cap', control: <TextField value={cap} onChangeText={(t) => setCap(t.replace(/[^\d]/g, ''))} placeholder="0" keyboardType="numeric" size="sm" disabled={!owner} className="w-[120px]" /> },
           ],
         },
-        ...(seat?.bridge === 'claude'
+        ...(claude
           ? [
+              {
+                title: 'Permissions',
+                icon: 'bolt' as const,
+                description: 'what it may do without asking you',
+                rows: [
+                  {
+                    label: 'Mode',
+                    hint: permissionModeHint(mode),
+                    control: (
+                      <SegmentedControl
+                        size="sm"
+                        options={PERMISSION_MODES.map((m) => ({ value: m.value, label: m.label }))}
+                        value={mode}
+                        onChange={(m) => void change('mode', { permissionMode: m as PermissionMode })}
+                        disabled={!canRun || sending === 'mode'}
+                        accessibilityLabel="Permission mode"
+                      />
+                    ),
+                  },
+                  {
+                    label: 'An ask waits',
+                    hint: 'minutes before an unanswered question counts as no (1–120; empty is the device default)',
+                    control: (
+                      <TextField
+                        value={askMin}
+                        onChangeText={(t) => setAskMin(t.replace(/[^\d]/g, ''))}
+                        onBlur={() => { const n = Number(askMin); if (n >= 1 && n <= 120 && n !== (seat?.askMinutes ?? 0)) void change('ask', { askMinutes: n }); }}
+                        placeholder="10"
+                        keyboardType="numeric"
+                        size="sm"
+                        disabled={!canRun}
+                        accessibilityLabel="Ask minutes"
+                        className="w-[120px]"
+                      />
+                    ),
+                  },
+                ],
+              },
+              {
+                title: 'Model',
+                icon: 'robot' as const,
+                description: 'which model answers, and from where',
+                rows: [
+                  {
+                    label: 'From',
+                    hint: providers.length > 1 ? undefined : `Only this computer's Claude login so far. Add a provider (PPQ, a gateway) in Settings on ${runsOn}.`,
+                    control: (
+                      <SegmentedControl
+                        size="sm"
+                        options={providers}
+                        value={seat?.provider ?? 'claude'}
+                        onChange={(p) => void change('provider', { provider: p === 'claude' ? null : p })}
+                        disabled={!canRun || providers.length < 2 || sending === 'provider'}
+                        accessibilityLabel="Provider"
+                      />
+                    ),
+                  },
+                  {
+                    label: 'Model',
+                    hint: 'Default is the login\'s own; a provider may want its own id',
+                    control: (
+                      <View className="flex-row flex-wrap justify-end gap-1.5">
+                        <Chip size="sm" label="Default" selected={!seat?.model} onPress={canRun ? () => void change('model', { model: null }) : undefined} />
+                        {MODELS.map((m) => (
+                          <Chip key={m.id} size="sm" label={m.name} selected={seat?.model === m.id} onPress={canRun ? () => void change('model', { model: m.id }) : undefined} />
+                        ))}
+                      </View>
+                    ),
+                  },
+                  {
+                    label: 'Other id',
+                    control: (
+                      <View className="flex-row items-center gap-1.5">
+                        <TextField value={customModel} onChangeText={setCustomModel} placeholder="model id" size="sm" disabled={!canRun} accessibilityLabel="Model id" className="w-[180px]" autoCapitalize="none" />
+                        <Button label="Use" size="sm" variant="secondary" disabled={!canRun || !customModel.trim() || customModel.trim() === seat?.model} loading={sending === 'model'} onPress={() => void change('model', { model: customModel.trim() })} />
+                      </View>
+                    ),
+                  },
+                ],
+              },
               {
                 title: 'Runtime',
                 icon: 'refresh' as const,
@@ -137,9 +248,9 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
                           { value: 'cli', label: 'cli' },
                           { value: 'acp', label: 'acp' },
                         ]}
-                        value={seat.via ?? 'acp'}
-                        onChange={(via) => actions.setSeatVia(name, via as 'acp' | 'cli').catch((e) => toast({ title: 'Could not change the runtime', description: (e as Error).message, tone: 'danger' }))}
-                        disabled={!owner}
+                        value={seat?.via ?? 'acp'}
+                        onChange={(via) => void change('via', { via: via as 'acp' | 'cli' })}
+                        disabled={!canRun || sending === 'via'}
                       />
                     ),
                   },
@@ -165,6 +276,8 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
         { title: 'Role', icon: 'setting-2-bold', rows: [{ label: participant?.role === 'human' ? 'Member' : 'Agent', hint: participant?.role === 'human' ? 'Admin: steers budget, pause, prompts.' : undefined }] },
       ];
 
+  const subtitle = isAgent ? `Bot in ${room.name} · runs on ${runsOn}${claude ? ` · ${runLine(seat)}` : ''}${!ownerDevice ? ' · read only' : ''}` : `In ${room.name}.`;
+
   return (
     <Pane glow>
       {header}
@@ -174,7 +287,7 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
             name={isAgent ? `@${name}` : name}
             avatar={{ seed: name }}
             agent={isAgent}
-            subtitle={isAgent ? `Bot in ${room.name} · runs on ${runsOn}${!owner ? ' · read only' : ''}` : `In ${room.name}.`}
+            subtitle={subtitle}
             badges={badges}
             sections={sections}
             editable={owner && isAgent}

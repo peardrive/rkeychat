@@ -58,6 +58,11 @@ agents
   rkeychat notes pull LINK                 read another device's notes by its notes link (they must have rKeyChat open)
   rkeychat asks [--room R]                 what agents wait on a person for; answer: rkeychat answer ASK allow|deny [--always]
   rkeychat agent ask-minutes NAME|all N    how long an ask waits for a person (1–120 min; default 10)
+  rkeychat agent mode NAME default|acceptEdits|plan|auto   the seat's permission mode (default = ask; never bypass); live
+  rkeychat agent model NAME MODEL|default [--provider P|claude]   which model answers, and from where (the login, or a provider below)
+  rkeychat provider [list]                 providers on this device (an Anthropic-shaped API bought elsewhere: PPQ, a gateway)
+  rkeychat provider set NAME URL [--token-stdin]   e.g. rkeychat provider set ppq https://api.ppq.ai --token-stdin < key.txt (the token is kept, never printed)
+  rkeychat provider rm NAME
   rkeychat notes [ID]                      debug notes: what was recorded while using the app (Settings -> Debug mode)
   rkeychat identity [new NAME]                 show this device's accounts and keys; new re-mints NAME's root and session key
   rkeychat debug agent NAME                    why the daemon would or wouldn't wake an agent, per room
@@ -79,6 +84,8 @@ const { values: opt, positionals: pos } = parseArgs({
     model: { type: 'string' },
     dir: { type: 'string' },
     permission: { type: 'string' },
+    provider: { type: 'string' },
+    'token-stdin': { type: 'boolean' },
     tools: { type: 'string' },
     acp: { type: 'boolean' },
     conv: { type: 'string' },
@@ -198,6 +205,7 @@ switch (cmd) {
       for (const a of agents) {
         console.log(`@${a.name.padEnd(18)} ${(a.via ? `${a.bridge}/${a.via}` : a.bridge).padEnd(10)} ${a.dir ?? ''}`)
         if (a.tools) console.log(`    ${a.tools}`)
+        if (a.run) console.log(`    ${a.run}${a.askMinutes ? ` · an ask waits ${a.askMinutes} min` : ''}`)
         for (const r of a.rooms) console.log(`    ${r.name.padEnd(18)} ${r.enrolled ? 'enrolled' : 'not enrolled'}  ${r.state}${a.sessions[r.topic] ? `  session ${a.sessions[r.topic]}` : ''}`)
       }
       break
@@ -224,7 +232,52 @@ switch (cmd) {
       console.log(`@${r.name}: driven via ${r.via} from its next turn (same conversation, resumed by session id)`)
       break
     }
-    die('usage: rkeychat agent init NAME [--dir DIR] [--acp] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES | rkeychat agent via NAME acp|cli')
+    if (sub === 'mode') {
+      // the seat's permission mode; never bypass. Live: open ACP sessions switch at once
+      const [, name, mode] = pos
+      if (!name || !mode) die('usage: rkeychat agent mode NAME default|acceptEdits|plan|auto   (default = ask before every change)')
+      const r = await api('POST', '/api/agents/mode', { name, mode })
+      console.log(`@${r.name}: permission mode ${r.permissionMode}${r.permissionMode === 'default' ? ' (asks)' : ''}; open sessions switched, the rest from their next turn`)
+      break
+    }
+    if (sub === 'model') {
+      // which model, and from where: `default` is the login's own; --provider claude puts a seat back on the login
+      const [, name, model] = pos
+      if (!name || (!model && !opt.provider)) die('usage: rkeychat agent model NAME MODEL|default [--provider NAME|claude]   e.g. rkeychat agent model peardrive claude-opus-5-5 --provider ppq')
+      const r = await api('POST', '/api/agents/model', { name, ...(model ? { model } : {}), ...(opt.provider ? { provider: opt.provider } : {}) })
+      console.log(`@${r.name}: ${r.run}`)
+      break
+    }
+    die('usage: rkeychat agent init NAME [--dir DIR] [--acp] | rkeychat agent list | rkeychat agent tools NAME lab|none|RULES | rkeychat agent via NAME acp|cli | rkeychat agent mode NAME MODE | rkeychat agent model NAME MODEL [--provider P]')
+  }
+  case 'provider': {
+    // Providers on this device: where a seat's model is bought when not from this computer's Claude login. The
+    // token comes in on stdin (--token-stdin) so it never sits in the shell history; it is never printed back.
+    const sub = pos[0] ?? 'list'
+    if (sub === 'set') {
+      const [, name, url] = pos
+      if (!name) die('usage: rkeychat provider set NAME URL [--token-stdin]   e.g. rkeychat provider set ppq https://api.ppq.ai --token-stdin < key.txt')
+      let token
+      if (opt['token-stdin']) {
+        const chunks = []
+        for await (const c of process.stdin) chunks.push(c)
+        token = Buffer.concat(chunks).toString('utf8').trim()
+        if (!token) die('no token on stdin')
+      }
+      const r = await api('POST', '/api/providers', { name, ...(url ? { baseUrl: url } : {}), ...(token ? { token } : {}) })
+      console.log(`${r.name}  ${r.baseUrl}  ${r.hasToken ? 'token held' : 'NO TOKEN yet: rkeychat provider set ' + r.name + ' --token-stdin < key.txt'}`)
+      console.log(`  put a seat on it: rkeychat agent model SEAT MODEL --provider ${r.name}`)
+      break
+    }
+    if (sub === 'rm' || sub === 'remove') {
+      const r = await api('POST', '/api/providers/remove', { name: pos[1] ?? die('usage: rkeychat provider rm NAME') })
+      console.log(`removed ${r.removed}`)
+      break
+    }
+    const { providers } = await api('GET', '/api/providers')
+    if (!providers.length) { console.log('no providers on this device: seats run on this computer\'s Claude login. Add one: rkeychat provider set ppq https://api.ppq.ai --token-stdin < key.txt'); break }
+    for (const p of providers) console.log(`${p.name.padEnd(12)} ${(p.baseUrl ?? '').padEnd(32)} ${p.hasToken ? 'token held' : 'no token'}`)
+    break
   }
   case 'start': {
     if (await running()) {

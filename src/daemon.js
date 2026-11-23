@@ -19,6 +19,7 @@ import { RoomStore } from './store.js'
 import { Room, joinRequest } from './room.js'
 import { AgentRunner, askSettings } from './agents.js'
 import { parseTools, resolveTools, describeTools } from './tools.js'
+import { providerSettings, checkPermissionMode, checkModel, checkProviderName, checkBaseUrl, describeProviders, describeRun } from './seat-settings.js'
 import { serve, decodeInvite, encodeInvite } from './server.js'
 import { SCOPES } from './proto.js'
 import { Login } from './login.js'
@@ -52,6 +53,7 @@ export class App extends EventEmitter {
     this.rooms = new Map() // topic -> { room, runners: Map<name, AgentRunner> }
     this.inflight = new Set()
     if (Number(this.cfg.askMinutes) >= 1) askSettings.minutes = Number(this.cfg.askMinutes) // how long an agent's ask waits (docs/project-agents.md) // project request ids being made right now
+    providerSettings.providers = this.cfg.providers ??= {} // where a seat's model is bought from (seat-settings.js)
     this.closing = new Set() // rooms this device is closing itself (their own 'close' must not re-enter removeRoom)
   }
 
@@ -108,6 +110,11 @@ export class App extends EventEmitter {
       // the event carries the viewed record (its `name` is the author); #projectRequested reads the signed one
       this.#projectRequested(rec.id, room)
     })
+    // one of the owner's devices (the phone, mostly) changed a seat's settings from the bot's profile: the device
+    // that hosts the seat applies them and writes back how the seat now runs (docs/project-agents.md "The bot's
+    // settings"). Account-gated in #admits, like 'project'.
+    room.on('seat', (rec) => this.#seatControl(rec, room))
+    room.once('chain', () => setTimeout(() => { if (this.rooms.has(rcfg.topic)) this.#announceStaleSeats(room) }, 2000).unref?.())
     // the owner ended this room from another device: take it off this one (its seat and records go)
     room.on('closed', (rec) => {
       if (this.closing.has(rcfg.topic)) return
@@ -148,6 +155,8 @@ export class App extends EventEmitter {
   // `rkeychat request` + approval, like any new key on this device.
   async addAgent ({ name, dir, permissionMode = 'acceptEdits', tools, model = null, via = 'cli', rooms = null }) {
     name = String(name ?? '').trim().toLowerCase()
+    permissionMode = checkPermissionMode(permissionMode ?? 'acceptEdits')
+    model = checkModel(model)
     if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(name)) throw new Error('an agent name is 1-40 characters: letters, digits, - and _')
     if (this.cfg.participants[name]) throw new Error(`there is already a participant called ${name} on this device`)
     dir = resolve(String(dir ?? '').trim() || process.cwd())
@@ -190,7 +199,7 @@ export class App extends EventEmitter {
 
   // How long an agent's ask waits for a person: per seat (its bridge), else the device default (config.json
   // askMinutes), else ten minutes. Live: the runners read it on the next ask.
-  setAskMinutes (name, minutes) {
+  setAskMinutes (name, minutes, { quiet = false } = {}) {
     const n = Number(minutes)
     if (!(n >= 1 && n <= 120)) throw new Error('ask minutes must be between 1 and 120')
     if (name) {
@@ -204,13 +213,150 @@ export class App extends EventEmitter {
       askSettings.minutes = n
     }
     saveConfig(this.cfg)
+    if (name && !quiet) this.announceSeat(name)
     return { name: name ?? null, minutes: n, default: this.cfg.askMinutes ?? askSettings.minutes }
   }
+
+  #claudeSeat (name) {
+    const raw = this.cfg.participants[name]
+    if (!raw) throw new Error(`no agent ${name} on this device`)
+    if (raw.bridge?.kind !== 'claude') throw new Error(`${name} is not a project agent (its bridge is ${raw.bridge?.kind ?? 'stream'})`)
+    return raw
+  }
+
+  // ---- a seat's settings, as the room sees them ----
+
+  // Does this device host the seat (its folder and process are here)?
+  #hosts (name) { const p = this.cfg.participants[name]; return !!(p && p.role === 'agent' && p.bridge?.kind === 'claude') }
+
+  // How a seat runs, for the 'seat' control this device writes back and for the snapshot's seat rows.
+  seatState (name) {
+    const b = this.cfg.participants[name]?.bridge ?? {}
+    return { permissionMode: b.permissionMode ?? 'acceptEdits', model: b.model ?? null, provider: b.provider ?? null, askMinutes: b.askMinutes ?? null, via: b.via ?? 'cli', dir: b.dir ?? null, providers: describeProviders(this.cfg.providers).map(({ name, hasToken }) => ({ name, hasToken })) }
+  }
+
+  // A 'seat' control arrived (the view: `name` is its author). A request for a seat hosted here is applied, then this
+  // device writes back how the seat now runs (`applied: true`); echoes and other hosts' seats are left alone.
+  // A request that cannot be honoured (a provider this host does not have) is said in the seat's activity.
+  #seatControl (rec, room) {
+    const name = rec.agent
+    if (!this.#hosts(name) || !room.local[name] || rec.seat?.applied) return
+    const s = rec.seat ?? {}
+    try {
+      if (s.via !== undefined) this.setAgentVia(name, s.via, { quiet: true })
+      if (s.permissionMode !== undefined) this.setPermissionMode(name, s.permissionMode, { quiet: true })
+      if (s.model !== undefined || s.provider !== undefined) this.setAgentModel(name, { model: s.model, provider: s.provider }, { quiet: true })
+      if (s.askMinutes !== undefined) this.setAskMinutes(name, s.askMinutes, { quiet: true })
+    } catch (err) {
+      room.activity(name, `could not change the settings ${rec.name}${rec.device ? ` (${rec.device})` : ''} asked for: ${err.message}`).catch(() => {})
+    }
+    this.announceSeat(name)
+  }
+
+  // Write how a seat hosted here runs into every room it sits in, signed by this device's human (one of the
+  // owner's keys, or the control is not admitted anywhere and there is nothing to say).
+  announceSeat (name) {
+    if (!this.#hosts(name)) return
+    const human = this.human
+    const seat = { ...this.seatState(name), applied: true }
+    for (const { room } of this.rooms.values()) {
+      const h = human ? room.local[human] : null
+      if (!room.local[name] || !h || !room.state || !room.isOwnerKey(h.signer.ref)) continue
+      room.control(human, 'seat', { agent: name, seat }).catch((err) => console.error(`[${room.cfg.name}] seat ${name}:`, err.message))
+    }
+  }
+
+  // At start: a seat whose room has no (or an older) description of how it runs gets one, so a phone that opens
+  // the bot's profile sees the truth. Nothing is written when the newest description already matches.
+  #announceStaleSeats (room) {
+    const known = new Map(room.seatsFromLog().map((s) => [s.name, s]))
+    for (const name of Object.keys(this.cfg.participants)) {
+      if (!this.#hosts(name) || !room.local[name]) continue
+      const now = this.seatState(name)
+      const k = known.get(name)
+      const same = k && ['permissionMode', 'model', 'provider', 'askMinutes', 'via', 'dir'].every((f) => (k[f] ?? null) === (now[f] ?? null)) && JSON.stringify(k.providers) === JSON.stringify(now.providers)
+      if (!same) this.announceSeat(name)
+    }
+  }
+
+  // The seat's permission mode (default = ask, acceptEdits, plan, auto; never bypass). Live: open ACP sessions
+  // switch now; cli processes are retired and the next turn starts with the flag.
+  setPermissionMode (name, mode, { quiet = false } = {}) {
+    const raw = this.#claudeSeat(name)
+    mode = checkPermissionMode(mode)
+    raw.bridge.permissionMode = mode
+    saveConfig(this.cfg)
+    for (const { runners } of this.rooms.values()) runners.get(name)?.applyMode?.(mode)
+    this.emit('agents-changed')
+    if (!quiet) this.announceSeat(name)
+    return { name, permissionMode: mode }
+  }
+
+  // The seat's model (null: the login's default) and provider (null: this computer's Claude login). A provider must
+  // exist on this device before a seat may name it. A model change is live in ACP sessions; a provider change
+  // retires the processes, since the environment is fixed at spawn.
+  setAgentModel (name, { model, provider } = {}, { quiet = false } = {}) {
+    const raw = this.#claudeSeat(name)
+    if (model !== undefined) {
+      const m = checkModel(model)
+      if (m) raw.bridge.model = m; else delete raw.bridge.model
+    }
+    let providerChanged = false
+    if (provider !== undefined) {
+      const p = provider == null || provider === '' || provider === 'claude' ? null : checkProviderName(provider)
+      if (p && !this.cfg.providers?.[p]) throw new Error(`no provider "${p}" on this device (rkeychat provider set ${p} URL)`)
+      providerChanged = (raw.bridge.provider ?? null) !== p
+      if (p) raw.bridge.provider = p; else delete raw.bridge.provider
+    }
+    saveConfig(this.cfg)
+    for (const { runners } of this.rooms.values()) {
+      const r = runners.get(name)
+      if (!r) continue
+      if (providerChanged) r.reconfigured?.()
+      else if (model !== undefined) r.applyModel?.(raw.bridge.model ?? null)
+    }
+    this.emit('agents-changed')
+    if (!quiet) this.announceSeat(name)
+    return { name, model: raw.bridge.model ?? null, provider: raw.bridge.provider ?? null, run: describeRun(raw.bridge) }
+  }
+
+  // A provider on this device: a name, the base URL Claude Code is pointed at, and the token (kept, never shown).
+  // Setting one again without a token keeps the token it has.
+  setProvider (name, { baseUrl, token } = {}) {
+    name = checkProviderName(name)
+    const cur = this.cfg.providers?.[name] ?? {}
+    const next = { baseUrl: baseUrl !== undefined ? checkBaseUrl(baseUrl) : cur.baseUrl, token: token ? String(token).trim() : cur.token }
+    if (!next.baseUrl) throw new Error('a provider needs a base URL')
+    this.cfg.providers ??= {}
+    this.cfg.providers[name] = next
+    providerSettings.providers = this.cfg.providers
+    saveConfig(this.cfg)
+    // seats on it were started with the old URL or token; every seat's description carries the provider list
+    for (const [seat, p] of Object.entries(this.cfg.participants)) {
+      if (p.bridge?.provider === name) for (const { runners } of this.rooms.values()) runners.get(seat)?.reconfigured?.()
+      this.announceSeat(seat)
+    }
+    return describeProviders(this.cfg.providers).find((p) => p.name === name)
+  }
+
+  removeProvider (name) {
+    name = checkProviderName(name)
+    if (!this.cfg.providers?.[name]) throw new Error(`no provider "${name}" on this device`)
+    const using = Object.entries(this.cfg.participants).filter(([, p]) => p.bridge?.provider === name).map(([n]) => n)
+    if (using.length) throw new Error(`${using.map((n) => '@' + n).join(', ')} still run${using.length === 1 ? 's' : ''} on ${name}; put them back on the login first (rkeychat agent model NAME --provider claude)`)
+    delete this.cfg.providers[name]
+    providerSettings.providers = this.cfg.providers
+    saveConfig(this.cfg)
+    for (const seat of Object.keys(this.cfg.participants)) this.announceSeat(seat)
+    return { removed: name }
+  }
+
+  providers () { return describeProviders(this.cfg.providers) }
 
   // Switch a project agent between the two ways of driving Claude Code. Live: its process
   // is retired (after its turn, if one is in flight); the next turn starts the other kind,
   // resuming the same conversation by session id.
-  setAgentVia (name, via) {
+  setAgentVia (name, via, { quiet = false } = {}) {
     const raw = this.cfg.participants[name]
     if (!raw) throw new Error(`no agent ${name} on this device`)
     if (raw.bridge?.kind !== 'claude') throw new Error(`${name} is not a project agent (its bridge is ${raw.bridge?.kind ?? 'stream'})`)
@@ -219,6 +365,7 @@ export class App extends EventEmitter {
     saveConfig(this.cfg)
     for (const { runners } of this.rooms.values()) runners.get(name)?.reconfigured?.()
     this.emit('agents-changed')
+    if (!quiet) this.announceSeat(name)
     return { name, via }
   }
 
@@ -243,6 +390,7 @@ export class App extends EventEmitter {
     return Object.entries(this.cfg.participants).filter(([, p]) => p.role === 'agent').map(([name, p]) => ({
       name, bridge: p.bridge?.kind ?? 'stream', via: p.bridge?.kind === 'claude' ? (p.bridge.via ?? 'cli') : null, dir: p.bridge?.dir ?? null, keyFile: p.keyFile ?? null, ref: p.ref,
       tools: p.bridge?.kind === 'claude' ? describeTools(p.bridge.tools) : null,
+      ...(p.bridge?.kind === 'claude' ? { permissionMode: p.bridge.permissionMode ?? 'acceptEdits', model: p.bridge.model ?? null, provider: p.bridge.provider ?? null, askMinutes: p.bridge.askMinutes ?? null, run: describeRun(p.bridge) } : {}),
       sessions: p.keyFile ? (() => { try { return readKeyFile(p.keyFile).sessions ?? {} } catch { return {} } })() : {},
       rooms: [...this.rooms.values()].map(({ room, runners }) => ({ name: room.cfg.name, topic: room.topic, enrolled: !!(room.state && room.local[name] && room.state.isActive(room.local[name].signer.ref)), state: room.agentState.get(name) ?? 'idle', busy: !!runners.get(name)?.busy }))
     }))

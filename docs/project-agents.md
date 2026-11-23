@@ -152,8 +152,49 @@ means "this device holds the root key" and is false on a phone, which is why the
 lock line to Guy himself (2026-11-22).
 
 Not yet: `allow_always` is the agent's own memory (Claude Code stops asking for that rule within the session);
-the seat's tool list on disk is not widened. The permission mode switch and the model/provider per seat from the
-same memo are next.
+the seat's tool list on disk is not widened.
+
+### The bot's settings: mode, model, provider (2026-11-22, the rest of the same memo)
+
+"Auto mode, or approval mode, whatever the three modes are … the ability to change the model and provider, so that
+if I have a PPQ API I can switch straight to that … change the model from Fable to Opus 5.5 … right there in the
+settings for the bot when I click on it … click on the bot's little profile icon and get straight to those details."
+
+`src/seat-settings.js` holds the lists; the daemon writes them into the seat's bridge in config.json; the shell shows
+them on the bot's profile, which opens from the bot's picture or name in any message (PearKit `onAuthorPress`), from
+the project's seat list, and from the "is thinking" line.
+
+| Setting | Values | Where it bites |
+| --- | --- | --- |
+| permission mode | `default` (Ask), `acceptEdits` (Edits, the default), `plan`, `auto` — never `bypassPermissions`, refused by name and alias | ACP: `session/set_mode` on the open session, at once; cli: the process is retired and the next turn starts with `--permission-mode` |
+| model | `null` (the login's own) or an id; the profile offers Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5 and takes any id | ACP: `session/set_config_option` "model" at once, and `ANTHROPIC_MODEL` for the next process; cli: `--model` |
+| provider | `null` (this computer's Claude login) or a provider on the host | the process environment: `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`; a change retires the process |
+| ask minutes | 1–120, or the device default | the next ask |
+
+**Providers** are a device setting on the host (`providers` in config.json: `{ ppq: { baseUrl, token } }`), because the
+token is a secret that stays where the seat runs. `rkeychat provider set ppq https://api.ppq.ai --token-stdin < key.txt`
+(the key never sits in the shell history), `rkeychat provider` lists names and URLs and whether a key is held,
+`GET /api/providers` says the same and never the token; Settings › Providers on the computer takes the key in a
+password field. PPQ wants the root URL, not `/v1`; `checkBaseUrl` trims it. A seat on a provider the host no longer
+has does not fall back to the login and its bill: the turn fails with the reason in the activity.
+
+**From the phone, and the team.** Seats live on computers; the phone hosts none, so its snapshot used to show a bot
+with no settings. Now the settings travel as a signed **`seat` control** (`{ action: 'seat', agent, seat: {…} }`),
+account-gated like `answer`: any of the owner's own devices writes a request with only the fields that change; the
+device hosting the seat applies it and writes back how the seat now runs (`seat.applied: true`, with the host's
+provider names and whether each has a key). A request from a team member's key is refused on arrival everywhere. The
+snapshot's `seats` rows are the host's own config on the host and the newest applied control elsewhere
+(`room.seatsFromLog()`), so the phone's profile shows the truth and changes it; the shell's one path for a change
+is `POST /api/control { action: 'seat', agent, seat }` on every device, the host included. At start a host writes a
+fresh description into any room whose newest one is stale or missing. Both records read as lines in the
+conversation: "guy changed @pear's settings", "@pear now runs: Ask · Opus 5.5 · via ppq".
+
+CLI: `rkeychat agent mode NAME default|acceptEdits|plan|auto`, `rkeychat agent model NAME MODEL|default
+[--provider P|claude]`, `rkeychat agent list` prints the run line. Tests: `test/seat-settings.test.js` (the lists,
+bypass refused, the environment, the URL, nothing prints a token), `test/seat-control.test.js` (the phone's request
+is heard and jeff's refused; the host's echo is what the room reads; a newer echo wins), the shell's
+`seatSettings.test.ts` and the seat lines in `asks.test.ts`, and the GUI test "the bot's profile opens from its
+picture in the chat".
 
 ## What it does not do yet
 

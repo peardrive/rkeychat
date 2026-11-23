@@ -226,13 +226,14 @@ export function reducer(state: State, action: Action): State {
       if (rec.kind === 'activity') return reducer(state, { type: 'activity', topic: action.topic, rec });
       // an agent asking a person: in the thread (the card), and in Needs you; the answer: in the thread (the card
       // learns its outcome), and the ask leaves Needs you
-      if (rec.kind === 'ask' || (rec.kind === 'control' && rec.action === 'answer')) {
+      // a seat's settings (the request, and the host's word on how the bot now runs) read as lines in the thread
+      if (rec.kind === 'ask' || (rec.kind === 'control' && (rec.action === 'answer' || rec.action === 'seat'))) {
         const key = convKey(action.topic, rec.conv!);
         const thread = state.threads[key];
         const threads = thread ? { ...state.threads, [key]: { ...thread, items: upsert(thread.items, rec) } } : state.threads;
         let feed = state.feed;
         if (rec.kind === 'ask') feed = pushFeed(feed, askFeedItem(state, action.topic, rec));
-        else feed = feed.filter((f) => f.id !== `perm:${rec.ask}`);
+        else if (rec.action === 'answer') feed = feed.filter((f) => f.id !== `perm:${rec.ask}`);
         return { ...state, threads, feed };
       }
       if (rec.kind !== 'msg') return state; // other controls, reactions and redactions arrive folded into room/convs pushes

@@ -8,7 +8,7 @@ import { getApi } from '../api';
 import { SAFE_TOP } from '../hooks';
 import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, StatusPill, Text, TextField, Toggle, useToast } from '../kit';
 import { useStore } from '../store/context';
-import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person } from '../types';
+import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person, Provider } from '../types';
 import { DebugButton } from './DebugButton';
 import { notePill, useDebugSync } from '../debugSync';
 import { LinkField, copyToClipboard } from '../kit';
@@ -28,6 +28,12 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
   const [debug, setDebug] = useState<(DebugSpaceInfo & { notes: DebugNoteInfo[] }) | null>(null);
   const [sharing, setSharing] = useState<string | null>(null);
   const { sync } = useDebugSync();
+  // providers on this device (where a seat's model is bought when not from the login); the key is written, never read back
+  const [providers, setProviders] = useState<Provider[] | null>(null);
+  const [provName, setProvName] = useState('ppq');
+  const [provUrl, setProvUrl] = useState('https://api.ppq.ai');
+  const [provKey, setProvKey] = useState('');
+  const [provBusy, setProvBusy] = useState(false);
 
   useEffect(() => {
     getApi()
@@ -40,7 +46,32 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
     getApi().people().then(setPeople).catch(() => setPeople({ local: [], known: [] }));
     getApi().agents().then(setAgents).catch(() => setAgents([]));
     getApi().debugNotes().then(setDebug).catch(() => setDebug({ dir: '', sharelink: null, count: 0, notes: [] }));
+    getApi().providers().then((r) => setProviders(r.providers)).catch(() => setProviders([]));
   }, []);
+
+  const saveProvider = async () => {
+    const name = provName.trim().toLowerCase();
+    if (!name || !provUrl.trim()) return;
+    setProvBusy(true);
+    try {
+      const p = await getApi().setProvider({ name, baseUrl: provUrl.trim(), ...(provKey.trim() ? { token: provKey.trim() } : {}) });
+      setProviders((cur) => [...(cur ?? []).filter((x) => x.name !== p.name), p]);
+      setProvKey('');
+      toast({ title: p.hasToken ? `${p.name} ready` : `${p.name} saved, no key yet`, description: p.hasToken ? 'Pick it under From on a bot\'s profile.' : 'Paste its key and save again.', tone: p.hasToken ? 'success' : undefined });
+    } catch (e) {
+      toast({ title: 'Could not save the provider', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setProvBusy(false);
+    }
+  };
+  const removeProvider = async (name: string) => {
+    try {
+      await getApi().removeProvider({ name });
+      setProviders((cur) => (cur ?? []).filter((x) => x.name !== name));
+    } catch (e) {
+      toast({ title: 'Could not remove it', description: (e as Error).message, tone: 'danger' });
+    }
+  };
 
   const shareNote = async (id: string) => {
     const topic = state.selected.topic;
@@ -110,6 +141,39 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
               divider={false}
             />
           </SettingsBlock>
+
+          {canHost ? (
+            <SettingsBlock icon="globe" title="Providers" description="where a bot's model is bought, when not from this computer's Claude login">
+              {providers?.length ? (
+                providers.map((p) => (
+                  <SettingsRow
+                    key={p.name}
+                    label={p.name}
+                    hint={p.baseUrl ?? undefined}
+                    control={
+                      <View className="flex-row items-center gap-1.5">
+                        <Chip size="sm" label={p.hasToken ? 'key held' : 'no key'} tone={p.hasToken ? 'success' : 'warning'} selected={p.hasToken} />
+                        <IconButton icon="close" size="xs" accessibilityLabel={`Remove ${p.name}`} onPress={() => void removeProvider(p.name)} />
+                      </View>
+                    }
+                  />
+                ))
+              ) : (
+                <SettingsRow label={providers ? 'None yet' : 'Loading…'} hint="A bot runs on this computer's Claude login until a provider is picked on its profile." />
+              )}
+              <SettingsRow label="Add or change one" hint="PPQ: https://api.ppq.ai with the key from ppq.ai. The key is kept here and never shown again; it is not sent to your other devices." divider={false} />
+              <View className="gap-1.5 px-1 pb-3">
+                <View className="flex-row gap-1.5">
+                  <TextField size="sm" value={provName} onChangeText={setProvName} placeholder="name" autoCapitalize="none" accessibilityLabel="Provider name" className="w-[110px]" />
+                  <TextField mono size="sm" value={provUrl} onChangeText={setProvUrl} placeholder="https://api.ppq.ai" autoCapitalize="none" accessibilityLabel="Provider URL" className="min-w-0 flex-1" />
+                </View>
+                <View className="flex-row gap-1.5">
+                  <TextField mono size="sm" password value={provKey} onChangeText={setProvKey} placeholder="API key" autoCapitalize="none" accessibilityLabel="Provider key" className="min-w-0 flex-1" />
+                  <Button size="sm" variant="secondary" label="Save" loading={provBusy} disabled={!provName.trim() || !provUrl.trim()} onPress={() => void saveProvider()} />
+                </View>
+              </View>
+            </SettingsBlock>
+          ) : null}
 
           <SettingsBlock icon="image" title="Media" description="GIFs and pictures to reply with" trailing={<Chip size="sm" label="soon" />}>
             <SettingsRow label="Media space" hint="Thumbnails cached, bytes fetched from the space." control={value('not yet')} disabled divider={false} />

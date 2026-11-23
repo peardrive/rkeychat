@@ -139,6 +139,17 @@ await shot('phone-ask', {
     await must(page, page.locator('[data-ask-state="open"]'), 'the agent\'s ask in the conversation');
   },
 });
+await shot('phone-bot', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    await page.getByText(/Reading the folder/).first().tap();
+    await page.getByRole('button', { name: 'Open rkeychat\'s profile' }).first().tap();
+    await page.waitForTimeout(500);
+    await must(page, page.getByText('Permissions'), 'the bot\'s permission section');
+    await must(page, page.getByRole('radiogroup', { name: 'Provider' }), 'the provider control');
+  },
+});
 await shot('phone-note-bubble', {
   ...phone,
   before: async (page) => {

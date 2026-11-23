@@ -3,6 +3,7 @@
  */
 import type { ChatMessage } from '../kit';
 import type { Attachment, Reactions, Rec } from '../types';
+import { runLine } from './seatSettings';
 
 export function attachmentOf(a: Attachment): NonNullable<ChatMessage['attachments']>[number] {
   const audio = a.kind !== 'file';
@@ -30,6 +31,8 @@ export function controlLine(rec: Rec): string {
   if (rec.action === 'answer') return `${rec.name}: ${CHOICE_WORDS[rec.choice ?? ''] ?? rec.choice ?? 'answered'}`;
   if (rec.action === 'rename') return `${rec.name} renamed the project`;
   if (rec.action === 'charter') return `${rec.name} changed the charter`;
+  // a seat's settings: the request from one of the owner's devices, then the host's word on how the bot now runs
+  if (rec.action === 'seat') return rec.seat?.applied ? `@${rec.agent} now runs: ${runLine(rec.seat)}` : `${rec.name} changed @${rec.agent}'s settings`;
   return `${rec.name}: ${rec.action ?? 'control'}`;
 }
 

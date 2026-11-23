@@ -40,6 +40,17 @@ describe('an agent asking for a permission', () => {
     expect(s.feed.length).toBe(1);
   });
 
+  it('a seat control lands in the thread as a line: the request, then how the bot now runs', () => {
+    const req: Rec = { id: 'seat1', kind: 'control', action: 'seat', ts: 1600, name: 'guy', device: 'guy-phone', human: true, text: '', conv: 'main', agent: 'pear', seat: { permissionMode: 'default' } };
+    const echo: Rec = { id: 'seat2', kind: 'control', action: 'seat', ts: 1601, name: 'guy', device: 'macbook', human: true, text: '', conv: 'main', agent: 'pear', seat: { applied: true, permissionMode: 'default', model: 'claude-opus-5-5', provider: 'ppq', via: 'acp' } };
+    let s = reducer(booted(), { type: 'record', topic: 't1', rec: req });
+    s = reducer(s, { type: 'record', topic: 't1', rec: echo });
+    expect(s.threads['t1/main'].items.map((x) => x.id)).toEqual(['seat1', 'seat2']);
+    expect(s.feed.length).toBe(0);
+    expect(toChatMessage(req)).toMatchObject({ system: true, text: "guy changed @pear's settings" });
+    expect(toChatMessage(echo)).toMatchObject({ system: true, text: '@pear now runs: Ask · Opus 5.5 · via ppq' });
+  });
+
   it('reads as a line in the chat: the ask names the tool, the answer says who allowed it', () => {
     expect(toChatMessage(ask)).toMatchObject({ id: 'ask1', text: 'asks for Bash: brew install jq', author: { name: 'pear', agent: true } });
     expect(toChatMessage(answer)).toMatchObject({ system: true, text: 'guy: allowed once' });

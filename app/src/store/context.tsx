@@ -5,7 +5,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { getApi } from '../api';
 import { connectEvents } from '../events';
-import type { AgentRule, Conversation, Device, PendingProject, RoomSummary } from '../types';
+import type { AgentRule, Conversation, Device, PendingProject, RoomSummary, SeatChange } from '../types';
 import { convKey, initialState, reducer, type Action, type State } from './reducer';
 import type { Seat } from '../types';
 
@@ -58,6 +58,11 @@ export interface Actions {
   bindFolder(topic: string, folder: string): Promise<void>;
   saveCharter(topic: string, text: string): Promise<void>;
   setSeatVia(name: string, via: 'acp' | 'cli'): Promise<void>;
+  /**
+   * The bot's settings from its profile (permission mode, never bypass; model and provider; how long an ask waits):
+   * a signed `seat` control the seat's host applies, from any of the owner's devices.
+   */
+  setSeat(topic: string, name: string, change: SeatChange): Promise<void>;
   react(topic: string, target: string, emoji: string, on: boolean): Promise<void>;
 }
 
@@ -239,6 +244,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await api().setAgentVia({ name, via });
         const sel = stateRef.current.selected;
         if (sel.topic && sel.conv) await openThread(sel.topic, sel.conv);
+      },
+      // the host's echo (a `seat` control, `applied`) brings a fresh room snapshot, whose seat rows the profile reads
+      async setSeat(topic, name, change) {
+        await api().seatControl({ room: topic, agent: name, seat: change });
       },
       async react(topic, target, emoji, on) {
         await api().react({ room: topic, target, emoji, on });

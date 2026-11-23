@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Rec, RoomSummary, SearchHit, Seat, StateResponse } from './types';
+import type { AgentInfo, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, Rec, RoomSummary, SearchHit, Seat, SeatChange, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -50,6 +50,15 @@ export interface Api {
   react(body: { room: string; as?: string; target: string; emoji: string; on?: boolean }): Promise<Rec>;
   charter(body: { room: string } & Charter): Promise<unknown>;
   setAgentVia(body: { name: string; via: 'acp' | 'cli' }): Promise<unknown>;
+  /**
+   * A seat's settings from the bot's profile: a signed `seat` control only the owner's own devices may write; the
+   * device hosting the seat applies it and writes back how the seat now runs (the snapshot's seat row follows).
+   */
+  seatControl(body: { room: string; agent: string; seat: SeatChange }): Promise<Rec>;
+  providers(): Promise<{ providers: Provider[] }>;
+  /** Add or change a provider; the token is written, never read back. Without `token`, the held one is kept. */
+  setProvider(body: { name: string; baseUrl?: string; token?: string }): Promise<Provider>;
+  removeProvider(body: { name: string }): Promise<{ removed: string }>;
 }
 
 export class ApiError extends Error {
@@ -128,6 +137,10 @@ export const httpApi: Api = {
   debugSaveNote: (b) => post('debug/note', b),
   debugShare: (b) => post('debug/share', b),
   setAgentVia: (b) => post('agents/via', b),
+  seatControl: ({ room, agent, seat }) => post('control', { room, action: 'seat', agent, seat }),
+  providers: () => get('providers'),
+  setProvider: (b) => post('providers', b),
+  removeProvider: (b) => post('providers/remove', b),
 };
 
 export const MOCK = import.meta.env?.VITE_MOCK === '1';

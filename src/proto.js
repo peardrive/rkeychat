@@ -92,7 +92,21 @@ export function cleanAgentRules (agents) {
   }
   return out
 }
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, ts = Date.now() }) {
+// A 'seat' control's payload: the settings asked for (a request from any of the owner's devices), or how the seat
+// now runs (`applied: true`, written by the device that hosts it; it carries the providers that host has, names only).
+const SEAT_STR = ['permissionMode', 'model', 'provider', 'via', 'dir']
+function cleanSeat (seat) {
+  if (seat === undefined) return undefined
+  if (!seat || typeof seat !== 'object') return {}
+  const out = {}
+  for (const k of SEAT_STR) if (seat[k] !== undefined) out[k] = seat[k] === null ? null : String(seat[k]).slice(0, 200)
+  if (seat.askMinutes !== undefined) out.askMinutes = seat.askMinutes === null ? null : Number(seat.askMinutes)
+  if (seat.applied) out.applied = true
+  if (Array.isArray(seat.providers)) out.providers = seat.providers.slice(0, 16).map((p) => ({ name: String(p?.name ?? '').slice(0, 24), hasToken: !!p?.hasToken }))
+  return out
+}
+
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, seat, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
@@ -114,7 +128,9 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
     request: request === undefined ? undefined : String(request).slice(0, 32),
     // an 'answer': which ask, and what was chosen (one of ASK_CHOICES)
     ask: ask === undefined ? undefined : String(ask).slice(0, 32),
-    choice: choice === undefined ? undefined : String(choice).slice(0, 16)
+    choice: choice === undefined ? undefined : String(choice).slice(0, 16),
+    // a 'seat' control (`agent` names the seat): the settings asked for, or how it now runs (seat-settings.js)
+    seat: cleanSeat(seat)
   })
 }
 

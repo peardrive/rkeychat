@@ -42,6 +42,12 @@ export type AgentInfo = {
   via: 'acp' | 'cli' | null;
   dir: string | null;
   ref?: string;
+  permissionMode?: PermissionMode;
+  model?: string | null;
+  provider?: string | null;
+  askMinutes?: number | null;
+  /** One line: mode, model, where it runs. */
+  run?: string;
   rooms: { name: string; topic: string; enrolled: boolean; state: AgentState; busy: boolean }[];
 };
 
@@ -68,7 +74,32 @@ export type PendingProject = { pending: true; asked: string; via: string; id: st
 /** `GET /api/projects/pending`: a project this device asked another device for, not yet seen to arrive. */
 export type PendingRequest = { id: string; name: string; asked: string; home: string | null; via: string; ts: number; online: boolean };
 
-export type Seat = { name: string; bridge: 'claude' | 'hermes' | 'stream'; via: 'acp' | 'cli' | null; dir: string | null };
+/** Claude Code's permission modes a seat may run in; `bypassPermissions` is never one (the daemon refuses it). */
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto';
+export type Seat = {
+  name: string;
+  bridge: 'claude' | 'hermes' | 'stream';
+  via: 'acp' | 'cli' | null;
+  dir: string | null;
+  /** The bot's settings (claude seats only), changed from its profile. */
+  permissionMode?: PermissionMode;
+  /** null: the login's own default model. */
+  model?: string | null;
+  /** null: this computer's Claude login; else a provider named in `GET /api/providers`. */
+  provider?: string | null;
+  /** null: the device default. */
+  askMinutes?: number | null;
+  /** The providers the seat's host has (names, and whether a key is held); the token never travels. */
+  providers?: { name: string; hasToken: boolean }[];
+  /** Hosted on another device; what we know is what its host last wrote in a `seat` control. */
+  remote?: boolean;
+};
+
+/** A `seat` control's payload: what one of the owner's devices asks for, or (`applied`) how the host says it runs. */
+export type SeatChange = Partial<Pick<Seat, 'permissionMode' | 'model' | 'provider' | 'askMinutes' | 'via' | 'dir' | 'providers'>> & { applied?: boolean };
+
+/** `GET /api/providers`: where a seat's model is bought when not from the login. The token is never sent. */
+export type Provider = { name: string; baseUrl: string | null; hasToken: boolean };
 
 export type ProjectInfo = { folder: string | null; app: AppRecord; seats: Seat[] };
 
@@ -120,6 +151,9 @@ export type Rec = {
   /** An `answer` control: which ask, and the choice (allow_once | allow_always | reject_once | reject_always). */
   ask?: string;
   choice?: string;
+  /** A `seat` control: which seat, and the settings asked for or applied. */
+  agent?: string;
+  seat?: SeatChange;
   /** Local only: an optimistic send that the daemon has not confirmed yet. */
   pending?: boolean;
 };

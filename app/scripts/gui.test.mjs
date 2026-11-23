@@ -221,6 +221,34 @@ test('debug note: a bubble at the bottom follows the note to the Mac and goes on
   }
 });
 
+test('the bot\'s profile opens from its picture in the chat; its permission mode, model and provider change from there', async () => {
+  const { page, ctx, errors } = await open();
+  try {
+    await openThread(page, /Reading the folder/); // PearDrive › General: the seat @rkeychat has spoken here
+    await page.getByRole('button', { name: 'Open rkeychat\'s profile' }).first().tap();
+    await page.getByText('Role in this project').waitFor({ timeout: 4000 });
+    assert.ok(await page.getByText('Permissions').isVisible(), 'the permission section is on the bot\'s profile');
+    assert.match(await page.getByText(/Edits · Default · Claude login/).first().textContent(), /Edits · Default/, 'the line under the name says how it runs');
+    const modes = page.getByRole('radiogroup', { name: 'Permission mode' });
+    assert.equal(await modes.getByRole('radio', { name: /bypass/i }).count(), 0, 'bypass is never offered');
+    await modes.getByRole('radio', { name: 'Ask' }).tap();
+    await page.getByText(/Ask · Default · Claude login/).first().waitFor({ timeout: 4000 });
+    // the model chips and the provider control
+    await page.getByRole('button', { name: 'Opus 5.5' }).tap();
+    await page.getByText(/Ask · Opus 5.5 · Claude login/).first().waitFor({ timeout: 4000 });
+    await page.getByRole('radiogroup', { name: 'Provider' }).getByRole('radio', { name: 'ppq' }).tap();
+    await page.getByText(/Ask · Opus 5.5 · via ppq/).first().waitFor({ timeout: 4000 });
+    // what was asked and what the host answered are both in the conversation
+    await page.getByRole('button', { name: 'Back' }).first().tap();
+    await page.waitForTimeout(400);
+    await openThread(page, /Reading the folder/);
+    assert.ok((await page.getByText('@rkeychat now runs: Ask · Opus 5.5 · via ppq').count()) >= 1, 'the host\'s word is a line in the chat');
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('an agent asks for a permission: the card sits in the conversation; Allow once answers it and the card says who did', async () => {
   const { page, ctx, errors } = await open();
   try {
