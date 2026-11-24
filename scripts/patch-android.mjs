@@ -93,4 +93,12 @@ allprojects {
   repositories {`)
 })
 
-edit('gradle.properties', (s) => s.replace('org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m', 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m'))
+edit('gradle.properties', (s) => {
+  s = s.replace('org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m', 'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m')
+  // react-native-bare-kit declares minSdk 29; Expo's template reads this property for the app's minSdk (default 24)
+  if (!/^android\.minSdkVersion=/m.test(s)) s += '\n# the Bare engine (react-native-bare-kit) needs Android 10 or newer\nandroid.minSdkVersion=29\n'
+  return s
+})
+
+// 4. Expo's wrapper gives the Gradle download ten seconds; services.gradle.org is sometimes slower than that from here
+edit('gradle/wrapper/gradle-wrapper.properties', (s) => s.replace(/networkTimeout=\d+/, 'networkTimeout=120000'))

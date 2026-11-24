@@ -23,6 +23,22 @@ and reinstall the app on the phone. The desktop daemon still vendors `vendor/pea
 Debug notes taken on the phone stay on the phone until shared: after saving one, tap **Share** in the prompt and
 it goes into the current room as files (no agent turn); the Mac fetches them at once. See `docs/debug-notes-module.md`.
 
+## First run and Android (2026-11-24)
+
+The app asks for a name before its engine starts (`mobile/App.js` NameScreen, step 1 of 2; until then the name
+was built in as `guy`), then the shell shows its own last steps. Agents and project folders live on a computer:
+the phone's setup says so and asks for nothing else.
+
+Android: `mobile/android` is generated (`npx expo prebuild --platform android --no-install`) and gitignored like
+`ios/`. `scripts/deliver-apk.sh` makes it when missing, runs `scripts/patch-android.mjs` (release signing from
+`~/Anjou/_keys/rkeychat-android-keystore.properties`, the AGP the Bare libraries need, 4 GB for gradle, a longer
+Gradle download timeout), packs the engine and the shell (`npm run bundle`), links the Bare addons for every ABI,
+builds `assembleRelease` for arm64 (`--all-abis` for a universal APK) and copies the APK into
+`~/Anjou/_deliveries/rkeychat-mobile/` with the version, code, commit and whether it is signed or debug-signed in
+its name. `app.json` carries `android.usesCleartextTraffic: true` (the WebView loads the engine at
+http://127.0.0.1) and the microphone and camera permissions. Before a build: rsync `rKeyChat/src` into `src/`
+and commit (the lessons check), and build the shell once in rKeyChat.
+
 ## Security
 
 - The page is only reachable on the tailnet: `http://macbook-pro-2.tailb0cab1.ts.net:4455`, or the https name once certs are on. Nothing is public.
