@@ -41,6 +41,7 @@
     "asar": false,
     "npmRebuild": false,
     "directories": {
+      "app": ".",
       "output": "release"
     },
     "files": [
@@ -48,13 +49,18 @@
       "bin/**",
       "src/**",
       "package.json",
+      "app/dist/**",
       "!bench/**",
       "!test/**",
       "!docs/**",
       "!dist/**",
       "!build/**",
       "!vendor/**",
-      "!**/.DS_Store"
+      "!**/.DS_Store",
+      "!app/node_modules/**",
+      "!app/src/**",
+      "!app/scripts/**",
+      "!app/screens/**"
     ],
     "extraMetadata": {
       "main": "electron/main.js"

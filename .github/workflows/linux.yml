@@ -30,6 +30,9 @@ jobs:
       - name: install
         working-directory: rKeyChat
         run: npm ci
+      - name: install PearKit (the shell links it as file:../../pearkit--projects-shell; its prepare step builds it)
+        working-directory: pearkit--projects-shell
+        run: npm ci
       - name: install the shell
         working-directory: rKeyChat/app
         run: npm ci
