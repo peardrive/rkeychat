@@ -27,9 +27,10 @@ export interface DesktopSidebarProps {
   onProjectAction: (action: ProjectAction, topic: string) => void;
   onOpenProfile: (name: string) => void;
   searchRef: React.RefObject<TextInputRef | null>;
+  onSetup?: () => void;
 }
 
-export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProject, onNewOrg, onProjectAction, onOpenProfile, searchRef }: DesktopSidebarProps) {
+export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProject, onNewOrg, onProjectAction, onOpenProfile, searchRef, onSetup }: DesktopSidebarProps) {
   const { state, actions } = useStore();
   const { toast } = useToast();
   const [width, setWidth] = useState(() => Number(localStorage.getItem(WIDTH_KEY)) || 300);
@@ -81,6 +82,7 @@ export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProjec
           onProjectAction={onProjectAction}
           onOpenProfile={onOpenProfile}
           onTabChange={onTab}
+        onSetup={onSetup}
         />
       </DropZone>
     </Sidebar>
@@ -118,13 +120,13 @@ function Tabs({ tab, onTab, unread }: { tab: DockPage; onTab: (t: DockPage) => v
   );
 }
 
-function Body({ tab, query, setQuery, searchRef, tabs, current, onOrgFilter, onNewOrg, plusItems, shown, onProjectAction, onOpenProfile, onTabChange }: { tab: DockPage; query: string; setQuery: (q: string) => void; searchRef: React.RefObject<TextInputRef | null>; tabs: ReturnType<typeof orgTabs>; current: OrgFilter; onOrgFilter: (f: OrgFilter) => void; onNewOrg: () => void; plusItems: MenuItem[]; shown: ReturnType<typeof filterByOrg>; onProjectAction: (a: ProjectAction, t: string) => void; onOpenProfile: (n: string) => void; onTabChange: (t: DockPage) => void }) {
+function Body({ tab, query, setQuery, searchRef, tabs, current, onOrgFilter, onNewOrg, plusItems, shown, onProjectAction, onOpenProfile, onTabChange, onSetup }: { onSetup?: () => void; tab: DockPage; query: string; setQuery: (q: string) => void; searchRef: React.RefObject<TextInputRef | null>; tabs: ReturnType<typeof orgTabs>; current: OrgFilter; onOrgFilter: (f: OrgFilter) => void; onNewOrg: () => void; plusItems: MenuItem[]; shown: ReturnType<typeof filterByOrg>; onProjectAction: (a: ProjectAction, t: string) => void; onOpenProfile: (n: string) => void; onTabChange: (t: DockPage) => void }) {
   const { collapsed } = useSidebar();
   if (collapsed) return null;
   if (tab === 'home') {
     return (
       <SidebarContent className="pb-3">
-        <HomeBlocks compact onOpenProjects={(org) => { if (org) onOrgFilter(org); onTabChange('projects'); }} onOpenActivity={() => onTabChange('activity')} onOpenProfile={onOpenProfile} />
+        <HomeBlocks compact onOpenProjects={(org) => { if (org) onOrgFilter(org); onTabChange('projects'); }} onOpenActivity={() => onTabChange('activity')} onOpenProfile={onOpenProfile} onSetup={onSetup} />
       </SidebarContent>
     );
   }

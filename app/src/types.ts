@@ -124,7 +124,32 @@ export type Seat = {
 export type SeatChange = Partial<Pick<Seat, 'permissionMode' | 'auto' | 'model' | 'provider' | 'askMinutes' | 'via' | 'dir' | 'providers'>> & { applied?: boolean };
 
 /** `GET /api/providers`: where a seat's model is bought when not from the login. The token is never sent. */
-export type Provider = { name: string; baseUrl: string | null; hasToken: boolean };
+export type Provider = { name: string; baseUrl: string | null; hasToken: boolean; /** The preset it matches (ppq, openrouter, llamacpp) or null for one of the person's own. */ preset?: string | null; label?: string; /** A seat can run on it now: a key is held, or the preset needs none. */ ready?: boolean };
+/** A provider the setup flow offers by name (`GET /api/providers` → `presets`). */
+export type ProviderPreset = { label: string; baseUrl: string; key: 'required' | 'none'; keyUrl?: string; blurb?: string };
+
+/** The Claude login this computer holds, as the Claude CLI reports it; `available: false` on a phone. */
+export type ClaudeStatus = { loggedIn: boolean; available?: boolean; method?: string | null; email?: string | null; plan?: string | null; expires?: string | null; error?: string };
+/** A login in progress (`POST /api/claude/login`; pushed as `claude`). */
+export type ClaudeLoginState = { running: boolean; url: string | null; waitingForCode: boolean; error: string | null; done: boolean };
+
+/** `GET /api/setup`: what this device has, so the shell knows which first-run step is left. */
+export type SetupInfo = {
+  name: string | null;
+  device: string;
+  canHost: boolean;
+  claude: ClaudeStatus;
+  providers: Provider[];
+  presets: Record<string, ProviderPreset>;
+  /** The device's choice for new seats: 'claude' (the login), a provider's name, or null (nothing chosen). */
+  agent: string | null;
+  /** An agent can run now: the chosen provider is ready, or the login is held. */
+  connected: boolean;
+  workspace: string;
+  workspaceSet: boolean;
+  /** The first-run flow was finished or skipped. */
+  done: boolean;
+};
 
 export type ProjectInfo = { folder: string | null; app: AppRecord; seats: Seat[] };
 
@@ -278,6 +303,10 @@ export type Events = {
   'login-ask': LoginAsk;
   'agent-state': { topic: string; name: string; conv: string; state: AgentState };
   'agent-error': { topic: string; name: string; conv?: string; error: string };
+  /** A Claude login in progress changed (the URL is known, a code is wanted, it finished). */
+  claude: ClaudeLoginState;
+  /** The device's setup changed (a choice saved, the flow finished). */
+  setup: SetupInfo;
 };
 
 export type EventName = keyof Events;

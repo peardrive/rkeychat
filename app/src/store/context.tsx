@@ -68,6 +68,10 @@ export interface Actions {
   setRounds(topic: string, change: { action: 'rounds' | 'extend' | 'until' | 'unlimited' | 'reset'; n?: number; hours?: number }): Promise<void>;
   setAgentLimit(topic: string, agent: string, n: number): Promise<void>;
   react(topic: string, target: string, emoji: string, on: boolean): Promise<void>;
+  /** Re-fetch the first-run setup (after a provider or login changed). */
+  refreshSetup(): Promise<void>;
+  /** Save a setup choice; the daemon answers with the whole setup, which lands in the store. */
+  saveSetup(patch: { agent?: string | null; done?: boolean }): Promise<void>;
 }
 
 const StoreContext = createContext<{ state: State; dispatch: React.Dispatch<Action>; actions: Actions } | null>(null);
@@ -265,6 +269,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       async react(topic, target, emoji, on) {
         await api().react({ room: topic, target, emoji, on });
       },
+      async refreshSetup() {
+        try {
+          dispatch({ type: 'setup', setup: await api().setup() });
+        } catch {}
+      },
+      async saveSetup(patch) {
+        dispatch({ type: 'setup', setup: await api().saveSetup(patch) });
+      },
     };
     return a;
   }, []);
@@ -282,6 +294,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       else if (first) await actions.select(first, 'main');
       actions.loadDevices().catch(() => {});
       actions.loadPending().catch(() => {});
+      void actions.refreshSetup();
       getApi()
         .loginAsks()
         .then((r) => dispatch({ type: 'loginAsks', asks: r.asking ?? [] }))
@@ -315,6 +328,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         actions.loadDevices().catch(() => {});
       },
       'login-ask': (ask) => dispatch({ type: 'loginAsk', ask }),
+      setup: (setup) => dispatch({ type: 'setup', setup }),
+      claude: (login) => {
+        dispatch({ type: 'claudeLogin', login });
+        // a finished login changes whether an agent can run: the setup says so
+        if (login.done || (!login.running && !login.error)) void actions.refreshSetup();
+      },
       activity: ({ topic, rec }) => dispatch({ type: 'activity', topic, rec }),
       reactions: ({ topic, reactions }) => dispatch({ type: 'reactions', topic, reactions }),
       'agent-state': ({ topic, name, conv, state }) => dispatch({ type: 'agentState', topic, name, conv, state }),

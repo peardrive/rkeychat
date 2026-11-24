@@ -34,9 +34,9 @@ let owned = null // { kind: 'inproc', stop } | { kind: 'child', proc } — a dae
 let quitting = false
 
 const origin = () => `http://127.0.0.1:${port}`
-// which page the window opens: the room page at / (default) or the new projects shell at /app/
-// (`RKEYCHAT_SHELL=app` or `--app`; the shell is the branch `projects`' work in progress)
-const SHELL = process.argv.includes('--app') || process.env.RKEYCHAT_SHELL === 'app' ? 'app' : 'room'
+// which page the window opens: the projects shell at /app/ (default since 2026-11-24, the first build handed to
+// someone else) or the classic room page at / (`RKEYCHAT_SHELL=room` or `--room`)
+const SHELL = process.argv.includes('--room') || process.env.RKEYCHAT_SHELL === 'room' ? 'room' : 'app'
 
 async function daemonUp (timeoutMs = 800) {
   try { return (await fetch(`${origin()}/api/rooms`, { signal: AbortSignal.timeout(timeoutMs) })).ok } catch { return false }
@@ -203,7 +203,7 @@ if (!gotLock) {
     firstRun(String(name ?? ''))
     const up = await ensureDaemon()
     if (up !== true) throw new Error('the daemon could not start; see the terminal or the log')
-    if (win) win.loadURL(origin())
+    if (win) win.loadURL(origin() + (SHELL === 'app' ? '/app/?welcome=1' : '')) // the shell carries on with its own first-run steps, counted after this one
   })
 
   app.whenReady().then(async () => {

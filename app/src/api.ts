@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, AutoLimit, Charter, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, Rec, RoomSummary, SearchHit, Seat, SeatChange, StateResponse } from './types';
+import type { AgentInfo, AutoLimit, Charter, ClaudeLoginState, ClaudeStatus, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, ProviderPreset, Rec, RoomSummary, SearchHit, Seat, SeatChange, SetupInfo, StateResponse } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -61,10 +61,22 @@ export interface Api {
   rounds(body: { room: string; action: 'rounds' | 'extend' | 'until' | 'unlimited' | 'reset'; n?: number; hours?: number }): Promise<Rec>;
   /** An agent's posts per human message (0 = no limit). */
   agentLimit(body: { room: string; agent: string; n: number }): Promise<Rec>;
-  providers(): Promise<{ providers: Provider[] }>;
+  providers(): Promise<{ providers: Provider[]; presets?: Record<string, ProviderPreset> }>;
   /** Add or change a provider; the token is written, never read back. Without `token`, the held one is kept. */
   setProvider(body: { name: string; baseUrl?: string; token?: string }): Promise<Provider>;
   removeProvider(body: { name: string }): Promise<{ removed: string }>;
+  /** First-run setup: what this device has and chose (docs/first-run.md). */
+  setup(): Promise<SetupInfo>;
+  /** Save a choice: which agent new seats run on ('claude', a provider, null), and whether the flow is finished. */
+  saveSetup(body: { agent?: string | null; done?: boolean }): Promise<SetupInfo>;
+  /** The Claude login this computer holds, and a login in progress if one is. */
+  claude(): Promise<ClaudeStatus & { login: ClaudeLoginState }>;
+  /** Start a Claude login: the browser opens; the state is pushed as `claude` events. */
+  claudeLogin(): Promise<ClaudeLoginState>;
+  /** The code the browser showed, when the login waits for one. */
+  claudeLoginCode(body: { code: string }): Promise<ClaudeLoginState>;
+  claudeLoginCancel(): Promise<ClaudeLoginState>;
+  claudeLogout(): Promise<ClaudeStatus>;
 }
 
 export class ApiError extends Error {
@@ -150,6 +162,13 @@ export const httpApi: Api = {
   providers: () => get('providers'),
   setProvider: (b) => post('providers', b),
   removeProvider: (b) => post('providers/remove', b),
+  setup: () => get('setup'),
+  saveSetup: (b) => post('setup', b),
+  claude: () => get('claude'),
+  claudeLogin: () => post('claude/login', {}),
+  claudeLoginCode: (b) => post('claude/login/code', b),
+  claudeLoginCancel: () => post('claude/login/cancel', {}),
+  claudeLogout: () => post('claude/logout', {}),
 };
 
 export const MOCK = import.meta.env?.VITE_MOCK === '1';

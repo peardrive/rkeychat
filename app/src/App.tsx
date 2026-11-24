@@ -15,13 +15,15 @@ import { MoveToOrgDialog, NewOrgDialog, RemoveProjectDialog, RenameProjectDialog
 import { type ProjectAction } from './components/ProjectList';
 import { ProjectPane } from './components/ProjectPane';
 import { SettingsPage } from './components/SettingsPage';
+import { SetupFlow } from './components/SetupFlow';
 import { getConversationTab, setDebugWhere } from './debugNotes';
 import { SAFE_BOTTOM, rkc, useShortcuts, useViewport, type TextInputRef } from './hooks';
-import { AppWindow, Dock, EmptyState, Pane, PaneHeader, ThemeProvider, ToastProvider, useToast, type DockItem } from './kit';
+import { AppWindow, CalloutBlock, Dock, EmptyState, Pane, PaneHeader, ThemeProvider, ToastProvider, useToast, type DockItem } from './kit';
 import { StoreProvider, useStore } from './store/context';
 import { feedUnread } from './store/feed';
 import { readDock, readOrgFilter, writeDock, type DockPage, type OrgFilter } from './store/nav';
 import { convTitle, orgNames, orderedRooms, selectedConv, selectedRoom } from './store/selectors';
+import { needsAgent, needsSetup } from './store/setup';
 
 const PROJECT_WIDTH = 332;
 const PROJECT_OPEN_KEY = 'rkc.app.project-open';
@@ -54,6 +56,9 @@ function Shell() {
   });
   const [dialog, setDialog] = useState<{ mode: 'create' | 'rebind'; prefill?: { name?: string; folder?: string; org?: string } } | null>(null);
   const [orgDialog, setOrgDialog] = useState(false);
+  // first run: the flow stands in for the whole shell until finished or skipped; later, Home's notice reopens it
+  const [setupOpen, setSetupOpen] = useState(false);
+  const openSetup = useCallback(() => setSetupOpen(true), []);
   const [projectDialog, setProjectDialog] = useState<{ action: ProjectAction; topic: string } | null>(null);
   const searchRef = useRef<TextInputRef>(null);
   const composerRef = useRef<TextInputRef>(null);
@@ -220,7 +225,7 @@ function Shell() {
 
   const pageNode = (dockPage: DockPage) =>
     dockPage === 'home' ? (
-      <HomePage phone={phone} onOpenProjects={openProjects} onOpenActivity={() => setDock('activity')} onOpenProfile={openProfile} onNavigate={goConversation} />
+      <HomePage phone={phone} onOpenProjects={openProjects} onOpenActivity={() => setDock('activity')} onOpenProfile={openProfile} onNavigate={goConversation} onSetup={openSetup} />
     ) : dockPage === 'activity' ? (
       <ActivityPage phone={phone} onNavigate={goConversation} />
     ) : dockPage === 'projects' ? (
@@ -237,6 +242,14 @@ function Shell() {
     ) : overlay.kind === 'profile' ? (
       <ProfilePage topic={overlay.topic} name={overlay.name} phone={phone} onBack={() => setOverlay(state.selected.topic && state.selected.conv && !phone ? { kind: 'conversation' } : { kind: 'none' })} />
     ) : null;
+
+  if (needsSetup(state.setup) || setupOpen) {
+    return (
+      <AppWindow>
+        <SetupFlow onDone={() => setSetupOpen(false)} onClose={setupOpen && state.setup?.done ? () => setSetupOpen(false) : undefined} />
+      </AppWindow>
+    );
+  }
 
   if (phone) {
     return (
@@ -262,13 +275,18 @@ function Shell() {
     ) : (
       <Pane glow>
         <PaneHeader title="rKeyChat" subtitle={state.ready ? 'Pick a conversation' : 'Connecting…'} dragRegion />
+        {needsAgent(state.setup) ? (
+          <View className="w-full max-w-[560px] self-center px-4 pt-4">
+            <CalloutBlock icon="robot" title="Connect your AI" description="Projects need an agent. Log in with Claude, or add PPQ, OpenRouter or llama.cpp." action={{ label: 'Set up', onPress: openSetup }} />
+          </View>
+        ) : null}
         <EmptyState icon="message" title={state.roomOrder.length ? 'Pick a conversation' : 'Start with a project'} description={state.roomOrder.length ? 'Choose one under Projects, or press ⌘N.' : 'Press + under Projects, or drop a folder on the sidebar.'} />
       </Pane>
     );
 
   return (
     <AppWindow>
-      <DesktopSidebar tab={dock} onTab={setDock} orgFilter={orgFilter} onOrgFilter={setOrgFilter} onNewProject={newProject} onNewOrg={() => setOrgDialog(true)} onProjectAction={onProjectAction} onOpenProfile={openProfile} searchRef={searchRef} />
+      <DesktopSidebar tab={dock} onTab={setDock} orgFilter={orgFilter} onOrgFilter={setOrgFilter} onNewProject={newProject} onNewOrg={() => setOrgDialog(true)} onProjectAction={onProjectAction} onOpenProfile={openProfile} searchRef={searchRef} onSetup={openSetup} />
       {middle}
       {projectOpen && dock !== 'settings' && overlay.kind !== 'profile' && state.selected.topic && state.selected.conv ? <ProjectPane width={PROJECT_WIDTH} phone={false} onClose={toggleProject} onChangeFolder={changeFolder} onProjectAction={onProjectAction} onOpenProfile={openProfile} /> : null}
       {dialogs}

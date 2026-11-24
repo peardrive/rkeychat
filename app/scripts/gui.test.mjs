@@ -343,3 +343,103 @@ test('an agent asks for a permission: the card sits in the conversation; Allow o
     await ctx.close();
   }
 });
+
+// First run (2026-11-24, the build for Guy's brother): a computer that was just installed sees the flow instead of the
+// shell. `?setup=fresh` puts the mock in that state: no login, no provider, nothing chosen.
+async function openFresh({ phone = false } = {}) {
+  const ctx = await browser.newContext(phone ? { viewport: PHONE, isMobile: true, hasTouch: true, colorScheme: 'dark' } : { viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`http://127.0.0.1:${PORT}/app/?setup=fresh`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(700);
+  return { page, ctx, errors };
+}
+
+test('first run: Connect your AI, one step at a time; a key for PPQ connects it; Continue, the folder, Ready, and the shell opens with nothing to set up', async () => {
+  const { page, ctx, errors } = await openFresh();
+  try {
+    assert.ok(await page.getByText('Connect your AI').first().isVisible(), 'the flow stands in for the shell');
+    assert.ok(await page.getByText('Step 1 of 3').isVisible());
+    const cont = page.getByRole('button', { name: 'Continue' });
+    assert.equal(await cont.isEnabled(), false, 'nothing is connected yet: Continue waits');
+    // the four ways, Claude first
+    const choices = await page.getByRole('radio').allTextContents();
+    assert.match(choices[0], /Claude subscription/);
+    assert.match(choices[1], /PPQ/);
+    assert.match(choices[2], /OpenRouter/);
+    assert.match(choices[3], /llama\.cpp/);
+    await page.getByRole('radio', { name: 'PPQ' }).click();
+    await page.getByLabel('PPQ API key').fill('sk-test-1234');
+    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByText('Key saved · new bots run on it').waitFor({ timeout: 4000 });
+    assert.equal(await cont.isEnabled(), true, 'a ready provider connects the AI');
+    await cont.click();
+    await page.getByText('Where projects live').waitFor();
+    assert.ok(await page.getByText('Step 2 of 3').isVisible());
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await page.getByText('Ready', { exact: true }).waitFor();
+    assert.match(await page.getByLabel('Setup summary').textContent(), /AI: PPQ/);
+    await page.getByRole('button', { name: 'Open rKeyChat' }).click();
+    await page.getByRole('radio', { name: 'Home' }).waitFor({ timeout: 4000 });
+    assert.equal(await page.getByText('Connect your AI').count(), 0, 'connected: no standing notice on Home');
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('first run: the Claude login opens the browser and takes a pasted code; Log in appears as who it is', async () => {
+  const { page, ctx, errors } = await openFresh();
+  try {
+    await page.getByRole('radio', { name: 'Claude subscription' }).click();
+    await page.getByRole('button', { name: 'Log in with Claude' }).click();
+    await page.getByText('Finish in the browser, then paste the code it shows.').waitFor({ timeout: 4000 });
+    assert.ok(await page.getByRole('link', { name: /Open the sign-in page/ }).isVisible(), 'the URL is there when the browser did not open');
+    await page.getByLabel('Login code').fill('abcd-1234');
+    await page.getByRole('button', { name: 'Finish' }).click();
+    await page.getByText(/Logged in as ben@example.com/).first().waitFor({ timeout: 4000 });
+    assert.equal(await page.getByRole('button', { name: 'Continue' }).isEnabled(), true);
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('first run skipped: Home keeps a "Connect your AI" notice that opens the flow again; it closes', async () => {
+  const { page, ctx, errors } = await openFresh();
+  try {
+    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await page.getByText('Where projects live').waitFor();
+    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await page.getByText('Ready', { exact: true }).waitFor();
+    assert.match(await page.getByLabel('Setup summary').textContent(), /not connected yet/);
+    await page.getByRole('button', { name: 'Open rKeyChat' }).click();
+    const notice = page.getByRole('button', { name: 'Connect your AI' });
+    await notice.first().waitFor({ timeout: 4000 });
+    assert.ok((await notice.count()) >= 1, 'the notice stands on Home');
+    await notice.first().click();
+    await page.getByText('Step 1 of 3').waitFor();
+    await page.getByRole('button', { name: 'Close setup' }).click();
+    await notice.first().waitFor({ timeout: 4000 });
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('first run on a phone: agents run on a computer, two steps, no folder to pick', async () => {
+  const { page, ctx, errors } = await openFresh({ phone: true });
+  try {
+    await page.getByText('Your AI runs on a computer').waitFor();
+    assert.ok(await page.getByText('Step 1 of 2').isVisible());
+    await page.getByRole('button', { name: 'Continue' }).tap();
+    await page.getByText('Ready', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Open rKeyChat' }).tap();
+    await page.getByRole('tab', { name: 'Home' }).waitFor({ timeout: 4000 });
+    assert.equal(await page.getByText('Connect your AI').count(), 0, 'a phone gets no agent notice');
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});

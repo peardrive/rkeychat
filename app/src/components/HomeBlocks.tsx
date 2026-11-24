@@ -4,7 +4,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { getApi } from '../api';
-import { ActivityFeed, Avatar, HomeBlock, HomeGrid, PresenceRow, Text, cn, useToast, type ActivityItem } from '../kit';
+import { ActivityFeed, Avatar, CalloutBlock, HomeBlock, HomeGrid, PresenceRow, Text, cn, useToast, type ActivityItem } from '../kit';
+import { needsAgent } from '../store/setup';
 import { useStore } from '../store/context';
 import { feedUnread, type FeedItem } from '../store/feed';
 import { needsYou, onlineNow, orgSummaries, recentConversations } from '../store/home';
@@ -20,9 +21,16 @@ export interface HomeBlocksProps {
   onOpenProfile?: (name: string) => void;
   onNavigate?: () => void;
   compact?: boolean;
+  /** Open the first-run flow again (the standing "Connect your AI" notice). */
+  onSetup?: () => void;
 }
 
-export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNavigate, compact }: HomeBlocksProps) {
+/** HomeGrid lays a child out by its `size`; the notice takes a whole row. */
+function SetupCallout({ size: _size, ...props }: React.ComponentProps<typeof CalloutBlock> & { size?: 'wide' }) {
+  return <CalloutBlock {...props} />;
+}
+
+export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNavigate, compact, onSetup }: HomeBlocksProps) {
   const { state, actions } = useStore();
   const { toast } = useToast();
   const [approval, setApproval] = useState<FeedItem | null>(null);
@@ -51,6 +59,7 @@ export function HomeBlocks({ onOpenProjects, onOpenActivity, onOpenProfile, onNa
 
   return (
     <HomeGrid columns={compact ? 1 : undefined}>
+      {needsAgent(state.setup) && onSetup ? <SetupCallout size="wide" icon="robot" title="Connect your AI" description="Projects need an agent. Log in with Claude, or add PPQ, OpenRouter or llama.cpp." action={compact ? undefined : { label: 'Set up', onPress: onSetup }} onPress={onSetup} /> : null}
       <HomeBlock title="Needs you" icon="alert-circle" size="wide" count={needs.length || undefined} action={unread ? { label: `Activity · ${unread}`, onPress: onOpenActivity } : undefined}>
         {needs.length ? (
           <ActivityFeed items={needsItems} onOpen={openItem} compact groupByDay={false} showWhere={!compact} />

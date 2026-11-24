@@ -20,14 +20,14 @@ export const DockSpace = ({ phone }: { phone: boolean }) => (phone ? <View style
 
 const headerStyle = (phone: boolean) => (phone ? ({ paddingTop: `calc(16px + ${SAFE_TOP})` } as never) : undefined);
 
-export function HomePage({ phone, onOpenProjects, onOpenActivity, onOpenProfile, onNavigate }: { phone: boolean; onOpenProjects: (org?: string) => void; onOpenActivity: () => void; onOpenProfile: (name: string) => void; onNavigate?: () => void }) {
+export function HomePage({ phone, onOpenProjects, onOpenActivity, onOpenProfile, onNavigate, onSetup }: { phone: boolean; onOpenProjects: (org?: string) => void; onOpenActivity: () => void; onOpenProfile: (name: string) => void; onNavigate?: () => void; onSetup?: () => void }) {
   const { state } = useStore();
   return (
     <Pane glow>
       <PaneHeader title="Home" subtitle={state.me?.device ? `${state.me.human ?? ''} · ${state.me.device}` : undefined} size={phone ? 'display' : 'title'} style={headerStyle(phone)} dragRegion={!phone} leading={phone && rkc()?.desktop ? <WindowControls /> : undefined} actions={<DebugButton />} />
       <PaneBody contentClassName="px-4 pb-6 pt-1">
         <View className="w-full max-w-[760px] self-center">
-          <HomeBlocks onOpenProjects={onOpenProjects} onOpenActivity={onOpenActivity} onOpenProfile={onOpenProfile} onNavigate={onNavigate} />
+          <HomeBlocks onOpenProjects={onOpenProjects} onOpenActivity={onOpenActivity} onOpenProfile={onOpenProfile} onNavigate={onNavigate} onSetup={onSetup} />
         </View>
         <DockSpace phone={phone} />
       </PaneBody>

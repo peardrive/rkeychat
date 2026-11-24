@@ -33,7 +33,7 @@ test('the base URL is the root Claude Code is pointed at: no trailing slash, htt
 test('the environment a seat gets: nothing on the login; URL and token on a provider; a missing provider or token is a fault', () => {
   const providers = { ppq: { baseUrl: 'https://api.ppq.ai', token: 'sk-test' }, bare: { baseUrl: 'https://x.example' } }
   assert.deepEqual(providerEnv({ kind: 'claude' }, providers), {})
-  assert.deepEqual(providerEnv({ kind: 'claude', provider: 'ppq' }, providers), { ANTHROPIC_BASE_URL: 'https://api.ppq.ai', ANTHROPIC_AUTH_TOKEN: 'sk-test' })
+  assert.deepEqual(providerEnv({ kind: 'claude', provider: 'ppq' }, providers), { ANTHROPIC_BASE_URL: 'https://api.ppq.ai', ANTHROPIC_AUTH_TOKEN: 'sk-test', ANTHROPIC_API_KEY: '' })
   assert.throws(() => providerEnv({ provider: 'gone' }, providers), /does not have/)
   assert.throws(() => providerEnv({ provider: 'bare' }, providers), /no token/)
 })
@@ -41,7 +41,7 @@ test('the environment a seat gets: nothing on the login; URL and token on a prov
 test('what the API and the list say: never the token', () => {
   const providers = { ppq: { baseUrl: 'https://api.ppq.ai', token: 'sk-test' } }
   const d = describeProviders(providers)
-  assert.deepEqual(d, [{ name: 'ppq', baseUrl: 'https://api.ppq.ai', hasToken: true }])
+  assert.deepEqual(d, [{ name: 'ppq', baseUrl: 'https://api.ppq.ai', hasToken: true, preset: 'ppq', label: 'PPQ', ready: true }])
   assert.ok(!JSON.stringify(d).includes('sk-test'))
   assert.equal(describeRun({ kind: 'claude' }), 'mode: Edits · model: default · this computer\'s Claude login')
   assert.equal(describeRun({ kind: 'claude', permissionMode: 'default', model: 'claude-opus-5-5', provider: 'ppq' }), 'mode: Ask · model: Opus 5.5 · provider: ppq')

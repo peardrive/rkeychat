@@ -40,6 +40,14 @@ export function adapterPath () {
   return join(dirname(require.resolve('@agentclientprotocol/claude-agent-acp/package.json')), 'dist', 'index.js')
 }
 
+// The environment a child that must be plain Node gets. Inside the desktop app the daemon's `process.execPath` is
+// the app itself, which would open a second window instead of running a script: ELECTRON_RUN_AS_NODE makes it
+// behave as node (2026-11-24: the packaged app had never started an agent; from a terminal it always had).
+export function nodeEnv (env) {
+  if (process.versions?.electron) env.ELECTRON_RUN_AS_NODE = '1'
+  return env
+}
+
 export class AcpProcess {
   constructor ({ name, room, conv = MAIN, participant, bridge, system, onActivity, onAsk, askMinutes, env }) {
     this.name = name
@@ -80,6 +88,7 @@ export class AcpProcess {
     if (this.bridge.model) env.ANTHROPIC_MODEL = this.bridge.model; else delete env.ANTHROPIC_MODEL
     const command = this.bridge.command ?? process.execPath
     const args = this.bridge.command ? (this.bridge.args ?? []) : [adapterPath()]
+    if (!this.bridge.command) nodeEnv(env)
     const child = spawn(command, args, { cwd: this.bridge.dir, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.child = child
     this.stderr = []

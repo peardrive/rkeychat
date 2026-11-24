@@ -8,7 +8,9 @@ import { getApi } from '../api';
 import { SAFE_TOP } from '../hooks';
 import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, StatusPill, Text, TextField, Toggle, useToast } from '../kit';
 import { useStore } from '../store/context';
-import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person, Provider } from '../types';
+import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person } from '../types';
+import { AgentChoices } from './SetupFlow';
+import { agentChoices } from '../store/setup';
 import { DebugButton } from './DebugButton';
 import { notePill, useDebugSync } from '../debugSync';
 import { LinkField, copyToClipboard } from '../kit';
@@ -17,7 +19,7 @@ import { shortTime } from '../time';
 const WIKI_KEY = 'rkc.app.wiki';
 
 export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?: () => void; dock?: boolean }) {
-  const { state } = useStore();
+  const { state, actions } = useStore();
   const { toast } = useToast();
   const [workspace, setWorkspace] = useState('');
   const [saved, setSaved] = useState('');
@@ -28,10 +30,11 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
   const [debug, setDebug] = useState<(DebugSpaceInfo & { notes: DebugNoteInfo[] }) | null>(null);
   const [sharing, setSharing] = useState<string | null>(null);
   const { sync } = useDebugSync();
-  // providers on this device (where a seat's model is bought when not from the login); the key is written, never read back
-  const [providers, setProviders] = useState<Provider[] | null>(null);
-  const [provName, setProvName] = useState('ppq');
-  const [provUrl, setProvUrl] = useState('https://api.ppq.ai');
+  // the AI new bots run on: the Claude login or a provider (the same choice cards as the first-run flow)
+  const [aiChoice, setAiChoice] = useState<string | null>(null);
+  // a provider of the person's own (a gateway that is none of the presets); the key is written, never read back
+  const [provName, setProvName] = useState('');
+  const [provUrl, setProvUrl] = useState('');
   const [provKey, setProvKey] = useState('');
   const [provBusy, setProvBusy] = useState(false);
 
@@ -46,7 +49,6 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
     getApi().people().then(setPeople).catch(() => setPeople({ local: [], known: [] }));
     getApi().agents().then(setAgents).catch(() => setAgents([]));
     getApi().debugNotes().then(setDebug).catch(() => setDebug({ dir: '', sharelink: null, count: 0, notes: [] }));
-    getApi().providers().then((r) => setProviders(r.providers)).catch(() => setProviders([]));
   }, []);
 
   const saveProvider = async () => {
@@ -55,9 +57,9 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
     setProvBusy(true);
     try {
       const p = await getApi().setProvider({ name, baseUrl: provUrl.trim(), ...(provKey.trim() ? { token: provKey.trim() } : {}) });
-      setProviders((cur) => [...(cur ?? []).filter((x) => x.name !== p.name), p]);
+      await actions.refreshSetup();
       setProvKey('');
-      toast({ title: p.hasToken ? `${p.name} ready` : `${p.name} saved, no key yet`, description: p.hasToken ? 'Pick it under From on a bot\'s profile.' : 'Paste its key and save again.', tone: p.hasToken ? 'success' : undefined });
+      toast({ title: p.ready ? `${p.name} ready` : `${p.name} saved, no key yet`, description: p.ready ? 'Pick it under From on a bot\'s profile.' : 'Paste its key and save again.', tone: p.ready ? 'success' : undefined });
     } catch (e) {
       toast({ title: 'Could not save the provider', description: (e as Error).message, tone: 'danger' });
     } finally {
@@ -67,7 +69,7 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
   const removeProvider = async (name: string) => {
     try {
       await getApi().removeProvider({ name });
-      setProviders((cur) => (cur ?? []).filter((x) => x.name !== name));
+      await actions.refreshSetup();
     } catch (e) {
       toast({ title: 'Could not remove it', description: (e as Error).message, tone: 'danger' });
     }
@@ -142,30 +144,30 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
             />
           </SettingsBlock>
 
-          {canHost ? (
-            <SettingsBlock icon="globe" title="Providers" description="where a bot's model is bought, when not from this computer's Claude login">
-              {providers?.length ? (
-                providers.map((p) => (
-                  <SettingsRow
-                    key={p.name}
-                    label={p.name}
-                    hint={p.baseUrl ?? undefined}
-                    control={
-                      <View className="flex-row items-center gap-1.5">
-                        <Chip size="sm" label={p.hasToken ? 'key held' : 'no key'} tone={p.hasToken ? 'success' : 'warning'} selected={p.hasToken} />
-                        <IconButton icon="close" size="xs" accessibilityLabel={`Remove ${p.name}`} onPress={() => void removeProvider(p.name)} />
-                      </View>
-                    }
-                  />
-                ))
-              ) : (
-                <SettingsRow label={providers ? 'None yet' : 'Loading…'} hint="A bot runs on this computer's Claude login until a provider is picked on its profile." />
-              )}
-              <SettingsRow label="Add or change one" hint="PPQ: https://api.ppq.ai with the key from ppq.ai. The key is kept here and never shown again; it is not sent to your other devices." divider={false} />
+          {canHost && state.setup ? (
+            <SettingsBlock icon="robot" title="AI" description="where new bots get their model; each bot can be moved on its profile">
+              <View className="gap-2 px-1 pb-3 pt-1">
+                <AgentChoices setup={state.setup} selected={aiChoice ?? agentChoices(state.setup).find((c) => c.chosen)?.key ?? null} onSelect={setAiChoice} />
+              </View>
+              {state.setup.providers.filter((p) => !p.preset).map((p) => (
+                <SettingsRow
+                  key={p.name}
+                  label={p.name}
+                  hint={p.baseUrl ?? undefined}
+                  control={
+                    <View className="flex-row items-center gap-1.5">
+                      <Chip size="sm" label={p.hasToken ? 'key held' : 'no key'} tone={p.hasToken ? 'success' : 'warning'} selected={p.hasToken} />
+                      {state.setup?.agent === p.name ? <Chip size="sm" label="in use" tone="primary" selected /> : <Button size="sm" variant="ghost" label="Use for new bots" disabled={!p.ready} onPress={() => void actions.saveSetup({ agent: p.name }).catch((e: Error) => toast({ title: 'Could not save', description: e.message, tone: 'danger' }))} />}
+                      <IconButton icon="close" size="xs" accessibilityLabel={`Remove ${p.name}`} onPress={() => void removeProvider(p.name)} />
+                    </View>
+                  }
+                />
+              ))}
+              <SettingsRow label="Another gateway" hint="Any server that answers the Anthropic API: a name, its root URL (no /v1) and its key. The key is kept here and never shown again." divider={false} />
               <View className="gap-1.5 px-1 pb-3">
                 <View className="flex-row gap-1.5">
                   <TextField size="sm" value={provName} onChangeText={setProvName} placeholder="name" autoCapitalize="none" accessibilityLabel="Provider name" className="w-[110px]" />
-                  <TextField mono size="sm" value={provUrl} onChangeText={setProvUrl} placeholder="https://api.ppq.ai" autoCapitalize="none" accessibilityLabel="Provider URL" className="min-w-0 flex-1" />
+                  <TextField mono size="sm" value={provUrl} onChangeText={setProvUrl} placeholder="https://gateway.example.com" autoCapitalize="none" accessibilityLabel="Provider URL" className="min-w-0 flex-1" />
                 </View>
                 <View className="flex-row gap-1.5">
                   <TextField mono size="sm" password value={provKey} onChangeText={setProvKey} placeholder="API key" autoCapitalize="none" accessibilityLabel="Provider key" className="min-w-0 flex-1" />

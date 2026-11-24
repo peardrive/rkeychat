@@ -1,7 +1,7 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Budget, Conversation, Device, LoginAsk, OpenAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant } from '../types';
+import type { AgentState, Budget, ClaudeLoginState, Conversation, Device, LoginAsk, OpenAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant, SetupInfo } from '../types';
 import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
@@ -34,6 +34,10 @@ export type State = {
   agents: Record<string, Record<string, AgentState>>;
   unread: Record<string, number>;
   selected: { topic: string | null; conv: string | null };
+  /** First-run setup: what the device has and chose (null until fetched). */
+  setup: SetupInfo | null;
+  /** A Claude login in progress, as the daemon pushes it. */
+  claudeLogin: ClaudeLoginState | null;
 };
 
 export const initialState: State = {
@@ -53,6 +57,8 @@ export const initialState: State = {
   agents: {},
   unread: {},
   selected: { topic: null, conv: null },
+  setup: null,
+  claudeLogin: null,
 };
 
 export type Action =
@@ -87,6 +93,8 @@ export type Action =
   | { type: 'sendDone'; topic: string; conv: string; localId: string; rec: Rec }
   | { type: 'sendFailed'; topic: string; conv: string; localId: string }
   | { type: 'connected'; value: boolean }
+  | { type: 'setup'; setup: SetupInfo }
+  | { type: 'claudeLogin'; login: ClaudeLoginState }
   | { type: 'error'; error: string | null };
 
 const MAX_ACTIVITY = 200;
@@ -313,6 +321,10 @@ export function reducer(state: State, action: Action): State {
       return state.feed.some((x) => x.unread && x.kind !== 'approval') ? { ...state, feed: state.feed.map((x) => (x.kind === 'approval' ? x : { ...x, unread: false })) } : state;
     case 'feedRemove':
       return { ...state, feed: state.feed.filter((x) => x.id !== action.id) };
+    case 'setup':
+      return { ...state, setup: action.setup };
+    case 'claudeLogin':
+      return { ...state, claudeLogin: action.login };
     case 'loginAsk': {
       const a = action.ask;
       const who = a.names?.map((n) => n.name).join(', ') || 'somebody';

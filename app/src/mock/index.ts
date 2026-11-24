@@ -4,7 +4,7 @@
  */
 import { ApiError, type Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, AutoLimit, Budget, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, Rec, RoomSnapshot, RoomSummary, Seat, StateResponse } from '../types';
+import type { AgentRule, AutoLimit, Budget, ClaudeLoginState, ClaudeStatus, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, ProviderPreset, Rec, RoomSnapshot, RoomSummary, Seat, SetupInfo, StateResponse } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -647,15 +647,65 @@ export const mockApi: Api = {
   },
   async providers() {
     await sleep(LATENCY);
-    return { providers: mockProviders.map((p) => ({ ...p })) };
+    return { providers: mockProviders.map((p) => ({ ...p })), presets: PRESETS };
   },
   async setProvider({ name, baseUrl, token }) {
     await sleep(LATENCY);
     const cur = mockProviders.find((p) => p.name === name);
-    const next: Provider = { name, baseUrl: baseUrl ?? cur?.baseUrl ?? null, hasToken: !!token || !!cur?.hasToken };
+    const preset = PRESETS[name] ? name : Object.keys(PRESETS).find((k) => PRESETS[k].baseUrl === (baseUrl ?? cur?.baseUrl)) ?? null;
+    const hasToken = !!token || !!cur?.hasToken;
+    const next: Provider = { name, baseUrl: baseUrl ?? cur?.baseUrl ?? null, hasToken, preset, label: preset ? PRESETS[preset].label : name, ready: hasToken || (!!preset && PRESETS[preset].key === 'none') };
     if (cur) Object.assign(cur, next);
     else mockProviders.push(next);
     return { ...next };
+  },
+  async setup() {
+    await sleep(LATENCY);
+    return setupInfo();
+  },
+  async saveSetup({ agent, done }) {
+    await sleep(LATENCY);
+    if (agent !== undefined) {
+      if (agent && agent !== 'claude' && !mockProviders.some((p) => p.name === agent)) throw new ApiError(400, `no provider "${agent}" on this device`);
+      setup.agent = agent || null;
+    }
+    if (done !== undefined) setup.done = done;
+    const info = setupInfo();
+    setTimeout(() => emit('setup', info), 10);
+    return info;
+  },
+  async claude() {
+    await sleep(LATENCY);
+    return { ...claudeStatus, login: { ...claudeLogin } };
+  },
+  async claudeLogin() {
+    await sleep(LATENCY);
+    if (claudeLogin.running) return { ...claudeLogin };
+    // the CLI: the browser URL is known at once, then it waits for the code the page shows
+    claudeLogin = { running: true, url: null, waitingForCode: false, error: null, done: false };
+    setTimeout(() => { claudeLogin = { ...claudeLogin, url: 'https://claude.com/cai/oauth/authorize?code=true&state=mock' }; emit('claude', { ...claudeLogin }); }, 250);
+    setTimeout(() => { if (claudeLogin.running) { claudeLogin = { ...claudeLogin, waitingForCode: true }; emit('claude', { ...claudeLogin }); } }, 500);
+    return { ...claudeLogin };
+  },
+  async claudeLoginCode({ code }) {
+    await sleep(LATENCY);
+    if (!claudeLogin.running) throw new ApiError(400, 'no login is in progress; start one first');
+    const ok = code.trim().length >= 4;
+    claudeLogin = { running: false, url: null, waitingForCode: false, error: ok ? null : 'Error: invalid code', done: ok };
+    if (ok) claudeStatus = { loggedIn: true, method: 'claude.ai', email: 'ben@example.com', plan: 'pro' };
+    setTimeout(() => { emit('claude', { ...claudeLogin }); emit('setup', setupInfo()); }, 10);
+    return { ...claudeLogin };
+  },
+  async claudeLoginCancel() {
+    claudeLogin = { running: false, url: null, waitingForCode: false, error: null, done: false };
+    setTimeout(() => emit('claude', { ...claudeLogin }), 10);
+    return { ...claudeLogin };
+  },
+  async claudeLogout() {
+    await sleep(LATENCY);
+    claudeStatus = { loggedIn: false, method: 'none' };
+    setTimeout(() => emit('setup', setupInfo()), 10);
+    return { ...claudeStatus };
   },
   async removeProvider({ name }) {
     await sleep(LATENCY);
@@ -666,4 +716,19 @@ export const mockApi: Api = {
   },
 };
 
-const mockProviders: Provider[] = [{ name: 'ppq', baseUrl: 'https://api.ppq.ai', hasToken: true }];
+const PRESETS: Record<string, ProviderPreset> = {
+  ppq: { label: 'PPQ', baseUrl: 'https://api.ppq.ai', key: 'required', keyUrl: 'https://ppq.ai/api-docs', blurb: 'Pay per question, no account needed. Paste a PPQ API key.' },
+  openrouter: { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api', key: 'required', keyUrl: 'https://openrouter.ai/settings/keys', blurb: 'One key for many models. Paste an OpenRouter API key.' },
+  llamacpp: { label: 'llama.cpp', baseUrl: 'http://127.0.0.1:8080', key: 'none', blurb: 'A model running on this computer with llama-server. No key.' },
+};
+// `?setup=fresh` (or localStorage rkc.mock.setup=fresh): a computer that was just installed, nothing connected yet
+const FRESH = typeof window !== 'undefined' && (new URLSearchParams(window.location.search).get('setup') === 'fresh' || localStorage.getItem('rkc.mock.setup') === 'fresh');
+const mockProviders: Provider[] = FRESH ? [] : [{ name: 'ppq', baseUrl: 'https://api.ppq.ai', hasToken: true, preset: 'ppq', label: 'PPQ', ready: true }];
+let claudeStatus: ClaudeStatus = FRESH ? { loggedIn: false, method: 'none' } : { loggedIn: true, method: 'claude.ai', email: 'guy@example.com', plan: 'max' };
+let claudeLogin: ClaudeLoginState = { running: false, url: null, waitingForCode: false, error: null, done: false };
+const setup = { agent: FRESH ? null : ('claude' as string | null), done: !FRESH };
+function setupInfo(): SetupInfo {
+  const agent = setup.agent;
+  const connected = agent && agent !== 'claude' ? mockProviders.some((p) => p.name === agent && p.ready) : claudeStatus.loggedIn;
+  return { name: ME, device: DEVICE, canHost: DEVICES[0].canHost !== false, claude: { ...claudeStatus }, providers: mockProviders.map((p) => ({ ...p })), presets: PRESETS, agent, connected: !!connected, workspace, workspaceSet: !FRESH, done: setup.done };
+}

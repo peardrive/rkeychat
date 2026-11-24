@@ -85,6 +85,25 @@ export function checkModel (model) {
 // names one (`bridge.provider`). The token is a secret: it is written, never read back over the API or printed.
 export const providerSettings = { providers: {} }
 
+// The providers the setup flow offers by name (2026-11-24, the first build for someone else). Each is a place that
+// answers the Anthropic Messages API, so Claude Code is pointed at it with ANTHROPIC_BASE_URL and nothing else
+// changes. PPQ and OpenRouter want a key; llama.cpp's own server (`llama-server`, on this computer) wants none, so
+// its seat gets a placeholder token: Claude Code refuses to start without one. A person may still add any other
+// gateway under a name of their own.
+export const PROVIDER_PRESETS = {
+  ppq: { label: 'PPQ', baseUrl: 'https://api.ppq.ai', key: 'required', keyUrl: 'https://ppq.ai/api-docs', blurb: 'Pay per question, no account needed. Paste a PPQ API key.' },
+  openrouter: { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api', key: 'required', keyUrl: 'https://openrouter.ai/settings/keys', blurb: 'One key for many models. Paste an OpenRouter API key.' },
+  llamacpp: { label: 'llama.cpp', baseUrl: 'http://127.0.0.1:8080', key: 'none', keyUrl: 'https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md', blurb: 'A model running on this computer with llama-server. No key.' }
+}
+export const LOCAL_TOKEN = 'local'
+
+// Which preset a stored provider is: by name, else by its URL (someone who named PPQ "pay").
+export function presetOf (name, p) {
+  if (PROVIDER_PRESETS[name]) return name
+  const hit = Object.entries(PROVIDER_PRESETS).find(([, d]) => d.baseUrl === p?.baseUrl)
+  return hit ? hit[0] : null
+}
+
 export function checkProviderName (name) {
   const n = String(name ?? '').trim().toLowerCase()
   if (!/^[a-z][a-z0-9-]{0,23}$/.test(n)) throw new Error('a provider name is 1-24 characters: letters, digits and -')
@@ -101,20 +120,28 @@ export function checkBaseUrl (url) {
 }
 
 // What the API answers for `GET /api/providers`: names and URLs, and whether a token is held. Never the token.
+// `ready`: a seat can run on it now (a key is held, or the preset needs none).
 export function describeProviders (providers = providerSettings.providers) {
-  return Object.entries(providers ?? {}).map(([name, p]) => ({ name, baseUrl: p.baseUrl ?? null, hasToken: !!p.token }))
+  return Object.entries(providers ?? {}).map(([name, p]) => {
+    const preset = presetOf(name, p)
+    const needsKey = !preset || PROVIDER_PRESETS[preset].key === 'required'
+    return { name, baseUrl: p.baseUrl ?? null, hasToken: !!p.token, preset, label: preset ? PROVIDER_PRESETS[preset].label : name, ready: !!p.token || !needsKey }
+  })
 }
 
 // The environment a seat's Claude Code gets for its provider: nothing for the login, or the base URL and the token
 // as Claude Code reads them (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN). A seat naming a provider this device does
-// not hold is a fault, not a silent fall-back to the login (and its bill).
+// not hold is a fault, not a silent fall-back to the login (and its bill). ANTHROPIC_API_KEY is emptied so a key in
+// the computer's own environment cannot be sent to the provider by mistake.
 export function providerEnv (bridge, providers = providerSettings.providers) {
   const name = bridge?.provider
   if (!name) return {}
   const p = providers?.[name]
   if (!p?.baseUrl) throw new Error(`the seat runs on provider "${name}", which this device does not have (rkeychat provider set ${name} URL)`)
-  if (!p.token) throw new Error(`provider "${name}" has no token on this device (rkeychat provider set ${name} URL with the token on stdin)`)
-  return { ANTHROPIC_BASE_URL: p.baseUrl, ANTHROPIC_AUTH_TOKEN: p.token }
+  const preset = presetOf(name, p)
+  const local = preset && PROVIDER_PRESETS[preset].key === 'none'
+  if (!p.token && !local) throw new Error(`provider "${name}" has no token on this device (rkeychat provider set ${name} URL with the token on stdin)`)
+  return { ANTHROPIC_BASE_URL: p.baseUrl, ANTHROPIC_AUTH_TOKEN: p.token || LOCAL_TOKEN, ANTHROPIC_API_KEY: '' }
 }
 
 // One line for `rkeychat agent list`.
