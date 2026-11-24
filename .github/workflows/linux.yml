@@ -1,0 +1,51 @@
+# The Linux build (AppImage + deb), made ON Linux as scripts/build-app.sh requires: the native modules
+# (better-sqlite3, sherpa-onnx) are built for the platform that runs npm install. Run it by hand from the Actions
+# tab (workflow_dispatch) or by pushing a tag v*. The shell (app/) needs PearKit next to the repo, as it is on
+# the Mac (app/package.json: file:../../pearkit--projects-shell), so PearKit is checked out beside it.
+# Nothing is signed on Linux and no secret is used. The artifacts land on the run's page.
+name: linux
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rKeyChat
+      - uses: actions/checkout@v4
+        with:
+          repository: peardrive/pearkit
+          ref: feat/chat-shell
+          path: pearkit--projects-shell
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: system libraries electron-builder and the native modules need
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 libarchive-tools rpm
+      - name: install
+        working-directory: rKeyChat
+        run: npm ci
+      - name: install the shell
+        working-directory: rKeyChat/app
+        run: npm ci
+      - name: tests
+        working-directory: rKeyChat
+        run: npm test
+      - name: build the shell
+        working-directory: rKeyChat
+        run: npm run app:build
+      - name: package (AppImage + deb)
+        working-directory: rKeyChat
+        run: npm run dist:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rKeyChat-linux
+          path: |
+            rKeyChat/release/*.AppImage
+            rKeyChat/release/*.deb
+          if-no-files-found: error
