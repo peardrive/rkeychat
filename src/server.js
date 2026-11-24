@@ -13,7 +13,8 @@ import { isRemote, authorized, newPairToken, redeem, sessions, revokeSession, ta
 import QRCode from 'qrcode'
 import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
-import { describeProviders, checkPermissionMode, checkAutoLimit } from './seat-settings.js'
+import { describeProviders, checkPermissionMode, checkAutoLimit, checkProviderName, PROVIDER_PRESETS } from './seat-settings.js'
+import { ClaudeLogin } from './claude-login.js'
 import { MAX_BLOB, mimeOf } from './room.js'
 import { MAIN, isConvId } from './proto.js'
 import { existsSync, statSync } from 'node:fs'
@@ -204,6 +205,23 @@ export function serve ({ app }) {
   const notes = new DebugNotes(app)
   // the other devices' notes this one follows: joined again, and what arrived while we were off is fetched
   notes.followAll().catch((err) => console.error('[debug] follow:', err.message))
+  // the Claude subscription login, driven from the app (src/claude-login.js); a phone runs no agent, so none there
+  const onPhone = typeof Bare !== 'undefined'
+  const claude = new ClaudeLogin({ disabled: onPhone })
+  claude.on('change', (s) => push('claude', s))
+  // First-run setup (docs/first-run.md): what this device has, so the shell knows which step is left. `agent` is
+  // the device's choice for new seats: 'claude' (the login), a provider's name, or nothing chosen yet.
+  const setupInfo = async () => {
+    const s = loadSettings()
+    const providers = app.providers()
+    const held = await claude.status()
+    const agent = s.agent ?? null
+    const connected = agent && agent !== 'claude' ? providers.some((p) => p.name === agent && p.ready) : held.loggedIn
+    let name = null; try { name = localHuman() } catch {}
+    // a device that already has rooms was set up before this flow existed: it is not asked again
+    const done = s.setupDone !== undefined ? !!s.setupDone : (cfg.rooms?.length ?? 0) > 0
+    return { name, device: cfg.deviceName, canHost: !onPhone, claude: held, providers, presets: PROVIDER_PRESETS, agent, connected: !!connected, workspace: app.workspace(), workspaceSet: !!s.workspace, done }
+  }
 
   const routes = {
     // no-store: the page is read from disk every request, so a reload should always be the UI that is on disk now.
@@ -332,7 +350,28 @@ export function serve ({ app }) {
       return app.setAgentModel(name, { model, provider })
     },
     // providers on this device: names, URLs and whether a token is held; the token itself is never answered
-    'GET /api/providers': async () => ({ providers: app.providers() }),
+    'GET /api/providers': async () => ({ providers: app.providers(), presets: PROVIDER_PRESETS }),
+    // the Claude login held by this computer, and a login in progress (the browser opens; a code can be pasted)
+    'GET /api/claude': () => claude.info(),
+    'POST /api/claude/login': () => claude.start(),
+    'POST /api/claude/login/code': async (req) => claude.code((await body(req)).code),
+    'POST /api/claude/login/cancel': () => claude.cancel(),
+    'POST /api/claude/logout': () => claude.logout(),
+    // first-run setup: what is done, and the device's choices (which agent new seats run on; the flow is finished)
+    'GET /api/setup': () => setupInfo(),
+    'POST /api/setup': async (req) => {
+      const { agent, done } = await body(req)
+      const patch = {}
+      if (agent !== undefined) {
+        if (agent === null || agent === '' || agent === 'claude') patch.agent = agent ? 'claude' : null
+        else { const n = checkProviderName(agent); need(app.providers().some((p) => p.name === n), `no provider "${n}" on this device`); patch.agent = n }
+      }
+      if (done !== undefined) patch.setupDone = !!done
+      if (Object.keys(patch).length) saveSettings(patch)
+      const info = await setupInfo()
+      push('setup', info)
+      return info
+    },
     'POST /api/providers': async (req) => {
       const { name, baseUrl, token } = await body(req)
       need(name, 'a provider needs a name')

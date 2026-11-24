@@ -189,6 +189,10 @@ export class App extends EventEmitter {
     // list, a person's message cancels a running turn, sessions resumed by id).
     via = checkVia(via)
     const bridge = { kind: 'claude', dir, permissionMode, ...(via === 'acp' ? { via } : {}), ...(tools !== undefined ? { tools } : {}), ...(model ? { model } : {}) }
+    // the device's choice from setup (settings.agent): a provider's name puts every new seat on it; 'claude' or
+    // nothing leaves the seat on this computer's login
+    const chosen = loadSettings().agent
+    if (chosen && chosen !== 'claude' && this.cfg.providers?.[chosen]) bridge.provider = chosen
     addParticipant(this.cfg, name, { role: 'agent', bridge, keyFile })
     saveConfig(this.cfg)
     // the key is a secret: keep it out of the project's git history

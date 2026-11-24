@@ -22,10 +22,11 @@ export class AcpProcess { constructor () { throw new Error('agents run on a comp
 export function permitted () { return false }
 export function verdict () { return 'deny' }
 export function adapterPath () { return null }
+export function nodeEnv (env) { return env }
 `)
 // the stub must offer every name the rest of the daemon imports from './acp.js', or the phone dies at start
 // (2026-11-22: "does not provide an export named 'ASK_TIMEOUT_MS'")
-const stubbed = new Set(['ASK_TIMEOUT_MS', 'AcpProcess', 'permitted', 'verdict', 'adapterPath'])
+const stubbed = new Set(['ASK_TIMEOUT_MS', 'AcpProcess', 'permitted', 'verdict', 'adapterPath', 'nodeEnv'])
 for (const f of fs.readdirSync(to).filter((n) => n.endsWith('.js') && n !== 'acp.js')) {
   const src = fs.readFileSync(path.join(to, f), 'utf8')
   for (const m of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*'\.\/acp\.js'/g)) {

@@ -2,7 +2,7 @@
 // runs on this device in a Bare worklet; the UI is the same web UI as the
 // desktop app, served by that backend on 127.0.0.1 and shown full screen.
 import { useEffect, useRef, useState } from 'react'
-import { AppState, Pressable, Share, StyleSheet, Text, View } from 'react-native'
+import { AppState, KeyboardAvoidingView, Platform, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import * as Clipboard from 'expo-clipboard'
 
@@ -13,20 +13,25 @@ const BRIDGE = `window.rkcMobile = {
 }; true;`
 import { WebView } from 'react-native-webview'
 import { Worklet } from 'react-native-bare-kit'
-import { Paths } from 'expo-file-system'
+import { File, Paths } from 'expo-file-system'
 import b4a from 'b4a'
 import bundle from './app.bundle.mjs'
 
-const NAME = 'guy' // how you appear to others from this device (see README)
 const BG = '#09090b'
+const docsDir = () => decodeURI(Paths.document.uri.replace(/^file:\/\//, '')).replace(/\/$/, '')
+// The first run asks for a name before the engine starts (2026-11-24: until then the name was built in as 'guy').
+// The engine makes this device's config with it; from then on the config is there and nothing is asked.
+const hasConfig = () => { try { return new File(Paths.document, 'rkeychat', 'config.json').exists } catch { return false } }
+const cleanName = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '')
+const NAME_OK = /^[a-z0-9][a-z0-9_-]{0,31}$/
 
 let worklet = null // one backend per app process, even if the component remounts
 
-function startBackend (onEvent) {
+function startBackend (name, onEvent) {
   if (worklet) return worklet
-  const docs = decodeURI(Paths.document.uri.replace(/^file:\/\//, '')).replace(/\/$/, '')
+  const docs = docsDir()
   worklet = new Worklet()
-  worklet.start('/app.bundle', bundle, [docs, NAME])
+  worklet.start('/app.bundle', bundle, [docs, name])
   let buf = ''
   worklet.IPC.on('data', (data) => {
     buf += b4a.toString(data)
@@ -40,15 +45,59 @@ function startBackend (onEvent) {
   return worklet
 }
 
+// Step 1 of 2 on a phone: the name messages carry. Drawn like the shell's own setup steps (PearKit SetupStep).
+function NameScreen ({ onDone }) {
+  const [name, setName] = useState('')
+  const [err, setErr] = useState('')
+  const submit = () => {
+    const n = cleanName(name)
+    if (!NAME_OK.test(n)) return setErr('Start with a letter or digit; lowercase letters, digits, - and _ only.')
+    onDone(n)
+  }
+  return (
+    <KeyboardAvoidingView style={styles.setup} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.setupBody}>
+        <View style={styles.dots}><View style={[styles.dot, styles.dotOn]} /><View style={styles.dot} /><Text style={styles.dotsText}>Step 1 of 2</Text></View>
+        <Text style={styles.h1}>Welcome to rKeyChat</Text>
+        <Text style={styles.lead}>Projects, each with its own agent, between you and the people you work with. First: the name your messages carry.</Text>
+        <Text style={styles.label}>Your name</Text>
+        <TextInput
+          style={styles.input}
+          value={name}
+          onChangeText={(t) => { setName(t); setErr('') }}
+          placeholder='e.g. ben'
+          placeholderTextColor='#6f7482'
+          autoCapitalize='none'
+          autoCorrect={false}
+          autoFocus
+          maxLength={32}
+          returnKeyType='go'
+          onSubmitEditing={submit}
+          accessibilityLabel='Your name'
+        />
+        <Text style={styles.hint}>Lowercase letters, digits, - and _. Others see it as @name.</Text>
+        {err ? <Text style={styles.err}>{err}</Text> : null}
+        <View style={styles.foot}>
+          <Pressable style={[styles.primary, !name.trim() && styles.primaryOff]} disabled={!name.trim()} onPress={submit} accessibilityRole='button' accessibilityLabel='Continue'>
+            <Text style={styles.primaryText}>Continue  ›</Text>
+          </Pressable>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  )
+}
+
 export default function App () {
   const [url, setUrl] = useState(null)
   const [status, setStatus] = useState('Starting…')
   const [error, setError] = useState(null)
   const [strayed, setStrayed] = useState(false) // the page left the chat; offer a way back
+  const [name, setName] = useState(() => (hasConfig() ? 'me' : null)) // the config holds the real name once it exists
   const web = useRef(null)
 
   useEffect(() => {
-    startBackend((e) => {
+    if (!name) return
+    startBackend(name, (e) => {
       if (e.event === 'created') setStatus('Made your keys for this phone…')
       if (e.event === 'ready') setUrl(e.url)
       if (e.event === 'error') setError(e.message)
@@ -56,7 +105,9 @@ export default function App () {
     // let the backend pause and resume with the app
     const sub = AppState.addEventListener('change', (state) => Worklet.update(state))
     return () => sub.remove()
-  }, [])
+  }, [name])
+
+  if (!name) return <View style={styles.root}><StatusBar style='light' /><NameScreen onDone={setName} /></View>
 
   return (
     <View style={styles.root}>
@@ -134,5 +185,21 @@ const styles = StyleSheet.create({
   status: { color: '#8b8d98', fontSize: 14 },
   err: { color: '#f07a7a', fontSize: 11, marginTop: 16, fontFamily: 'Menlo' },
   escape: { position: 'absolute', top: 54, right: 16, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, backgroundColor: 'rgba(24,24,28,0.92)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
-  escapeText: { color: '#ececf1', fontSize: 14, fontWeight: '600' }
+  escapeText: { color: '#ececf1', fontSize: 14, fontWeight: '600' },
+  setup: { flex: 1, justifyContent: 'center', backgroundColor: BG },
+  setupBody: { paddingHorizontal: 24, gap: 10 },
+  dots: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  dot: { height: 6, width: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.2)' },
+  dotOn: { width: 20, backgroundColor: '#b7e03c' },
+  dotsText: { color: '#8b8d98', fontSize: 12, marginLeft: 4 },
+  h1: { color: '#ececf1', fontSize: 24, fontWeight: '700' },
+  lead: { color: '#a2a7b3', fontSize: 15, lineHeight: 21, marginBottom: 10 },
+  label: { color: '#a2a7b3', fontSize: 13, fontWeight: '500' },
+  input: { color: '#ececf1', fontSize: 17, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11 },
+  hint: { color: '#6f7482', fontSize: 12.5 },
+  err: { color: '#ff7a7a', fontSize: 12.5 },
+  foot: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10 },
+  primary: { backgroundColor: '#b7e03c', borderRadius: 10, paddingHorizontal: 16, height: 40, justifyContent: 'center' },
+  primaryOff: { opacity: 0.5 },
+  primaryText: { color: '#141608', fontSize: 15, fontWeight: '600' }
 })
