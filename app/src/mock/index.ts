@@ -172,6 +172,7 @@ const mockNotes: { id: string; startedAt?: string; seconds?: number; steps?: num
 ];
 const noteSavedAt = new Map<string, number>(); // when a note was saved here (the sync bubble's clock); older notes count as long fetched
 const MAC_KEY = '0431eed5ea51a96bb00eb76482a30f0a050c5625fd98bc6fc73fa15f61bfa3da';
+const following: string[] = [];
 const rooms = new Map<string, MockRoom>([peardrive, pearcast, notes, family].map((r) => [r.topic, r]));
 peardrive.reactions[peardrive.log[6].id] = { '👍': [ME] };
 
@@ -505,6 +506,20 @@ export const mockApi: Api = {
     return { id, files: ['trace.jsonl', 'note.json'], shared: true, sharelink: 'peardrive://debug-notes-7e9558905c031c7a647a' };
   },
   // The Mac is on the notes space; a note just saved is fetched over about three seconds (the bubble's states)
+  async debugFollow({ link }) {
+    await sleep(LATENCY);
+    if (!/^pearcore:\/\//.test(link)) throw new ApiError(400, "that isn't a pearcore link");
+    const host = `device-${following.length + 1}`;
+    following.push(host);
+    return { host, following: [...following] };
+  },
+  async debugUnfollow({ host }) {
+    await sleep(LATENCY);
+    const i = following.indexOf(host);
+    if (i < 0) throw new ApiError(400, `not following ${host}`);
+    following.splice(i, 1);
+    return { host, following: [...following] };
+  },
   async debugSync() {
     await sleep(LATENCY / 2);
     const notes: Record<string, DebugNoteSync> = {};

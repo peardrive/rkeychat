@@ -75,6 +75,32 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
     }
   };
 
+  const [followLink, setFollowLink] = useState('');
+  const [followBusy, setFollowBusy] = useState(false);
+  const follow = async () => {
+    const link = followLink.trim();
+    if (!link) return;
+    setFollowBusy(true);
+    try {
+      const r = await getApi().debugFollow({ link });
+      setDebug((d) => (d ? { ...d, following: r.following } : d));
+      setFollowLink('');
+      toast({ title: `Following ${r.host}`, description: 'Their notes arrive whenever that device is heard from.', tone: 'success' });
+    } catch (e) {
+      toast({ title: 'Could not follow', description: (e as Error).message, tone: 'danger' });
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+  const unfollow = async (host: string) => {
+    try {
+      const r = await getApi().debugUnfollow({ host });
+      setDebug((d) => (d ? { ...d, following: r.following } : d));
+    } catch (e) {
+      toast({ title: 'Could not unfollow', description: (e as Error).message, tone: 'danger' });
+    }
+  };
+
   const shareNote = async (id: string) => {
     const topic = state.selected.topic;
     if (!topic) return toast({ title: 'Pick a project first', description: 'The note is posted into the open project.' });
@@ -200,6 +226,17 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
                 <LinkField value={debug.sharelink} onCopy={async (v) => { const ok = await copyToClipboard(v); toast({ title: ok ? 'Link copied' : 'Could not copy; long-press the link', duration: 1500 }); }} />
               </View>
             ) : null}
+            <SettingsRow label="Following" hint="Another person's notes space (the link under their Settings › Debug): their notes are fetched here whenever their device is heard from, for your agent to read." divider={false} />
+            {debug?.following?.length ? (
+              <View className="flex-row flex-wrap gap-1.5 px-1 pb-2">
+                {debug.following.map((h) => (
+                  <Chip key={h} size="sm" label={h} selected onRemove={() => void unfollow(h)} />
+                ))}
+              </View>
+            ) : null}
+            <View className="px-1 pb-3">
+              <TextField mono size="sm" value={followLink} onChangeText={setFollowLink} placeholder="pearcore://…" autoCapitalize="none" accessibilityLabel="Notes link to follow" onSubmitEditing={() => void follow()} trailing={<Button size="sm" variant="secondary" label="Follow" loading={followBusy} disabled={!followLink.trim()} onPress={() => void follow()} />} />
+            </View>
             <SettingsRow label="Notes" hint={debug?.dir || undefined} control={value(debug ? `${debug.count}` : '…')} divider={!!debug?.notes.length} />
             {debug?.notes.map((n, i) => {
               const w = n.where as { page?: string; project?: string; conversation?: string } | undefined;

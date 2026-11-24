@@ -43,6 +43,9 @@ export interface Api {
   debugSaveNote(body: { id: string; audio: string | null; audioType: string | null; trace: unknown[]; meta: Record<string, unknown> }): Promise<{ id: string; dir?: string; files?: string[]; shared?: boolean; sharelink?: string | null }>;
   /** Posts a saved note's files into a room's conversation. */
   debugShare(body: { id: string; room: string }): Promise<unknown>;
+  /** Follow another device's notes space by its link: its notes are fetched whenever that device is heard from. */
+  debugFollow(body: { link: string }): Promise<{ host: string; following: string[] }>;
+  debugUnfollow(body: { host: string }): Promise<{ host: string; following: string[] }>;
   devices(): Promise<Device[]>;
   workspace(): Promise<{ workspace: string }>;
   setWorkspace(body: { workspace: string }): Promise<{ workspace: string }>;
@@ -154,6 +157,8 @@ export const httpApi: Api = {
   debugSync: () => get('debug/sync'),
   debugSaveNote: (b) => post('debug/note', b),
   debugShare: (b) => post('debug/share', b),
+  debugFollow: (b) => post('debug/follow', b),
+  debugUnfollow: (b) => post('debug/unfollow', b),
   setAgentVia: (b) => post('agents/via', b),
   seatControl: ({ room, agent, seat }) => post('control', { room, action: 'seat', agent, seat }),
   autoCap: ({ room, auto }) => post('control', { room, action: 'auto', auto }),
