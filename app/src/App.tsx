@@ -243,6 +243,10 @@ function Shell() {
       <ProfilePage topic={overlay.topic} name={overlay.name} phone={phone} onBack={() => setOverlay(state.selected.topic && state.selected.conv && !phone ? { kind: 'conversation' } : { kind: 'none' })} />
     ) : null;
 
+  // a fresh install: nothing is shown until the daemon has said whether the first-run steps are done, so the shell
+  // does not flash for the seconds the Claude CLI takes to answer the first time
+  if (state.ready && state.setup === null && state.roomOrder.length === 0) return <AppWindow>{null}</AppWindow>;
+
   if (needsSetup(state.setup) || setupOpen) {
     return (
       <AppWindow>
