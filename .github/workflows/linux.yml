@@ -12,7 +12,8 @@ on:
 
 jobs:
   appimage:
-    runs-on: ubuntu-22.04
+    # 24.04: its gcc builds better-sqlite3 against Electron 43's headers; 22.04's gcc 11 fails in v8config.h
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
