@@ -46,7 +46,6 @@ const notes = opt('notes') || '';
 
 const names = fs.existsSync(folder) ? fs.readdirSync(folder).filter((n) => !n.endsWith('.release.json') && parseInstallerName(n)?.app === APP && parseInstallerName(n).version === version) : [];
 if (!names.length) { console.error(`no installers of ${APP} ${version} in ${folder} (named <app>-<version>-<os>-<arch>.<ext>)`); process.exit(2); }
-console.log(`${APP} ${version}${buildInfo.build ? ` (build ${buildInfo.build})` : ''}${commit ? ` @ ${commit}` : ''} → ${folder}`);
 for (const n of names) console.log(`  ${n}  ${(fs.statSync(path.join(folder, n)).size / 1048576).toFixed(1)} MB`);
 
 // the build counter: the ship's, else the next for today among the records already in the folder
@@ -55,6 +54,7 @@ const build = opt('build') || buildInfo.build || (() => {
   const seqs = fs.readdirSync(folder).filter((n) => n.endsWith('.release.json')).map((n) => { try { return JSON.parse(fs.readFileSync(path.join(folder, n), 'utf8')).build; } catch { return ''; } }).filter((b) => String(b).startsWith(today)).map((b) => Number(String(b).split('.').pop()) || 0);
   return `${today}.${Math.max(0, ...seqs) + 1}`;
 })();
+console.log(`${APP} ${version} (build ${build})${commit ? ` @ ${commit}` : ''} → ${folder}`);
 
 const port = loadConfig()?.port ?? 4455;
 const base = `http://127.0.0.1:${port}`;
