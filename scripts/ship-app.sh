@@ -61,6 +61,7 @@ bash scripts/build-app.sh mac
 BUILT="release/mac-arm64/rKeyChat.app"
 [[ -d "$BUILT" ]] || { echo "ABORT: $BUILT was not produced" >&2; exit 1; }
 if (( BUILD_ONLY )); then
+  rm -rf "$BUILT" # the dmg and zip are the deliverables; the unpacked bundle would be a second rKeyChat in Spotlight (lessons: stray-app-copies)
   echo "built, not installed: rKeyChat $VERSION (build $BUILD) is in $DELIVERIES"
   echo "publish it: npm run release -- --notes 'what changed'"
   exit 0
