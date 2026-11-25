@@ -55,6 +55,9 @@ shopt -s nullglob
 for a in release/rKeyChat-"$VERSION"-*.dmg release/rKeyChat-"$VERSION"-*.zip release/rKeyChat-"$VERSION"-*.AppImage release/rKeyChat-"$VERSION"-*.deb; do
   cp -f "$a" "$DELIVERIES/"
   echo "delivery: $DELIVERIES/$(basename "$a")"
-  # tell every box this is the current rKeyChat (_deliveries/CURRENT.json; check-updates.mjs reads it)
-  [[ -f "$DELIVERIES/publish.mjs" ]] && node "$DELIVERIES/publish.mjs" rkeychat "$VERSION" "$(basename "$a")"
+  # tell every box this is the current rKeyChat (_deliveries/CURRENT.json; check-updates.mjs reads it).
+  # An `if`, not `[[ … ]] && …`: as the script's last statement, a failed test is the script's exit status, and
+  # the Linux CI run (which has no publish.mjs) failed AFTER both builds had been made (2026-11-24).
+  if [[ -f "$DELIVERIES/publish.mjs" ]]; then node "$DELIVERIES/publish.mjs" rkeychat "$VERSION" "$(basename "$a")"; fi
 done
+echo "done: rKeyChat $VERSION for $PLATFORM"
