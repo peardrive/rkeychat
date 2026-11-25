@@ -37,8 +37,10 @@ import { addFileOnce } from './debug-notes.js'
  *  changes them in Settings › Updates › Advanced. */
 export const DEFAULT_CHANNEL = Object.freeze({
   name: APP_NAME,
-  link: null,
-  publisher: null
+  // the Space made on 2026-11-25 by `POST /api/updates/publish` on Guy's MacBook for ~/Anjou/_deliveries/rkeychat-desktop
+  link: 'pearcore://GPBeywxrVHxmpDAsgdjui5Tt8KoU44jccnTAkvNoA8sWj7RTaGauspenCvtVR1QGsM9YekTGwWJ9ZVjfknr9AaRZkjgzsXK4rMAnNnYNhrcCg6tbDVadNMCEV1tMgUGgB2t3YHpz9jo1pXCPXKWaEA',
+  // the MacBook's device key: the only key whose records count (the offline release key replaces it here one day)
+  publisher: 'ed25519:8b3d42af0e97e9d7f054af4ab04e1f5981f10d9c7fa7d632f499b957b6c1cd7e'
 })
 
 export const SPACE_NAME = APP_ID // the Space is named after the folder it mirrors
