@@ -54,6 +54,16 @@ APK="$APP/android/app/build/outputs/apk/release/app-release.apk"
 [ -f "$APK" ] || { echo "✗ no APK at $APK" >&2; exit 1; }
 SIGNED="signed"; grep -q "no usable keystore" "$APP/android/build-release.log" && SIGNED="debugsigned"
 mkdir -p "$DELIVERIES"
-OUT="$DELIVERIES/rkeychat-mobile-$VERSION-vc$CODE-$SHA$DIRTY-$SIGNED.apk"
+# named as ~/Anjou/_deliveries/AGENTS.md §2 says (<app>-<version>-<os>-<arch>.<ext>); the version code, commit, dirty flag
+# and signing go into the release record's notes, written beside it by rKeyChat's release script (signed by the running
+# rKeyChat on this Mac). A version is never delivered twice with different bytes: bump mobile/app.json first.
+OUT="$DELIVERIES/rkeychat-mobile-$VERSION-android-arm64.apk"
+if [[ -f "$OUT.release.json" ]] && ! cmp -s "$APK" "$OUT"; then
+  echo "ABORT: $OUT already has a release record and these bytes differ; bump the version in mobile/app.json (AGENTS.md §5)" >&2; exit 1
+fi
 cp -f "$APK" "$OUT"
 echo "delivery: $OUT ($(du -h "$OUT" | cut -f1), $SIGNED)"
+if [[ -f "$HOME/Anjou/rKeyChat/scripts/release.mjs" ]]; then
+  node "$HOME/Anjou/rKeyChat/scripts/release.mjs" --app rkeychat-mobile --version "$VERSION" --folder "$DELIVERIES" --notes "versionCode $CODE, commit $SHA$DIRTY, $SIGNED" \
+    || echo "WARN: no release record written (is rKeyChat running on this Mac?); the deliveries check fails until: npm --prefix ~/Anjou/rKeyChat run release -- --app rkeychat-mobile --version $VERSION --folder $DELIVERIES" >&2
+fi
