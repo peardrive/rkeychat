@@ -32,9 +32,11 @@ npx electron-rebuild -f -v "$ELECTRON" -w better-sqlite3 -o better-sqlite3
 # named by path, never read here), has Apple notarize the app before the zip and the dmg are made. A
 # firewall and the microphone and camera permissions then see one rKeyChat across every build.
 if [[ "$PLATFORM" == mac && -f "$HOME/Anjou/_publishing/mac/notary-env.sh" ]]; then source "$HOME/Anjou/_publishing/mac/notary-env.sh"; fi
+# --publish never: on a CI build made from a tag, electron-builder would otherwise try to publish a GitHub release
+# and fail for want of a token (the Linux workflow, 2026-11-24); the deliveries folder is where builds go
 case "$PLATFORM" in
-  mac)   npx electron-builder --mac ;;
-  linux) npx electron-builder --linux ;;
+  mac)   npx electron-builder --mac --publish never ;;
+  linux) npx electron-builder --linux --publish never ;;
   *) echo "usage: build-app.sh [mac|linux]" >&2; exit 2 ;;
 esac
 if [[ "$PLATFORM" == mac && -x "$HOME/Anjou/_publishing/mac/verify-signed.sh" ]]; then
