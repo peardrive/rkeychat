@@ -15,6 +15,8 @@ import { saveConfig } from './config.js'
 import { dataDir } from './config.js'
 import { describeProviders, checkPermissionMode, checkAutoLimit, checkProviderName, PROVIDER_PRESETS } from './seat-settings.js'
 import { ClaudeLogin } from './claude-login.js'
+import { Updates } from './updates.js'
+import { runningInfo } from './version.js'
 import { MAX_BLOB, mimeOf } from './room.js'
 import { MAIN, isConvId } from './proto.js'
 import { existsSync, statSync } from 'node:fs'
@@ -210,6 +212,11 @@ export function serve ({ app }) {
   const claude = new ClaudeLogin({ disabled: onPhone })
   claude.on('change', (s) => push('claude', s))
   claude.status().catch(() => {}) // warm: the shell asks on its first page, and the CLI takes a moment to answer
+  // in-app updates (src/updates.js, pearkit/updates): the channel Space is joined, records read, the desktop app swaps
+  const updates = new Updates(app)
+  app.updates = updates
+  updates.on('change', (s) => push('updates', s))
+  updates.start().catch((err) => console.error('[updates]', err.message))
   // First-run setup (docs/first-run.md): what this device has, so the shell knows which step is left. `agent` is
   // the device's choice for new seats: 'claude' (the login), a provider's name, or nothing chosen yet.
   const setupInfo = async () => {
@@ -234,7 +241,7 @@ export function serve ({ app }) {
       const r = app.find(url.searchParams.get('room'))
       const conv = convArg(url)
       return {
-        device: { name: cfg.deviceName, ref: device.ref, root: cfg.root ? app.root().ref : null, participants: Object.entries(cfg.participants).map(([name, p]) => ({ name, role: p.role, ref: p.ref, bridge: p.bridge?.kind })), desktop: !!process.versions?.electron, canHost: typeof Bare === 'undefined' },
+        device: { name: cfg.deviceName, ref: device.ref, root: cfg.root ? app.root().ref : null, participants: Object.entries(cfg.participants).map(([name, p]) => ({ name, role: p.role, ref: p.ref, bridge: p.bridge?.kind })), desktop: !!process.versions?.electron, canHost: typeof Bare === 'undefined', version: runningInfo() },
         rooms: app.list(),
         canTranscribe: canTranscribe(cfg),
         current: r ? snapshot(r.room, conv) : null
@@ -359,6 +366,17 @@ export function serve ({ app }) {
     'POST /api/claude/login/cancel': () => claude.cancel(),
     'POST /api/claude/logout': () => claude.logout(),
     // first-run setup: what is done, and the device's choices (which agent new seats run on; the flow is finished)
+    // in-app updates (docs/updates.md): the channel's state, the versions on it, one release in full; check, download,
+    // install (the desktop app swaps itself), the channel's link/publisher/folder; the publisher's record signing and
+    // the folder registered in the Space (scripts/release.mjs)
+    'GET /api/updates': () => updates.state(),
+    'GET /api/updates/release': (req, res, url) => { const r = updates.release(url.searchParams.get('id')); need(r, 'no such release', 404); return r },
+    'POST /api/updates/check': () => updates.check(),
+    'POST /api/updates/download': async (req) => { const { id } = await body(req); return updates.download(id) },
+    'POST /api/updates/install': async (req) => { const { id } = await body(req); return updates.install(id) },
+    'POST /api/updates/channel': async (req) => updates.setChannel(await body(req)),
+    'POST /api/updates/record': async (req) => { const { record } = await body(req); need(record && typeof record === 'object', 'record required'); return updates.record(record) },
+    'POST /api/updates/publish': async (req) => updates.publish(await body(req)),
     'GET /api/setup': () => setupInfo(),
     'POST /api/setup': async (req) => {
       const { agent, done } = await body(req)
