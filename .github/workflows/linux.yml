@@ -28,11 +28,13 @@ jobs:
           node-version: 26 # what the Mac runs; under 22 two timer-based tests end before their promise settles
       - name: system libraries electron-builder and the native modules need
         run: sudo apt-get update && sudo apt-get install -y build-essential python3 libarchive-tools rpm
+      # PearKit first: the daemon and the shell both link it (file:../pearkit--projects-shell), and npm runs its prepare
+      # step (bob build) when the link is made, which needs PearKit's own devDependencies installed (2026-11-25)
+      - name: install PearKit (the root and the shell link it; its prepare step builds it)
+        working-directory: pearkit--projects-shell
+        run: npm ci
       - name: install
         working-directory: rKeyChat
-        run: npm ci
-      - name: install PearKit (the shell links it as file:../../pearkit--projects-shell; its prepare step builds it)
-        working-directory: pearkit--projects-shell
         run: npm ci
       - name: install the shell
         working-directory: rKeyChat/app
