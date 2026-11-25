@@ -209,6 +209,7 @@ export function serve ({ app }) {
   const onPhone = typeof Bare !== 'undefined'
   const claude = new ClaudeLogin({ disabled: onPhone })
   claude.on('change', (s) => push('claude', s))
+  claude.status().catch(() => {}) // warm: the shell asks on its first page, and the CLI takes a moment to answer
   // First-run setup (docs/first-run.md): what this device has, so the shell knows which step is left. `agent` is
   // the device's choice for new seats: 'claude' (the login), a provider's name, or nothing chosen yet.
   const setupInfo = async () => {
