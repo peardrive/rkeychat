@@ -35,10 +35,15 @@ test('the running copy: package.json version, a source tree without a ship says 
 const device = () => { const k = generate('ed25519'); return { ref: k.ref, sign: (m) => k.sign(m) } }
 const record = (over = {}) => ({ app: 'rkeychat-desktop', channel: 'release', version: '0.3.1', build: '2026-11-25.1', commit: 'abc1234', os: 'mac', arch: 'arm64', ext: 'zip', file: 'rkeychat-desktop-0.3.1-mac-arm64.zip', size: 5, sha256: sha('hello'), notes: 'n', publishedAt: '2026-11-25T20:00:00.000Z', ...over })
 
+// a device as the daemon has one, and just enough of pearcore for a channel Space nobody is on
 function fakeApp (dev = device()) {
   const app = new EventEmitter()
   app.device = dev
-  app.core = null
+  app.core = {
+    space: { list: async () => [], join: async (link) => ({ topicHash: 'topic-of-' + link.slice(-8), sharelink: link, spaceName: 'rkeychat-desktop' }) },
+    managers: { spaceFileList: { get: () => ({}) }, sockets: { getConnectedSockets: () => [] }, spaceFiles: { downloadTasks: new Map() } },
+    drives: { get: () => ({ getFile: async () => { throw new Error('nobody serves it') } }) }
+  }
   return app
 }
 
@@ -106,9 +111,17 @@ test('a deliveries folder is a channel: records read, the stranger dropped, the 
   u.noteFailedStart({ version: '0.3.3', reason: 'better-sqlite3 did not load' })
   assert.deepEqual((await u.check()).pending.map((p) => p.version), ['0.3.2', '0.3.1'])
   assert.equal(u.state().refused.version, '0.3.3')
-  // back to the default channel: no link baked yet means no channel
+  // back to the default channel: the baked-in Space is joined; with nobody on it there is nothing posted yet
   const r = await u.setChannel({ reset: true })
   assert.equal(r.channel.isDefault, true)
-  assert.equal(r.status, DEFAULT_CHANNEL.link ? 'connecting' : 'no-channel')
+  assert.equal(r.channel.link, DEFAULT_CHANNEL.link)
+  assert.equal(r.status, 'none-posted')
+  assert.equal(r.channel.publisherIsMe, false)
+  // the publisher's own Mac reads the folder it publishes, never its own Space
+  u.save({ publishFolder: folder, publisher: dev.ref })
+  await u.attach()
+  assert.equal((await u.check()).channel.folder, null)
+  assert.equal(u.state().channel.publisherIsMe, true)
+  assert.deepEqual((await u.check()).versions.map((v) => v.version), ['0.3.3', '0.3.2', '0.3.1'])
   rmSync(folder, { recursive: true, force: true }); rmSync(data, { recursive: true, force: true })
 })
