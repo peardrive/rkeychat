@@ -45,7 +45,8 @@ export const DEFAULT_CHANNEL = Object.freeze({
 
 export const SPACE_NAME = APP_ID // the Space is named after the folder it mirrors
 const onPhone = typeof Bare !== 'undefined'
-const FILE_WAIT = 20 * 60_000 // an installer is 400 MB; a record is 1 KB
+const FILE_WAIT = 20 * 60_000 // an installer is 400 MB
+const RECORD_WAIT = 60_000 // a record is 1 KB: a minute means nobody is serving it
 const KIT = 'pearkit/updates' // a computed specifier: the phone bundle never resolves it (desktop only)
 export const loadKit = () => import(KIT)
 
@@ -139,6 +140,9 @@ export class Updates extends EventEmitter {
       const cfg = this.cfg
       let source = null
       if (cfg.folder) source = this.#folderSource(cfg.folder)
+      // the publisher reads the folder it publishes: its own Space lists its own files, and fetching them from
+      // itself waits for ever (2026-11-25, the first check on the publishing Mac hung on its own record)
+      else if (cfg.publishFolder && existsSync(cfg.publishFolder) && publisherRef(cfg.publisher) === this.app.device.ref) source = this.#folderSource(cfg.publishFolder)
       else if (cfg.link && cfg.publisher) source = await this.#spaceSource(cfg.link)
       this.channel.setSource(source)
       return source
@@ -195,7 +199,8 @@ export class Updates extends EventEmitter {
       if (!root) continue
       const dest = join(dir, `${root}.json`) // one copy per content hash: a record never changes under its name
       if (!existsSync(dest)) {
-        try { await this.#download(space, path, root, dest) } catch (err) { console.error(`[updates] ${name}: ${err.message}`); continue }
+        if (!this.#peersOn(space.topicHash)) continue // nobody to fetch it from right now: next check
+        try { await this.#download(space, path, root, dest, null, RECORD_WAIT) } catch (err) { console.error(`[updates] ${name}: ${err.message}`); continue }
       }
       try { out.push(JSON.parse(readFileSync(dest, 'utf8'))) } catch {}
     }
@@ -216,7 +221,7 @@ export class Updates extends EventEmitter {
   }
 
   // one file out of the Space, with pearcore's refusal and silence handled the way debug-notes.js handles them
-  async #download (space, path, root, dest, onProgress = null) {
+  async #download (space, path, root, dest, onProgress = null, wait = FILE_WAIT) {
     const topic = space.topicHash
     const entry = await this.app.core.drives.get(space).getFile(path)
     const task = await entry.download(root, dest)
@@ -224,7 +229,7 @@ export class Updates extends EventEmitter {
       await new Promise((resolve, reject) => {
         let done = false
         const finish = (fn) => { if (done) return; done = true; clearInterval(tick); clearTimeout(t); fn() }
-        const t = setTimeout(() => finish(() => reject(new Error(`timed out fetching ${basename(path)} after ${Math.round(FILE_WAIT / 60000)} min (${this.#peersOn(topic)} of its peers connected). Is the publisher's rKeyChat open?`))), FILE_WAIT); t.unref?.()
+        const t = setTimeout(() => finish(() => reject(new Error(`timed out fetching ${basename(path)} after ${Math.round(wait / 1000)}s (${this.#peersOn(topic)} of its peers connected). Is the publisher's rKeyChat open?`))), wait); t.unref?.()
         const tick = setInterval(() => {
           if (!onProgress) return
           try { const p = task.getProgress?.(); if (p && typeof p.percent === 'number') onProgress(p.percent, 100) } catch {}
