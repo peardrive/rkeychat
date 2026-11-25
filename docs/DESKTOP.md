@@ -66,6 +66,8 @@ the same thing goes into any other app.
 
 ## Packaging
 
+**Since 2026-11-25 the way to build is `npm run ship`** (bump, signed build, installed into /Applications as the one rKeyChat, relaunched) and `npm run release -- --notes "…"` (signed records beside the installers in `~/Anjou/_deliveries/rkeychat-desktop/`, the folder registered in the update channel's Space). Every other rKeyChat then offers "Update to <version>" and swaps itself. The whole flow, the routes and the way back: `docs/updates.md`. What follows is the packaging underneath it.
+
 `npm run dist:mac` (scripts/build-app.sh): signed by Peardrive LLC and notarized (`_publishing/mac/SIGNING.md`).
 `build.directories.app` is `"."`: the repo has an `app/` folder (the shell) with its own package.json, which
 electron-builder would otherwise take for a two-package layout's application root (lesson

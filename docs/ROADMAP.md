@@ -29,6 +29,12 @@ Started 2026-11-24 from the `projects` branch; the ideas below were carried from
 
 ## Done
 
+- **In-app updates and one rKeyChat in /Applications** (2026-11-25, Guy: "add our auto internal update module like we
+  have in PearDrive, it should be available in PearKit as a main module… one main .dmg app in my Applications folder
+  which we can continue to sign and update… one location with one main way to launch it"). Shipped: `pearkit/updates`
+  (the release record and the UpdateChannel, from PearDrive's updater) and `pearkit/electron`'s swap with the previous
+  copy kept out of Spotlight's sight and the way back; rKeyChat's channel Space over `_deliveries/rkeychat-desktop/`,
+  Settings › Updates, the sidebar notice, `npm run ship` and `npm run release`. `docs/updates.md`.
 - **First run and the first build for someone else, 0.3.0** (2026-11-24, Guy: "think about the flow of starting the
   app from nothing… a very clear in-your-way prompt to connect your AI… PPQ as a dedicated option, OpenRouter,
   llama.cpp… where do you want your projects to live… leave the option to skip them… a clean embossed block on the
