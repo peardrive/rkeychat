@@ -11,7 +11,7 @@ inside an app except one fact the preload exposes (`window.rkc.desktop`).
 
 ```sh
 npm run app          # dev: opens the window on this device's daemon
-npm run dist:mac     # package: release/rKeyChat-<version>-mac-arm64.{dmg,zip} → ~/Anjou/_deliveries/
+npm run dist:mac     # package: release/rKeyChat-<version>-mac-arm64.{dmg,zip} → ~/Anjou/_deliveries/rkeychat-desktop/
 npm run dist:linux   # on the Linux box: AppImage + deb
 ```
 

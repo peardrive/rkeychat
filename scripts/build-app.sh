@@ -49,7 +49,9 @@ if [[ "$PLATFORM" == mac && -x "$HOME/Anjou/_publishing/mac/verify-signed.sh" ]]
     echo "WARN: no Developer ID certificate in this keychain: the Mac build is NOT signed by Peardrive LLC"
   fi
 fi
-DELIVERIES="$HOME/Anjou/_deliveries"
+# rKeyChat's folder in the deliveries (~/Anjou/_deliveries/AGENTS.md: one folder per app and channel, 2026-11-25).
+# Names and records per the standard are still to come; until then CURRENT.json says which build is current.
+DELIVERIES="$HOME/Anjou/_deliveries/rkeychat-desktop"
 mkdir -p "$DELIVERIES"
 shopt -s nullglob
 for a in release/rKeyChat-"$VERSION"-*.dmg release/rKeyChat-"$VERSION"-*.zip release/rKeyChat-"$VERSION"-*.AppImage release/rKeyChat-"$VERSION"-*.deb; do
@@ -58,6 +60,6 @@ for a in release/rKeyChat-"$VERSION"-*.dmg release/rKeyChat-"$VERSION"-*.zip rel
   # tell every box this is the current rKeyChat (_deliveries/CURRENT.json; check-updates.mjs reads it).
   # An `if`, not `[[ … ]] && …`: as the script's last statement, a failed test is the script's exit status, and
   # the Linux CI run (which has no publish.mjs) failed AFTER both builds had been made (2026-11-24).
-  if [[ -f "$DELIVERIES/publish.mjs" ]]; then node "$DELIVERIES/publish.mjs" rkeychat "$VERSION" "$(basename "$a")"; fi
+  if [[ -f "$DELIVERIES/../publish.mjs" ]]; then node "$DELIVERIES/../publish.mjs" rkeychat "$VERSION" "rkeychat-desktop/$(basename "$a")"; fi
 done
 echo "done: rKeyChat $VERSION for $PLATFORM"

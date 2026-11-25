@@ -5,7 +5,7 @@
 # from GitHub. The folder is still called rkeychat-kit/rKeyChat so `unzip -o` into ~
 # updates a Mac Mini / Zorin install made from an earlier kit in place (the old
 # rkeychat-kit/rKey folder beside it is no longer used and can be deleted).
-# The zip also lands in ~/Anjou/_deliveries/ and is recorded in CURRENT.json.
+# The zip also lands in ~/Anjou/_deliveries/rkeychat-kit/ and is recorded in CURRENT.json.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="$(node -p "require('$HERE/package.json').version")"
@@ -21,11 +21,12 @@ NAME="rkeychat-kit-$VERSION-$SHA.zip"
 ( cd "$TMP" && zip -qr "$HERE/dist/$NAME" rkeychat-kit -x '*.DS_Store' )
 cp "$HERE/dist/$NAME" "$HERE/dist/rkeychat-kit.zip"
 rm -rf "$TMP"
-DELIVERIES="$HOME/Anjou/_deliveries"
+DELIVERIES="$HOME/Anjou/_deliveries/rkeychat-kit"   # one folder per app (AGENTS.md there, 2026-11-25)
+mkdir -p "$DELIVERIES" 2>/dev/null || true
 if [[ -d "$DELIVERIES" ]]; then
   cp -f "$HERE/dist/$NAME" "$DELIVERIES/$NAME"
   cp -f "$HERE/dist/$NAME" "$DELIVERIES/rkeychat-kit.zip"
-  [[ -f "$DELIVERIES/publish.mjs" ]] && node "$DELIVERIES/publish.mjs" rkeychat "$VERSION" "$NAME"
+  if [[ -f "$DELIVERIES/../publish.mjs" ]]; then node "$DELIVERIES/../publish.mjs" rkeychat "$VERSION" "rkeychat-kit/$NAME"; fi
   echo "delivery: $DELIVERIES/$NAME"
 fi
 echo "dist/$NAME ($(du -h "$HERE/dist/rkeychat-kit.zip" | cut -f1))"

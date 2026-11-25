@@ -43,7 +43,7 @@ they approve. Your own room: `rkeychat room create NAME`, then invite others the
 
 ## Desktop app
 
-`npm run app` opens rKeyChat in a window of its own (Electron), attached to the daemon if one is running or booting it otherwise; `npm run dist:mac` packages it into `~/Anjou/_deliveries/`. See [docs/DESKTOP.md](docs/DESKTOP.md).
+`npm run app` opens rKeyChat in a window of its own (Electron), attached to the daemon if one is running or booting it otherwise; `npm run dist:mac` packages it into `~/Anjou/_deliveries/rkeychat-desktop/`. See [docs/DESKTOP.md](docs/DESKTOP.md).
 
 ## Claude Code
 
