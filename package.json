@@ -12,7 +12,9 @@
     "app": "electron .",
     "dist:mac": "bash scripts/build-app.sh mac",
     "dist:linux": "bash scripts/build-app.sh linux",
-    "dist": "bash scripts/build-app.sh"
+    "dist": "bash scripts/build-app.sh",
+    "ship": "bash scripts/ship-app.sh",
+    "release": "node scripts/release.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -24,6 +26,7 @@
     "@noble/hashes": "^2.4.0",
     "hyperdht": "^6.34.0",
     "pearcore": "file:vendor/pearcore-156a268.tgz",
+    "pearkit": "file:../pearkit--projects-shell",
     "qrcode": "^1.5.4",
     "rkey": "file:vendor/rkey-66862ba.tgz",
     "sherpa-onnx-node": "^1.13.8",
@@ -95,7 +98,7 @@
       "title": "rKeyChat"
     },
     "icon": "build/icon.png",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "rkeychat-desktop-${version}-${os}-${arch}.${ext}",
     "linux": {
       "category": "Network",
       "maintainer": "Guy Swann",

@@ -24,7 +24,10 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell, systemPreferences 
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadConfig, migrate, newConfig, addParticipant, saveConfig } from '../src/config.js'
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { loadConfig, migrate, newConfig, addParticipant, saveConfig, dataDir } from '../src/config.js'
+// the swap and the way back are pearkit's (pearkit/electron), the same for every Anjou desktop app
+import { installUpdate, installedAt, previousAt, revertUpdate } from 'pearkit/electron'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(HERE, '..')
@@ -34,6 +37,8 @@ let owned = null // { kind: 'inproc', stop } | { kind: 'child', proc } — a dae
 let quitting = false
 
 const origin = () => `http://127.0.0.1:${port}`
+const UPDATES_DIR = () => path.join(dataDir(), 'updates')
+const RUNNING_VERSION = () => { try { return JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version } catch { return '' } }
 // which page the window opens: the projects shell at /app/ (default since 2026-11-24, the first build handed to
 // someone else) or the classic room page at / (`RKEYCHAT_SHELL=room` or `--room`)
 const SHELL = process.argv.includes('--room') || process.env.RKEYCHAT_SHELL === 'room' ? 'room' : 'app'
@@ -121,6 +126,14 @@ async function bootInProcess (cfg) {
   const { bootDaemon } = await import('../src/daemon.js')
   const d = await bootDaemon()
   owned = { kind: 'inproc', stop: d.stop }
+  // in-app updates (src/updates.js): the daemon fetched and checked the new build; put it in place and relaunch.
+  // The previous bundle is kept under ~/.rkeychat/updates/previous.noindex (out of Spotlight's sight), the new
+  // build is asked to load its native modules first, and a build that cannot is refused, not installed.
+  d.app.on('update-install', ({ path: file, version, resolve, reject }) => {
+    installUpdate({ file, version, identifier: 'com.rkeychat.app', keepDir: UPDATES_DIR(), preflightModules: ['better-sqlite3', 'sodium-native'] })
+      .then(() => { resolve(); quitting = true; setTimeout(() => app.quit(), 500) })
+      .catch((err) => { console.error('[updates] install:', err.message); reject(err) })
+  })
   console.log(`rkeychat ${cfg.deviceName} (desktop, in-process) → ${origin()}`)
 }
 
@@ -163,8 +176,16 @@ async function ensureDaemon () {
   } catch (err) {
     const abi = /NODE_MODULE_VERSION|compiled against a different Node\.js version|not a valid Win32 application|dlopen/.test(String(err?.message))
     if (!abi) {
-      // the daemon itself refused (no rooms, bad config, port taken by something else): say what it said
-      dialog.showErrorBox('rKeyChat could not start', String(err?.stack || err))
+      // the daemon itself refused (no rooms, bad config, port taken by something else): say what it said. When this
+      // copy came in through an update and the previous one is still kept, offer the way back (pearkit revertUpdate).
+      const prev = previousAt(installedAt(), process.platform, UPDATES_DIR())
+      if (prev) {
+        const choice = dialog.showMessageBoxSync({ type: 'error', title: 'rKeyChat could not start', message: 'rKeyChat could not start', detail: `${String(err?.message || err)}\n\nThe version you had before is still here.`, buttons: ['Go back to the previous version', 'Quit'], defaultId: 0, cancelId: 1 })
+        if (choice === 0) {
+          try { mkdirSync(UPDATES_DIR(), { recursive: true }); writeFileSync(path.join(UPDATES_DIR(), 'failed-start.json'), JSON.stringify({ version: RUNNING_VERSION(), reason: String(err?.message || err).slice(0, 400), at: Date.now() })) } catch {}
+          try { await revertUpdate({ keepDir: UPDATES_DIR() }); quitting = true; app.quit(); return false } catch (e) { console.error('[updates] going back:', e.message) }
+        }
+      } else dialog.showErrorBox('rKeyChat could not start', String(err?.stack || err))
       app.quit()
       return false
     }

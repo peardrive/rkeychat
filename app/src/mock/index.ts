@@ -4,7 +4,7 @@
  */
 import { ApiError, type Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, AutoLimit, Budget, ClaudeLoginState, ClaudeStatus, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, ProviderPreset, Rec, RoomSnapshot, RoomSummary, Seat, SetupInfo, StateResponse } from '../types';
+import type { AgentRule, AutoLimit, Budget, ClaudeLoginState, ClaudeStatus, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, ProviderPreset, Rec, ReleaseInfo, RoomSnapshot, RoomSummary, Seat, SetupInfo, StateResponse, UpdateJob, UpdateVersionInfo, UpdatesState } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -722,6 +722,38 @@ export const mockApi: Api = {
     setTimeout(() => emit('setup', setupInfo()), 10);
     return { ...claudeStatus };
   },
+  async updates() {
+    await sleep(LATENCY);
+    return updatesState();
+  },
+  async updatesCheck() {
+    await sleep(LATENCY * 2);
+    return updatesState();
+  },
+  async updatesDownload({ id }) {
+    await sleep(LATENCY);
+    return mockDownload(id);
+  },
+  async updatesInstall({ id }) {
+    await sleep(LATENCY);
+    const s = await mockDownload(id);
+    if (s.job.state !== 'ready') return s;
+    updJob = { ...updJob, state: 'installing' };
+    setTimeout(() => emit('updates', updatesState()), 10);
+    return updatesState();
+  },
+  async updatesChannel({ reset }) {
+    await sleep(LATENCY);
+    if (reset) updJob = { state: 'idle' };
+    return updatesState();
+  },
+  async updatesRelease(id) {
+    await sleep(LATENCY);
+    const v = mockVersions.find((x) => x.id === id);
+    if (!v) throw new ApiError(404, 'no such release');
+    const r: ReleaseInfo = { app: 'rkeychat-desktop', channel: 'release', version: v.version, build: v.build, commit: 'abc1234', os: 'mac', arch: 'arm64', ext: 'zip', file: v.file, size: v.size ?? 0, sha256: v.id.padEnd(64, '0'), notes: v.notes, publishedAt: new Date(v.at).toISOString(), publisher: MOCK_PUBLISHER, sig: 'ab'.repeat(64), verified: true, signedBy: MOCK_PUBLISHER };
+    return r;
+  },
   async removeProvider({ name }) {
     await sleep(LATENCY);
     const i = mockProviders.findIndex((p) => p.name === name);
@@ -730,6 +762,44 @@ export const mockApi: Api = {
     return { removed: name };
   },
 };
+
+// ---- in-app updates (docs/updates.md): this copy is 0.3.1; 0.3.2 waits on the channel unless ?updates=none ----
+const UPDATES_NONE = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('updates') === 'none';
+const MOCK_PUBLISHER = 'ed25519:' + '5a'.repeat(32);
+const RUNNING = { version: '0.3.1', build: '2026-11-25.1', commit: 'abc1234', from: '/Applications/rKeyChat.app', source: false, desktop: true };
+const mockVersions: UpdateVersionInfo[] = [
+  { id: 'r032', version: '0.3.2', build: '2026-11-25.2', at: now - 2 * 3600_000, size: 412_556_924, notes: 'Updates arrive through the channel and install with one press; the previous copy is kept for the way back.', file: 'rkeychat-desktop-0.3.2-mac-arm64.zip' },
+  { id: 'r031', version: '0.3.1', build: '2026-11-25.1', at: now - 26 * 3600_000, size: 412_120_311, notes: 'The first build on the update channel.', file: 'rkeychat-desktop-0.3.1-mac-arm64.zip' },
+  { id: 'r030', version: '0.3.0', build: '2026-11-24.1', at: now - 50 * 3600_000, size: 411_837_611, notes: 'First run: name, Connect your AI, where projects live.', file: 'rkeychat-desktop-0.3.0-mac-arm64.zip' },
+];
+let updJob: UpdateJob = { state: 'idle' };
+function updatesState(): UpdatesState {
+  const versions = UPDATES_NONE ? mockVersions.slice(1) : mockVersions;
+  const pending = versions.filter((v) => v.version > RUNNING.version);
+  const status = updJob.state === 'installing' ? 'installing' : updJob.state === 'downloading' ? 'downloading' : pending.length ? 'available' : 'up-to-date';
+  return {
+    app: 'rkeychat-desktop', appName: 'rKeyChat', running: RUNNING, platform: { os: 'mac', arch: 'arm64' }, status,
+    latest: versions[0] ?? null, available: pending.length > 0, behind: pending.length, progress: updJob.state === 'downloading' ? updJob.progress ?? null : null,
+    error: updJob.state === 'error' ? updJob.error ?? 'failed' : null, canInstall: true, versions, pending, job: { ...updJob },
+    channel: { name: 'rKeyChat', publisher: MOCK_PUBLISHER, link: 'pearcore://mock-channel', folder: null, connected: true, isDefault: true, publisherIsMe: false, peers: 1 },
+    rejected: 0, checkedAt: now, refused: null, phone: DEVICES[0].canHost === false,
+  };
+}
+async function mockDownload(id?: string | null): Promise<UpdatesState> {
+  const rel = id ? mockVersions.find((v) => v.id === id) : updatesState().pending[0];
+  if (!rel) throw new ApiError(400, 'no newer version for this computer');
+  if (updJob.state === 'ready' && updJob.id === rel.id) return updatesState();
+  updJob = { state: 'downloading', id: rel.id, version: rel.version, progress: 0 };
+  emit('updates', updatesState());
+  for (let i = 1; i <= 6; i++) {
+    await sleep(180);
+    updJob = { ...updJob, progress: i / 6 };
+    emit('updates', updatesState());
+  }
+  updJob = { state: 'ready', id: rel.id, version: rel.version, path: `/tmp/${rel.file}`, progress: 1 };
+  emit('updates', updatesState());
+  return updatesState();
+}
 
 const PRESETS: Record<string, ProviderPreset> = {
   ppq: { label: 'PPQ', baseUrl: 'https://api.ppq.ai', key: 'required', keyUrl: 'https://ppq.ai/api-docs', blurb: 'Pay per question, no account needed. Paste a PPQ API key.' },

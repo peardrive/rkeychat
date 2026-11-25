@@ -6,7 +6,8 @@ import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { getApi } from '../api';
 import { SAFE_TOP } from '../hooks';
-import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, StatusPill, Text, TextField, Toggle, useToast } from '../kit';
+import { Avatar, Button, Chip, IconButton, Pane, PaneBody, PaneHeader, SettingsBlock, SettingsRow, StatusDot, StatusPill, Text, TextField, Toggle, UpdatesPanel, useToast } from '../kit';
+import { runningLabel, runsFromLabel, updatesBlurb } from '../store/updates';
 import { useStore } from '../store/context';
 import type { AgentInfo, DebugNoteInfo, DebugSpaceInfo, Person } from '../types';
 import { AgentChoices } from './SetupFlow';
@@ -156,6 +157,33 @@ export function SettingsPage({ phone, onBack, dock }: { phone: boolean; onBack?:
             </View>
             <SettingsRow label="Can hold projects" hint={canHost ? 'Folders and seats live here.' : 'A phone: projects live on one of your computers.'} control={<Toggle value={canHost} onValueChange={() => {}} disabled />} divider={false} />
           </SettingsBlock>
+
+          {state.updates && !state.updates.phone ? (
+            <SettingsBlock icon="import" title="Updates" description={updatesBlurb(state.updates)}>
+              <SettingsRow label="Running" hint={runsFromLabel(state.updates)} control={value(runningLabel(state.updates))} divider={false} />
+              <View className="px-1 pb-3 pt-1" accessibilityLabel="Update channel">
+                <UpdatesPanel
+                  appName={state.updates.appName}
+                  running={state.updates.running.version}
+                  status={state.updates.status}
+                  latest={state.updates.latest?.version}
+                  behind={state.updates.behind}
+                  progress={state.updates.progress ?? undefined}
+                  error={state.updates.error}
+                  canInstall={state.updates.canInstall}
+                  versions={state.updates.versions}
+                  channel={{ name: state.updates.channel.name, publisher: state.updates.channel.publisher }}
+                  onCheck={() => void actions.checkUpdates().catch((e) => toast({ title: 'Could not read the update channel', description: (e as Error).message, tone: 'danger' }))}
+                  onInstall={(id) => void actions.installUpdate(id).catch(() => {})}
+                  loadRelease={async (id) => {
+                    const r = await getApi().updatesRelease(id);
+                    return { id, version: r.version, at: Date.parse(r.publishedAt) || 0, size: r.size, notes: r.notes, build: r.build, file: r.file, verified: r.verified, signedBy: r.signedBy, contentHash: r.sha256, raw: r };
+                  }}
+                  onCopy={(t) => void copyToClipboard(t).then((ok) => toast({ title: ok ? 'Copied' : 'Could not copy', duration: 1200 }))}
+                />
+              </View>
+            </SettingsBlock>
+          ) : null}
 
           <SettingsBlock icon="document" title="Wiki" description="one space every agent reads">
             <SettingsRow label="Space link" hint="Markdown synced by PearDrive: where things live, what we learned. Kept on this device until the daemon takes it next round." divider={false} />

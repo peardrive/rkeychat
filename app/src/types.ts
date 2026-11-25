@@ -274,6 +274,8 @@ export type DeviceInfo = {
   desktop?: boolean;
   /** False on a phone: projects must be homed on one of the owner's computers. */
   canHost?: boolean;
+  /** The running copy: version, build, commit, where it runs from. */
+  version?: RunningVersion;
 };
 
 export type StateResponse = {
@@ -307,6 +309,46 @@ export type Events = {
   claude: ClaudeLoginState;
   /** The device's setup changed (a choice saved, the flow finished). */
   setup: SetupInfo;
+  /** The update channel moved: a version arrived, a download progressed, the swap began. */
+  updates: UpdatesState;
 };
 
 export type EventName = keyof Events;
+
+/* ───────────── in-app updates (docs/updates.md; pearkit/updates) ───────────── */
+
+/** What the running copy says about itself (src/version.js). */
+export type RunningVersion = { version: string; build: string | null; commit: string | null; from: string; source: boolean; desktop: boolean };
+
+export type UpdateVersionInfo = { id: string; version: string; build: string; at: number; size: number | null; notes: string; file: string };
+
+export type UpdateJob = { state: 'idle' | 'downloading' | 'ready' | 'installing' | 'error'; id?: string; version?: string; path?: string; progress?: number | null; error?: string };
+
+export type UpdatesStatus = 'starting' | 'no-channel' | 'connecting' | 'up-to-date' | 'available' | 'downloading' | 'installing' | 'none-posted';
+
+/** `GET /api/updates`: pearkit's UpdateChannel state plus what rKeyChat adds (the app name, the running copy, the channel's whereabouts). */
+export type UpdatesState = {
+  app: string;
+  appName: string;
+  running: RunningVersion;
+  platform: { os: string; arch: string } | null;
+  status: UpdatesStatus;
+  latest: UpdateVersionInfo | null;
+  available: boolean;
+  behind: number;
+  progress: number | null;
+  error: string | null;
+  canInstall: boolean;
+  versions: UpdateVersionInfo[];
+  pending: UpdateVersionInfo[];
+  job: UpdateJob;
+  channel: { name?: string; publisher: string; link: string; folder?: string | null; connected: boolean; isDefault: boolean; publisherIsMe: boolean; peers?: number | null };
+  rejected: number;
+  checkedAt: number | null;
+  refused: { version: string; reason: string } | null;
+  /** A phone: no desktop build to update. */
+  phone: boolean;
+};
+
+/** One release in full (`GET /api/updates/release?id=`): the signed record as published. */
+export type ReleaseInfo = { app: string; channel: string; version: string; build: string; commit?: string; os: string; arch: string; ext: string; file: string; size: number; sha256: string; notes?: string; publishedAt: string; publisher: string; sig?: string; verified: boolean; signedBy: string };

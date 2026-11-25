@@ -49,17 +49,17 @@ if [[ "$PLATFORM" == mac && -x "$HOME/Anjou/_publishing/mac/verify-signed.sh" ]]
     echo "WARN: no Developer ID certificate in this keychain: the Mac build is NOT signed by Peardrive LLC"
   fi
 fi
-# rKeyChat's folder in the deliveries (~/Anjou/_deliveries/AGENTS.md: one folder per app and channel, 2026-11-25).
-# Names and records per the standard are still to come; until then CURRENT.json says which build is current.
+# THE APP'S FOLDER IN _deliveries (~/Anjou/_deliveries/AGENTS.md, 2026-11-25): one folder per app and channel, every
+# installer named <app>-<version>-<os>-<arch>.<ext> (package.json build.artifactName). The signed release record beside
+# each installer, the channel Space and the deliveries check come from `npm run release` (scripts/release.mjs), which
+# signs with the device key that publishes the channel. electron-builder spells the Linux arch amd64/x86_64 in places;
+# the standard says x64.
 DELIVERIES="$HOME/Anjou/_deliveries/rkeychat-desktop"
 mkdir -p "$DELIVERIES"
 shopt -s nullglob
-for a in release/rKeyChat-"$VERSION"-*.dmg release/rKeyChat-"$VERSION"-*.zip release/rKeyChat-"$VERSION"-*.AppImage release/rKeyChat-"$VERSION"-*.deb; do
-  cp -f "$a" "$DELIVERIES/"
-  echo "delivery: $DELIVERIES/$(basename "$a")"
-  # tell every box this is the current rKeyChat (_deliveries/CURRENT.json; check-updates.mjs reads it).
-  # An `if`, not `[[ … ]] && …`: as the script's last statement, a failed test is the script's exit status, and
-  # the Linux CI run (which has no publish.mjs) failed AFTER both builds had been made (2026-11-24).
-  if [[ -f "$DELIVERIES/../publish.mjs" ]]; then node "$DELIVERIES/../publish.mjs" rkeychat "$VERSION" "rkeychat-desktop/$(basename "$a")"; fi
+for a in release/rkeychat-desktop-"$VERSION"-*.dmg release/rkeychat-desktop-"$VERSION"-*.zip release/rkeychat-desktop-"$VERSION"-*.AppImage release/rkeychat-desktop-"$VERSION"-*.deb; do
+  name="$(basename "$a" | sed -e 's/-amd64\./-x64./' -e 's/-x86_64\./-x64./')"
+  cp -f "$a" "$DELIVERIES/$name"
+  echo "delivery: $DELIVERIES/$name"
 done
-echo "done: rKeyChat $VERSION for $PLATFORM"
+echo "done: rKeyChat $VERSION for $PLATFORM (records and the channel: npm run release)"

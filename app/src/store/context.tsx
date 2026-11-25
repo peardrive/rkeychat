@@ -72,6 +72,12 @@ export interface Actions {
   refreshSetup(): Promise<void>;
   /** Save a setup choice; the daemon answers with the whole setup, which lands in the store. */
   saveSetup(patch: { agent?: string | null; done?: boolean }): Promise<void>;
+  /** Where the update channel stands (docs/updates.md). */
+  refreshUpdates(): Promise<void>;
+  /** Read the channel again. */
+  checkUpdates(): Promise<void>;
+  /** Download the newest version (or `id`) and let the desktop app swap itself; the notice follows the pushed state. */
+  installUpdate(id?: string | null): Promise<void>;
 }
 
 const StoreContext = createContext<{ state: State; dispatch: React.Dispatch<Action>; actions: Actions } | null>(null);
@@ -277,6 +283,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       async saveSetup(patch) {
         dispatch({ type: 'setup', setup: await api().saveSetup(patch) });
       },
+      async refreshUpdates() {
+        try {
+          dispatch({ type: 'updates', updates: await api().updates() });
+        } catch {}
+      },
+      async checkUpdates() {
+        dispatch({ type: 'updates', updates: await api().updatesCheck() });
+      },
+      async installUpdate(id) {
+        try {
+          dispatch({ type: 'updates', updates: await api().updatesInstall({ id: id ?? null }) });
+        } catch (e) {
+          // the daemon pushed the job's error state already; the Updates block shows it with Try again
+          await a.refreshUpdates();
+          throw e;
+        }
+      },
     };
     return a;
   }, []);
@@ -295,6 +318,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       actions.loadDevices().catch(() => {});
       actions.loadPending().catch(() => {});
       void actions.refreshSetup();
+      void actions.refreshUpdates();
       getApi()
         .loginAsks()
         .then((r) => dispatch({ type: 'loginAsks', asks: r.asking ?? [] }))
@@ -329,6 +353,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       'login-ask': (ask) => dispatch({ type: 'loginAsk', ask }),
       setup: (setup) => dispatch({ type: 'setup', setup }),
+      updates: (updates) => dispatch({ type: 'updates', updates }),
       claude: (login) => {
         dispatch({ type: 'claudeLogin', login });
         // a finished login changes whether an agent can run: the setup says so

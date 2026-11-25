@@ -7,3 +7,5 @@ release/
 # the new shell (app/): built by `npm run app:build`, served by the daemon at /app/
 app/node_modules/
 app/dist/
+# written by scripts/ship-app.sh at build time: the build counter and commit the running copy reports
+src/build.json

@@ -443,3 +443,44 @@ test('first run on a phone: agents run on a computer, two steps, no folder to pi
     await ctx.close();
   }
 });
+
+test('updates: Settings shows the running copy and "Update to 0.3.2"; a version opens its notes and signature; one press downloads and restarts, the sidebar notice following', async () => {
+  const { page, ctx, errors } = await open({ phone: false });
+  try {
+    // the sidebar notice is there before Settings is even opened
+    const notice = page.getByRole('button', { name: 'Update to 0.3.2' });
+    await notice.first().waitFor();
+    await page.getByRole('radio', { name: 'Settings' }).click();
+    await page.getByText('0.3.1 · build 2026-11-25.1 · abc1234').waitFor();
+    await page.getByText('/Applications/rKeyChat.app').first().waitFor();
+    assert.equal(await notice.count(), 2, 'the notice in the sidebar and the button in the Updates block');
+    // a version's window: notes, and who signed it
+    await page.getByRole('button', { name: 'Release notes for 0.3.2' }).click();
+    await page.getByText('Signed by the rKeyChat publisher').waitFor();
+    await page.getByText(/the previous copy is kept/).waitFor();
+    await page.keyboard.press('Escape'); // the release window closes
+    await page.getByText('Signed by the rKeyChat publisher').waitFor({ state: 'hidden' });
+    // one press: download with progress, then the swap
+    await notice.last().click();
+    await page.getByText(/Downloading update…|Downloading 0\.3\.2/).first().waitFor({ timeout: 3000 });
+    await page.getByText('Restarting…').waitFor({ timeout: 6000 });
+    await page.getByText(/Installing 0\.3\.2/).waitFor();
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('updates: a copy on the newest version has no notice and says so in Settings', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${PORT}/app/?updates=none`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(600);
+    await page.getByRole('radio', { name: 'Settings' }).click();
+    await page.getByText("You're up to date").waitFor();
+    assert.equal(await page.getByRole('button', { name: /^Update to/ }).count(), 0);
+  } finally {
+    await ctx.close();
+  }
+});

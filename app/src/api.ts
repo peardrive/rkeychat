@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, AutoLimit, Charter, ClaudeLoginState, ClaudeStatus, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, ProviderPreset, Rec, RoomSummary, SearchHit, Seat, SeatChange, SetupInfo, StateResponse } from './types';
+import type { AgentInfo, AutoLimit, Charter, ClaudeLoginState, ClaudeStatus, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, ProviderPreset, Rec, ReleaseInfo, RoomSummary, SearchHit, Seat, SeatChange, SetupInfo, StateResponse, UpdatesState } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -80,6 +80,18 @@ export interface Api {
   claudeLoginCode(body: { code: string }): Promise<ClaudeLoginState>;
   claudeLoginCancel(): Promise<ClaudeLoginState>;
   claudeLogout(): Promise<ClaudeStatus>;
+  /** In-app updates (docs/updates.md): where the channel stands, the versions on it, this copy's version. */
+  updates(): Promise<UpdatesState>;
+  /** Read the channel again. */
+  updatesCheck(): Promise<UpdatesState>;
+  /** Fetch an installer (the newest pending one without `id`); progress comes as `updates` events. */
+  updatesDownload(body: { id?: string | null }): Promise<UpdatesState>;
+  /** Download if needed, then the desktop app swaps itself and relaunches. */
+  updatesInstall(body: { id?: string | null }): Promise<UpdatesState>;
+  /** Where updates come from: a Space link + publisher key, a local folder, or back to the default. */
+  updatesChannel(body: { link?: string | null; publisher?: string | null; folder?: string | null; reset?: boolean }): Promise<UpdatesState>;
+  /** One release in full, signature included (the release window). */
+  updatesRelease(id: string): Promise<ReleaseInfo>;
 }
 
 export class ApiError extends Error {
@@ -174,6 +186,12 @@ export const httpApi: Api = {
   claudeLoginCode: (b) => post('claude/login/code', b),
   claudeLoginCancel: () => post('claude/login/cancel', {}),
   claudeLogout: () => post('claude/logout', {}),
+  updates: () => get('updates'),
+  updatesCheck: () => post('updates/check', {}),
+  updatesDownload: (b) => post('updates/download', b),
+  updatesInstall: (b) => post('updates/install', b),
+  updatesChannel: (b) => post('updates/channel', b),
+  updatesRelease: (id) => get('updates/release', { id }),
 };
 
 export const MOCK = import.meta.env?.VITE_MOCK === '1';

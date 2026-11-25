@@ -72,6 +72,8 @@ export {
   ToastProvider,
   Toggle,
   Tooltip,
+  UpdateNotice,
+  UpdatesPanel,
   WindowControls,
   cn,
   copyToClipboard,
@@ -88,12 +90,13 @@ export {
   syncBubbleLinger,
   syncProgressLabel,
   syncStateMeta,
+  noticeFor,
   useSidebar,
   useTheme,
   useToast,
   withAlpha,
 } from 'pearkit';
-export type { ActivityItem, ActivityKind, AskAnswer, AskChoice, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, NetworkState, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, SyncState, ToastOptions } from 'pearkit';
+export type { ActivityItem, ActivityKind, AskAnswer, AskChoice, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, NetworkState, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, SyncState, ToastOptions, UpdateChannelState, UpdateRelease, UpdateVersion, UpdatesStatus } from 'pearkit';
 
 // Pending in PearKit: the file rows of a project (projects-home-and-sync.md §3).
 export { FileList, FileRow } from './pending-pearkit/FileList';

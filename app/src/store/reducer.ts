@@ -1,7 +1,7 @@
 /**
  * Pure app state. Everything the shell shows derives from here; pushes and API results arrive as actions.
  */
-import type { AgentState, Budget, ClaudeLoginState, Conversation, Device, LoginAsk, OpenAsk, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, Participant, SetupInfo } from '../types';
+import type { AgentState, Budget, ClaudeLoginState, Conversation, Device, LoginAsk, OpenAsk, Participant, PendingRequest, Reactions, Rec, RoomSnapshot, RoomSummary, SetupInfo, UpdatesState } from '../types';
 import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
@@ -38,6 +38,8 @@ export type State = {
   setup: SetupInfo | null;
   /** A Claude login in progress, as the daemon pushes it. */
   claudeLogin: ClaudeLoginState | null;
+  /** The update channel (null until fetched; docs/updates.md). */
+  updates: UpdatesState | null;
 };
 
 export const initialState: State = {
@@ -59,6 +61,7 @@ export const initialState: State = {
   selected: { topic: null, conv: null },
   setup: null,
   claudeLogin: null,
+  updates: null,
 };
 
 export type Action =
@@ -95,6 +98,7 @@ export type Action =
   | { type: 'connected'; value: boolean }
   | { type: 'setup'; setup: SetupInfo }
   | { type: 'claudeLogin'; login: ClaudeLoginState }
+  | { type: 'updates'; updates: UpdatesState }
   | { type: 'error'; error: string | null };
 
 const MAX_ACTIVITY = 200;
@@ -325,6 +329,8 @@ export function reducer(state: State, action: Action): State {
       return { ...state, setup: action.setup };
     case 'claudeLogin':
       return { ...state, claudeLogin: action.login };
+    case 'updates':
+      return { ...state, updates: action.updates };
     case 'loginAsk': {
       const a = action.ask;
       const who = a.names?.map((n) => n.name).join(', ') || 'somebody';

@@ -5,7 +5,8 @@
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { rkc, type TextInputRef } from '../hooks';
-import { ALL_ORGS, DropZone, IconButton, MenuButton, OrgTabs, SearchField, SegmentedControl, Sidebar, SidebarContent, SidebarHeader, SidebarSpacer, SidebarToggle, WindowControls, useSidebar, useToast, type DroppedItem, type MenuItem } from '../kit';
+import { ALL_ORGS, DropZone, IconButton, MenuButton, OrgTabs, SearchField, SegmentedControl, Sidebar, SidebarContent, SidebarHeader, SidebarSpacer, SidebarToggle, UpdateNotice, WindowControls, useSidebar, useToast, type DroppedItem, type MenuItem } from '../kit';
+import { noticeOf } from '../store/updates';
 import { useStore } from '../store/context';
 import { feedUnread } from '../store/feed';
 import { filterByOrg, orgTabs, writeOrgFilter, type DockPage, type OrgFilter } from '../store/nav';
@@ -67,6 +68,7 @@ export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProjec
           <SidebarSpacer />
           <SidebarToggle />
         </SidebarHeader>
+        <UpdateBanner />
         <Tabs tab={tab} onTab={onTab} unread={unread} />
         <Body
           tab={tab}
@@ -86,6 +88,19 @@ export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProjec
         />
       </DropZone>
     </Sidebar>
+  );
+}
+
+/** A newer version waits: one press downloads it, installs it and restarts the app (pearkit UpdateNotice, docs/updates.md). */
+function UpdateBanner() {
+  const { state, actions } = useStore();
+  const { collapsed } = useSidebar();
+  const n = noticeOf(state.updates);
+  if (!n) return null;
+  return (
+    <View className={collapsed ? 'items-center pb-2' : 'w-full px-0.5 pb-2'}>
+      <UpdateNotice version={n.version} behind={n.behind} state={n.state} progress={n.progress} error={n.error} onPress={() => void actions.installUpdate().catch(() => {})} />
+    </View>
   );
 }
 
