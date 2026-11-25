@@ -5,14 +5,13 @@
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import { rkc, type TextInputRef } from '../hooks';
-import { ALL_ORGS, DropZone, IconButton, MenuButton, OrgTabs, SearchField, SegmentedControl, Sidebar, SidebarContent, SidebarHeader, SidebarSpacer, SidebarToggle, UpdateNotice, WindowControls, useSidebar, useToast, type DroppedItem, type MenuItem } from '../kit';
+import { ALL_ORGS, DropZone, IconButton, MenuButton, OrgTabs, SearchField, SegmentedControl, Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarItem, SidebarSpacer, SidebarToggle, UpdateNotice, useSidebar, useToast, type DroppedItem, type MenuItem } from '../kit';
 import { noticeOf } from '../store/updates';
 import { useStore } from '../store/context';
 import { feedUnread } from '../store/feed';
 import { filterByOrg, orgTabs, writeOrgFilter, type DockPage, type OrgFilter } from '../store/nav';
 import { folderName, orderedRooms } from '../store/selectors';
 import { ActivityFeedView, MarkAllRead } from './ActivityPage';
-import { DebugButton } from './DebugButton';
 import { HomeBlocks } from './HomeBlocks';
 import { ProjectList, type ProjectAction } from './ProjectList';
 
@@ -64,11 +63,13 @@ export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProjec
     <Sidebar resizable width={width} maxWidth={460} minWidth={240} onWidthChange={setWidth} onResizeEnd={(w) => localStorage.setItem(WIDTH_KEY, String(w))} contentClassName="px-2.5">
       <DropZone onDrop={onDrop} overlay="Drop a folder to start a project" className="w-full min-h-0 flex-1">
         <SidebarHeader className="px-1.5">
-          <WindowControls />
+          {/* the desktop app keeps macOS's own traffic lights (titleBarStyle hiddenInset); PearKit's drawn ones are for a
+              frameless window with the window bridge, which rKeyChat does not attach, so they sat beside the real ones
+              and did nothing (Guy, 2026-11-25). Only room is left for the real ones. */}
+          {rkc()?.desktop && rkc()?.platform === 'darwin' ? <View style={{ width: 58 }} /> : null}
           <SidebarSpacer />
           <SidebarToggle />
         </SidebarHeader>
-        <UpdateBanner />
         <Tabs tab={tab} onTab={onTab} unread={unread} />
         <Body
           tab={tab}
@@ -86,6 +87,11 @@ export function DesktopSidebar({ tab, onTab, orgFilter, onOrgFilter, onNewProjec
           onTabChange={onTab}
         onSetup={onSetup}
         />
+        {/* the bottom left: a version waiting, then Settings (Guy, 2026-11-25: "move settings down to the bottom left") */}
+        <SidebarFooter className="pt-2">
+          <UpdateBanner />
+          <SettingsEntry active={tab === 'settings'} onPress={() => onTab('settings')} />
+        </SidebarFooter>
       </DropZone>
     </Sidebar>
   );
@@ -98,10 +104,17 @@ function UpdateBanner() {
   const n = noticeOf(state.updates);
   if (!n) return null;
   return (
-    <View className={collapsed ? 'items-center pb-2' : 'w-full px-0.5 pb-2'}>
+    <View className={collapsed ? 'items-center pb-1' : 'w-full pb-1'}>
       <UpdateNotice version={n.version} behind={n.behind} state={n.state} progress={n.progress} error={n.error} onPress={() => void actions.installUpdate().catch(() => {})} />
     </View>
   );
+}
+
+/** Settings at the bottom left: a row when the sidebar is open, the gear alone when it is collapsed. */
+function SettingsEntry({ active, onPress }: { active: boolean; onPress: () => void }) {
+  const { collapsed } = useSidebar();
+  if (collapsed) return <IconButton icon="setting-2-bold" size="sm" active={active} tooltip={{ label: 'Settings', placement: 'right' }} onPress={onPress} />;
+  return <SidebarItem label="Settings" icon="setting-2-bold" selected={active} onPress={onPress} />;
 }
 
 function Tabs({ tab, onTab, unread }: { tab: DockPage; onTab: (t: DockPage) => void; unread: number }) {
@@ -112,25 +125,24 @@ function Tabs({ tab, onTab, unread }: { tab: DockPage; onTab: (t: DockPage) => v
         <IconButton icon="home" size="sm" active={tab === 'home'} tooltip={{ label: 'Home', placement: 'right' }} onPress={() => onTab('home')} />
         <IconButton icon="bell-fill" size="sm" active={tab === 'activity'} tooltip={{ label: `Activity${unread ? ` · ${unread}` : ''}`, placement: 'right' }} onPress={() => onTab('activity')} />
         <IconButton icon="folder-fill" size="sm" active={tab === 'projects'} tooltip={{ label: 'Projects', placement: 'right' }} onPress={() => onTab('projects')} />
-        <IconButton icon="setting-2-bold" size="sm" active={tab === 'settings'} tooltip={{ label: 'Settings', placement: 'right' }} onPress={() => onTab('settings')} />
       </View>
     );
   }
+  // the four tabs span the sidebar's width at the larger size; the debug-notes button is the one in the page
+  // header's top right, not a second one here (Guy, 2026-11-25)
   return (
-    <View className="w-full flex-row items-center gap-1.5 px-0.5 pb-2">
+    <View className="w-full px-0.5 pb-2.5">
       <SegmentedControl
         fullWidth
-        size="sm"
+        size="md"
         value={tab}
         onChange={(v) => onTab(v as DockPage)}
         options={[
           { value: 'home', icon: 'home', accessibilityLabel: 'Home' },
           { value: 'activity', icon: 'bell-fill', label: unread ? String(unread) : undefined, accessibilityLabel: 'Activity' },
           { value: 'projects', icon: 'folder-fill', accessibilityLabel: 'Projects' },
-          { value: 'settings', icon: 'setting-2-bold', accessibilityLabel: 'Settings' },
         ]}
       />
-      <DebugButton />
     </View>
   );
 }

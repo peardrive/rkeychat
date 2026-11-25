@@ -450,7 +450,7 @@ test('updates: Settings shows the running copy and "Update to 0.3.2"; a version 
     // the sidebar notice is there before Settings is even opened
     const notice = page.getByRole('button', { name: 'Update to 0.3.2' });
     await notice.first().waitFor();
-    await page.getByRole('radio', { name: 'Settings' }).click();
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
     await page.getByText('0.3.1 · build 2026-11-25.1 · abc1234').waitFor();
     await page.getByText('/Applications/rKeyChat.app').first().waitFor();
     assert.equal(await notice.count(), 2, 'the notice in the sidebar and the button in the Updates block');
@@ -477,7 +477,7 @@ test('updates: a copy on the newest version has no notice and says so in Setting
   try {
     await page.goto(`http://127.0.0.1:${PORT}/app/?updates=none`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
-    await page.getByRole('radio', { name: 'Settings' }).click();
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
     await page.getByText("You're up to date").waitFor();
     assert.equal(await page.getByRole('button', { name: /^Update to/ }).count(), 0);
   } finally {
