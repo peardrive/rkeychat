@@ -8,6 +8,7 @@
  *   npm run release -- --notes "what changed"
  *   npm run release -- --folder ~/Anjou/_deliveries/rkeychat-mobile --app rkeychat-mobile   (the phone's folder)
  *   npm run release -- --dry                  show what would be written, write nothing
+ *   npm run release -- --version 0.3.3 --build 2026-11-25.3 --commit 9eb8e0b   an earlier version's late artifacts
  *
  * The running rKeyChat daemon on this Mac does the signing (its device key is the channel's publisher):
  * POST /api/updates/record signs each record, POST /api/updates/publish makes the Space once, remembers the folder
@@ -39,7 +40,8 @@ if (!version) { console.error('--version is needed with --app'); process.exit(2)
 const folder = path.resolve(opt('folder') || path.join(os.homedir(), 'Anjou', '_deliveries', APP));
 let buildInfo = {};
 try { buildInfo = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'build.json'), 'utf8')); } catch { /* a source tree: the record's build is made below */ }
-const commit = (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim(); } catch { return ''; } })();
+// --build and --commit: a release of a version other than the tree's (its Linux artifacts arriving after the next bump)
+const commit = opt('commit') || (() => { try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim(); } catch { return ''; } })();
 const notes = opt('notes') || '';
 
 const names = fs.existsSync(folder) ? fs.readdirSync(folder).filter((n) => !n.endsWith('.release.json') && parseInstallerName(n)?.app === APP && parseInstallerName(n).version === version) : [];
@@ -49,7 +51,7 @@ for (const n of names) console.log(`  ${n}  ${(fs.statSync(path.join(folder, n))
 
 // the build counter: the ship's, else the next for today among the records already in the folder
 const today = new Date().toISOString().slice(0, 10);
-const build = buildInfo.build || (() => {
+const build = opt('build') || buildInfo.build || (() => {
   const seqs = fs.readdirSync(folder).filter((n) => n.endsWith('.release.json')).map((n) => { try { return JSON.parse(fs.readFileSync(path.join(folder, n), 'utf8')).build; } catch { return ''; } }).filter((b) => String(b).startsWith(today)).map((b) => Number(String(b).split('.').pop()) || 0);
   return `${today}.${Math.max(0, ...seqs) + 1}`;
 })();
