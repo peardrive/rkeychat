@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { getApi } from '../api';
 import { Button, FileList, MediaViewer, Text, copyToClipboard, useToast, viewableAttachments, type ChatAttachment, type FileState } from '../kit';
-import { rkc } from '../hooks';
+import { rkc, viewerInsets } from '../hooks';
 import { attachmentOf } from '../store/mapping';
 import { useStore } from '../store/context';
 import { homeOf } from '../store/selectors';
@@ -111,7 +111,7 @@ export function FilesView({ topic }: { topic: string }) {
           onFetch: () => void fetchOne(f),
         }))}
       />
-      <MediaViewer open={viewing !== null} items={items} index={viewing ?? 0} onIndexChange={setViewing} onClose={() => setViewing(null)} onShare={(a) => shareAttachment(a, toast)} />
+      <MediaViewer open={viewing !== null} items={items} index={viewing ?? 0} onIndexChange={setViewing} onClose={() => setViewing(null)} onShare={(a) => shareAttachment(a, toast)} insets={viewerInsets()} />
     </View>
   );
 }

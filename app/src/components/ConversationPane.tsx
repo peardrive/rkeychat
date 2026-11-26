@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
-import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, type TextInputRef } from '../hooks';
+import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, viewerInsets, type TextInputRef } from '../hooks';
 import { AskCard, AskFold, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MediaViewer, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, viewableAttachments, type AskChoice, type ChatMessage } from '../kit';
 import { attachmentIndex, threadAttachments } from '../store/attachments';
 import { shareAttachment } from './FilesView';
@@ -279,7 +279,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
           />
         </View>
       )}
-      <MediaViewer open={viewing !== null} items={attachments} index={viewing ?? 0} onIndexChange={setViewing} onClose={() => setViewing(null)} onShare={(a) => shareAttachment(a, toast)} />
+      <MediaViewer open={viewing !== null} items={attachments} index={viewing ?? 0} onIndexChange={setViewing} onClose={() => setViewing(null)} onShare={(a) => shareAttachment(a, toast)} insets={viewerInsets()} />
       {tab === 'chat' ? (
         <View className="gap-1 px-3" style={composerStyle}>
           {/* the status line only when there is something to say: otherwise the messages run right down to the field */}

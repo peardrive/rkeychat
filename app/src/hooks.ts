@@ -61,6 +61,46 @@ export function isTouch(): boolean {
 export const SAFE_TOP = 'env(safe-area-inset-top)';
 export const SAFE_BOTTOM = 'env(safe-area-inset-bottom)';
 
+/** The parts of the window a full-screen layer keeps clear of, in px. */
+export type Edges = { top: number; bottom: number; left: number; right: number };
+
+/** macOS keeps its traffic lights over the first rows of the window (titleBarStyle hiddenInset): a full-screen layer's bar sits below them. */
+export const MAC_TITLE_BAR = 40;
+
+/**
+ * What a full-screen layer (the media viewer) keeps clear of: the Mac's title bar with the traffic lights on the
+ * desktop app, the phone's notch and home bar in a WebView, nothing in a browser tab. Pure: the measured safe areas
+ * come in from `measureSafeInsets()`.
+ */
+export function viewerInsetsFor({ desktop, platform, safe }: { desktop: boolean; platform?: string; safe: Edges }): Edges {
+  if (desktop && platform === 'darwin') return { top: Math.max(MAC_TITLE_BAR, safe.top), bottom: safe.bottom, left: safe.left, right: safe.right };
+  return safe;
+}
+
+let measured: Edges | null = null;
+/** The CSS `env(safe-area-inset-*)` values in px, read once from a probe element (0 where there are none). */
+export function measureSafeInsets(): Edges {
+  if (measured) return measured;
+  const none = { top: 0, bottom: 0, left: 0, right: 0 };
+  if (typeof document === 'undefined') return none;
+  try {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)';
+    document.body.appendChild(el);
+    const cs = getComputedStyle(el);
+    measured = { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0, left: parseFloat(cs.paddingLeft) || 0, right: parseFloat(cs.paddingRight) || 0 };
+    el.remove();
+    return measured;
+  } catch {
+    return none;
+  }
+}
+
+/** The insets the media viewer gets here. */
+export function viewerInsets(): Edges {
+  return viewerInsetsFor({ desktop: !!rkc()?.desktop, platform: rkc()?.platform, safe: measureSafeInsets() });
+}
+
 /** Horizontal swipe on a touch screen (web): `onSwipe(-1)` for right-to-left, `onSwipe(1)` for left-to-right. */
 export function useSwipe(onSwipe: (direction: 1 | -1) => void, minPx = 56) {
   const start = useRef<{ x: number; y: number } | null>(null);
