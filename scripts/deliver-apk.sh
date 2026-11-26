@@ -67,3 +67,7 @@ if [[ -f "$HOME/Anjou/rKeyChat/scripts/release.mjs" ]]; then
   node "$HOME/Anjou/rKeyChat/scripts/release.mjs" --app rkeychat-mobile --version "$VERSION" --folder "$DELIVERIES" --notes "versionCode $CODE, commit $SHA$DIRTY, $SIGNED" \
     || echo "WARN: no release record written (is rKeyChat running on this Mac?); the deliveries check fails until: npm --prefix ~/Anjou/rKeyChat run release -- --app rkeychat-mobile --version $VERSION --folder $DELIVERIES" >&2
 fi
+# ONE BUILD KEPT (~/Anjou/_publishing/disk.md, Guy 2026-11-26): the APKs of older versions, and gradle's build folder
+# (1.3 GB; the next build makes it again), go once this one is delivered.
+TIDY="$HOME/Anjou/_publishing/lessons/tools/tidy-disk/tidy-disk.mjs"
+if [[ -f "$TIDY" ]]; then node "$TIDY" --app rkeychat-mobile --apply | tail -1; fi
