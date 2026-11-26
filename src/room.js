@@ -30,6 +30,8 @@ const MIMES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'i
 export const mimeOf = (name) => MIMES[extname(String(name)).slice(1).toLowerCase()] ?? 'application/octet-stream'
 export const TURN_WINDOW = 45_000 // how long the next agent in line waits before taking an unclaimed turn
 export const MAX_BLOB = 8 * 1024 * 1024 // one pearcore message; ~40 min of voice
+const FILE_LIMIT = 60 * 60_000 // the most a fetch may take
+const FILE_STALL = 90_000 // a fetch with nothing arriving for this long is given up and said so
 const RECENT = 48 * 3600_000 // history sync compares ids within this window
 
 export class Room extends EventEmitter {
@@ -978,16 +980,35 @@ export class Room extends EventEmitter {
       const dir = this.store.filePath(att.hash)
       fsSync.mkdirSync(dir, { recursive: true })
       const dest = `${dir}/${att.name}`
+      const providers = this.providersOf(att)
+      console.log(`[files] fetching ${att.name} (${att.size ?? '?'} B) from ${providers.length} provider(s): ${providers.map((p) => p.slice(0, 8)).join(', ') || 'nobody listed'}`)
       const task = await entry.download(att.hash, dest)
       this.emit('file-progress', { hash: att.hash, percent: 0 })
       const onProgress = () => { const p = task.getProgress?.()?.percent; if (typeof p === 'number') this.emit('file-progress', { hash: att.hash, percent: p }) }
       task.onProgress?.(onProgress)
+      const started = Date.now()
       try {
+        // a fetch that gets nothing says so (2026-11-25: the phone waited for ever on pictures the Mac never sent, and
+        // nothing was logged): a peer's refusal, the task's own error, or no progress for FILE_STALL
         await new Promise((resolve, reject) => {
-          const t = setTimeout(() => reject(new Error('download timed out')), 6 * 3600_000); t.unref()
-          task.onComplete(() => { clearTimeout(t); resolve() })
+          let done = false
+          const finish = (fn) => { if (done) return; done = true; clearInterval(tick); clearTimeout(t); fn() }
+          const t = setTimeout(() => finish(() => reject(new Error(`download timed out after ${Math.round(FILE_LIMIT / 60000)} min`))), FILE_LIMIT); t.unref?.()
+          let lastPct = -1; let lastMove = Date.now()
+          const tick = setInterval(() => {
+            const p = task.getProgress?.()?.percent
+            if (typeof p === 'number' && p !== lastPct) { lastPct = p; lastMove = Date.now() }
+            if (Date.now() - lastMove > FILE_STALL) finish(() => reject(new Error(`nothing arrived for ${Math.round(FILE_STALL / 1000)}s (${this.providersOf(att).length} provider(s) listed, ${this.connections().length} peer(s) connected)`)))
+          }, 1000); tick.unref?.()
+          task.onComplete(() => finish(resolve))
+          task.onError?.((e) => finish(() => reject(e instanceof Error ? e : new Error(String(e)))))
         })
+      } catch (err) {
+        try { await task.stop?.() } catch {}
+        console.error(`[files] ${att.name}: ${err.message} (after ${Math.round((Date.now() - started) / 1000)}s)`)
+        throw err
       } finally { task.offProgress?.(onProgress) }
+      console.log(`[files] fetched ${att.name} in ${Math.round((Date.now() - started) / 1000)}s`)
       this.store.rememberFile(att.hash, dest)
       // become a provider too (fire and forget)
       browser.addFile(att.name, dest).catch(() => {})
