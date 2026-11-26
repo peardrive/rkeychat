@@ -484,3 +484,47 @@ test('updates: a copy on the newest version has no notice and says so in Setting
     await ctx.close();
   }
 });
+
+test('attachments: a picture drops into the conversation as a tile, three as a gallery with the file as a chip; a press opens the viewer, arrows page, Escape closes; the Files tab shows thumbnails and opens the same viewer', async () => {
+  const { page, ctx, errors } = await open({ phone: false });
+  try {
+    await page.getByRole('radio', { name: 'Projects' }).click();
+    await page.waitForTimeout(500);
+    await page.getByText('Redesign the share row').first().click();
+    const tile = page.getByRole('button', { name: 'Open share-row.png' });
+    await tile.waitFor();
+    await page.getByRole('button', { name: 'Open row-a.png' }).waitFor();
+    assert.ok(await page.getByRole('button', { name: 'Open measurements.pdf' }).isVisible(), 'the pdf is a chip');
+    assert.ok((await page.locator('[style*="data:image/png"], img[src^="data:image/png"]').count()) >= 4, 'the pictures themselves are on the tiles');
+    await tile.click();
+    await page.getByLabel(/^Viewing share-row\.png/).waitFor();
+    await page.keyboard.press('ArrowRight');
+    await page.getByLabel(/^Viewing row-a\.png/).waitFor();
+    await page.keyboard.press('Escape');
+    await page.getByLabel(/^Viewing/).waitFor({ state: 'hidden' });
+    await page.getByLabel('Files').click();
+    await page.getByText('sync-trace.log').waitFor();
+    await page.getByRole('button', { name: 'Open' }).first().click();
+    await page.getByLabel(/^Viewing share-row\.png/).waitFor();
+    await page.keyboard.press('Escape');
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test('attachments on a phone: the tiles are in the thread, a tap opens the viewer, Back closes it', async () => {
+  const { page, ctx, errors } = await open();
+  try {
+    await openThread(page, 'Redesign the share row');
+    const tile = page.getByRole('button', { name: 'Open share-row.png' });
+    await tile.scrollIntoViewIfNeeded();
+    await tile.tap();
+    await page.getByLabel(/^Viewing share-row\.png/).waitFor();
+    await page.getByRole('button', { name: 'Back' }).last().tap(); // the player's, not the pane's
+    await page.getByLabel(/^Viewing/).waitFor({ state: 'hidden' });
+    assert.deepEqual(errors, []);
+  } finally {
+    await ctx.close();
+  }
+});

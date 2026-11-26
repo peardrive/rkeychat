@@ -4,14 +4,24 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { getApi } from '../api';
-import { Button, FileList, Text, useToast, type FileState } from '../kit';
+import { Button, FileList, MediaViewer, Text, copyToClipboard, useToast, viewableAttachments, type ChatAttachment, type FileState } from '../kit';
+import { rkc } from '../hooks';
+import { attachmentOf } from '../store/mapping';
 import { useStore } from '../store/context';
 import { homeOf } from '../store/selectors';
 import { shortTime } from '../time';
 import type { FileEntry } from '../types';
 
-export function fileUrl(f: Pick<FileEntry, 'hash' | 'name'>) {
-  return `/api/file/${f.hash.slice(0, 16)}/${encodeURIComponent(f.name)}`;
+export function fileUrl(f: Pick<FileEntry, 'hash' | 'name'>, topic?: string | null) {
+  return `/api/file/${f.hash.slice(0, 16)}/${encodeURIComponent(f.name)}${topic ? `?room=${encodeURIComponent(topic)}` : ''}`;
+}
+
+/** Hand a file out of the app: the desktop opens a download in the system browser; a phone copies its link. */
+export function shareAttachment(a: ChatAttachment, toast: (o: { title: string; description?: string; duration?: number }) => void) {
+  if (!a.url) return;
+  const dl = `${a.url}${a.url.includes('?') ? '&' : '?'}dl=1`;
+  if (rkc()?.desktop || (typeof window !== 'undefined' && !('ontouchstart' in window))) window.open(dl, '_blank');
+  else void copyToClipboard(dl).then((ok) => toast({ title: ok ? 'Link copied' : 'Could not copy', description: a.name, duration: 1500 }));
 }
 
 export function FilesView({ topic }: { topic: string }) {
@@ -21,6 +31,7 @@ export function FilesView({ topic }: { topic: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [fetched, setFetched] = useState<Record<string, boolean>>({});
+  const [viewing, setViewing] = useState<number | null>(null);
   const room = state.rooms[topic];
   const home = homeOf(room, state.me?.ref);
 
@@ -70,6 +81,10 @@ export function FilesView({ topic }: { topic: string }) {
   }
 
   const stateOf = (f: FileEntry): FileState => (f.local ? (fetched[f.hash] ? 'fetched' : 'here') : f.providers > 0 ? 'away' : 'unavailable');
+  // the same attachments the chat shows, so the viewer and its pages are the same here
+  const items = files.map((f) => attachmentOf({ hash: f.hash, kind: 'file', name: f.name, mime: f.mime, size: f.size, w: f.w, h: f.h, url: f.url }, topic));
+  const viewable = new Set(viewableAttachments(items).map((v) => v.index));
+  const open = (i: number) => (viewable.has(i) ? setViewing(i) : shareAttachment(items[i]!, toast));
 
   return (
     <View className="flex-1 px-2 pb-3 pt-1">
@@ -82,7 +97,7 @@ export function FilesView({ topic }: { topic: string }) {
         </View>
       ) : null}
       <FileList
-        files={files.map((f) => ({
+        files={files.map((f, i) => ({
           id: f.hash,
           name: f.name,
           size: f.size,
@@ -91,10 +106,12 @@ export function FilesView({ topic }: { topic: string }) {
           state: stateOf(f),
           where: home.here ? undefined : home.name ?? undefined,
           busy: !!busy[f.hash],
-          onOpen: () => void window.open(fileUrl(f), '_blank'),
+          thumbnail: f.mime?.startsWith('image/') ? f.url ?? fileUrl(f, topic) : undefined,
+          onOpen: () => open(i),
           onFetch: () => void fetchOne(f),
         }))}
       />
+      <MediaViewer open={viewing !== null} items={items} index={viewing ?? 0} onIndexChange={setViewing} onClose={() => setViewing(null)} onShare={(a) => shareAttachment(a, toast)} />
     </View>
   );
 }

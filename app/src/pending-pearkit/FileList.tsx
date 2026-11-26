@@ -17,6 +17,8 @@ export interface FileRowProps {
   /** Where it is when not here ("on macbook"). */
   where?: string;
   busy?: boolean;
+  /** A small picture of it (the file itself when it is an image). */
+  thumbnail?: string;
   onOpen?: () => void;
   onFetch?: () => void;
   className?: string;
@@ -29,12 +31,12 @@ const stateMeta: Record<FileState, { label: (where?: string) => string; tone: 's
   unavailable: { label: (w) => (w ? `unavailable, last on ${w}` : 'unavailable'), tone: 'warning' },
 };
 
-export function FileRow({ name, size, by, time, state, where, busy, onOpen, onFetch, className }: FileRowProps) {
+export function FileRow({ name, size, by, time, state, where, busy, thumbnail, onOpen, onFetch, className }: FileRowProps) {
   const m = stateMeta[state];
   const meta = [size ? formatBytes(size) : null, by, time].filter(Boolean).join(' · ');
   return (
     <View className={cn('w-full flex-row items-center gap-3 rounded-md px-2 py-2 hover:bg-overlay/[0.04]', className)}>
-      <Thumbnail kind={fileKindFromName(name)} size={36} />
+      <Thumbnail source={thumbnail} kind={fileKindFromName(name)} size={36} />
       <View className="min-w-0 flex-1 gap-px">
         <Text variant="body-lg" numberOfLines={1}>
           {name}

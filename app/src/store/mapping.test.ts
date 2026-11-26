@@ -37,12 +37,13 @@ describe('toChatMessage', () => {
     expect(toChatMessage(rec, { me: 'guy', reactions: {} }).reactions).toBeUndefined();
   });
 
-  it('maps attachments to name/size/kind/url', () => {
-    const m = toChatMessage({ ...rec, att: [{ hash: 'abc', kind: 'file', name: 'shot.png', mime: 'image/png', size: 1234 }, { hash: 'def', mime: 'audio/webm', size: 9, ms: 4000 }] });
+  it('maps attachments: a shared file by its hash and name in the room, a voice memo as a blob', () => {
+    const m = toChatMessage({ ...rec, att: [{ hash: 'abc'.padEnd(64, '0'), kind: 'file', name: 'shot.png', mime: 'image/png', size: 1234, w: 640, h: 480 }, { hash: 'def', mime: 'audio/webm', size: 9, ms: 4000 }] }, { topic: 't1' });
     expect(m.attachments).toEqual([
-      { name: 'shot.png', size: 1234, kind: 'image', url: '/api/blob/abc' },
-      { name: 'Voice memo', size: 9, kind: 'audio', url: '/api/blob/def' },
+      { id: 'abc'.padEnd(64, '0'), name: 'shot.png', size: 1234, kind: 'image', mime: 'image/png', url: '/api/file/abc0000000000000/shot.png?room=t1', thumbnail: '/api/file/abc0000000000000/shot.png?room=t1', width: 640, height: 480 },
+      { id: 'def', name: 'Voice memo', size: 9, kind: 'audio', mime: 'audio/webm', url: '/api/blob/def?room=t1&mime=audio%2Fwebm', thumbnail: undefined, width: undefined, height: undefined },
     ]);
+    expect(toChatMessage({ ...rec, att: [{ hash: 'x'.repeat(64), kind: 'file', name: 'a b.pdf', mime: 'application/pdf', size: 1 }] }).attachments?.[0]).toMatchObject({ kind: undefined, url: '/api/file/xxxxxxxxxxxxxxxx/a%20b.pdf' });
   });
 });
 

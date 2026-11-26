@@ -29,6 +29,14 @@ Started 2026-11-24 from the `projects` branch; the ideas below were carried from
 
 ## Done
 
+- **Files in the conversation** (2026-11-25, Guy: "I should have a minimal small view where the images drop right into
+  the conversation… a PearKit item for this with variations for multiple images or files… show up in the files list…
+  and I need to be able to view it"). Shipped: PearKit `Attachments` (one picture keeps its shape, two side by side,
+  three as one over two, four or more a grid with +N; other files as chips) and `MediaViewer` (the shared MediaPlayer
+  full screen, next/previous, share); the shell's file URLs now reach the daemon's `/api/file` route (they pointed at
+  the voice-memo route and 404ed, which is why the Leaf Note icons never showed); thumbnails and the viewer in the Files
+  tab; a shared picture carries its size. Open: a native video engine on the phone (the viewer shows pictures there;
+  video and sound through the web engine inside the webview), a share sheet on the phone (today the link is copied).
 - **In-app updates and one rKeyChat in /Applications** (2026-11-25, Guy: "add our auto internal update module like we
   have in PearDrive, it should be available in PearKit as a main module… one main .dmg app in my Applications folder
   which we can continue to sign and update… one location with one main way to launch it"). Shipped: `pearkit/updates`

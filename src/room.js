@@ -13,6 +13,7 @@ import { SCOPES, MAIN, isConvId, newConvId, APP_ROLES, ASK_CHOICES, envelope, is
 import { budget, addressedTo, replyDepth } from './turns.js'
 import { windowOf } from './feed-window.js'
 import { RoomSearch } from './search.js'
+import { imageSize } from './image-size.js'
 
 // record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
 // messages they point at; invites are addressed to one device)
@@ -813,6 +814,8 @@ export class Room extends EventEmitter {
           path: a.kind === 'file' ? String(a.path).slice(0, 1024) : undefined,
           mime: String(a.mime ?? 'application/octet-stream'),
           size: Math.round(Number(a.size) || 0),
+          w: a.kind === 'file' && Number(a.w) > 0 ? Math.round(Number(a.w)) : undefined,
+          h: a.kind === 'file' && Number(a.h) > 0 ? Math.round(Number(a.h)) : undefined,
           ms: a.ms != null ? Math.round(Number(a.ms)) : a.duration != null ? Math.round(Number(a.duration) * 1000) : undefined,
           peaks: Array.isArray(a.peaks) ? a.peaks.slice(0, 64).map((p) => Math.max(0, Math.min(100, Math.round(Number(p) <= 1 ? Number(p) * 100 : Number(p))))) : undefined,
           transcript: a.transcript ? String(a.transcript) : undefined
@@ -942,7 +945,10 @@ export class Room extends EventEmitter {
     }
     if (!root) throw new Error('indexing produced no root')
     this.store.rememberFile(root, localPath)
-    return { kind: 'file', hash: root, name, path, size: st.size, mime: mimeOf(name) }
+    const mime = mimeOf(name)
+    // a picture says its shape, so a chat lays its gallery out before the bytes arrive (src/image-size.js)
+    const dims = mime.startsWith('image/') ? imageSize(localPath) : null
+    return { kind: 'file', hash: root, name, path, size: st.size, mime, ...(dims ? { w: dims.w, h: dims.h } : {}) }
   }
 
   // Where a shared file is on this device, if it is (our own, or fetched).

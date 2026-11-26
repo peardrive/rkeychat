@@ -32,7 +32,13 @@ export type AppRecord = {
 } | null;
 
 /** A file shared in a room (`GET /api/files?room=`). `local`: the bytes are on this device. */
-export type FileEntry = { hash: string; kind?: 'file'; name: string; path?: string; mime?: string; size?: number; by: string; ts: number; local: boolean; providers: number };
+export type FileEntry = { hash: string; kind?: 'file'; name: string; path?: string; mime?: string; size?: number; by: string; ts: number; local: boolean; providers: number
+  /** A picture's size in px, when the daemon read it. */
+  w?: number;
+  h?: number;
+  /** The mock only. */
+  url?: string;
+};
 
 /** `GET /api/people`: agents on this device and the people known from owned rooms. */
 export type Person = { name: string; role: 'human' | 'agent'; local?: boolean; from?: string };
@@ -173,6 +179,11 @@ export type Attachment = {
   size?: number;
   ms?: number;
   peaks?: number[];
+  /** A picture's size in px (the daemon reads it when the file is shared). */
+  w?: number;
+  h?: number;
+  /** The mock only: where the bytes are, when not on the daemon. */
+  url?: string;
 };
 
 /** A record as the daemon's view() hands it to the page (msg, activity, control…). */

@@ -143,3 +143,13 @@ for. PearDrive can read it from the room's log through the same records sync, or
 - `window.rkc.pathForFile(file)` → absolute path (webUtils).
 - `window.rkc.pickFolder()` → path or null (dialog.showOpenDialog).
 - `RKEYCHAT_SHELL=app` (or `--app`) loads `/app/` instead of `/`.
+
+
+## Attachments (2026-11-25)
+
+A message's `att[]` entries of kind `file` are shared by hash through the room's Space; the daemon serves one at
+`GET /api/file/<hash prefix ≥ 8>/<name>?room=<topic>` (fetched from the room on demand, range requests for media,
+`&dl=1` for a download), never at `/api/blob/` (that is for voice memos held in the message store). A shared picture
+carries `w` and `h` (read from its first bytes by `src/image-size.js`), so the chat lays its gallery out before the
+bytes arrive. `GET /api/files?room=` lists every file attachment of the room with `local` and `providers`.
+The shell shows attachments with PearKit's `Attachments` and opens them in its `MediaViewer` (app/src/store/mapping.ts).

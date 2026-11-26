@@ -6,7 +6,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { SAFE_BOTTOM, SAFE_TOP, isTouch, useKeyboardOpen, type TextInputRef } from '../hooks';
-import { AskCard, AskFold, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, type AskChoice, type ChatMessage } from '../kit';
+import { AskCard, AskFold, Button, Composer, Dialog, EmojiPicker, EmptyState, GlassBar, GlassBarButton, IconButton, MediaViewer, MessageList, Pane, SegmentedControl, StatusDot, Text, TextField, Toggle, copyToClipboard, useToast, viewableAttachments, type AskChoice, type ChatMessage } from '../kit';
+import { attachmentIndex, threadAttachments } from '../store/attachments';
+import { shareAttachment } from './FilesView';
 import type { Rec } from '../types';
 import { useStore } from '../store/context';
 import { bumpEmoji, readEmojiCounts, saveEmojiCounts, topEmoji } from '../store/emoji';
@@ -80,8 +82,12 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
     // a seat's settings and the answers to asks are not lines of their own (the profile and the ask's card carry them)
     const merged = mergeThread(thread.items.filter(inThread), activity ?? []);
     const shown = allSteps ? merged : collapseActivity(merged, asks);
-    return { messages: shown.map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions })), folds: new Map(shown.filter((r) => r.kind === 'fold').map((r) => [r.id, r])) };
+    return { messages: shown.map((r) => toChatMessage(r, { me: state.me?.human ?? null, reactions, topic })), folds: new Map(shown.filter((r) => r.kind === 'fold').map((r) => [r.id, r])) };
   }, [thread, key, topic, activity, state.details, state.me, allSteps, asks]);
+  // every attachment of the thread, for the viewer to page through; the pressed one opens it
+  const attachments = useMemo(() => threadAttachments(messages), [messages]);
+  const [viewing, setViewing] = useState<number | null>(null);
+  useEffect(() => setViewing(null), [key]);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const [answering, setAnswering] = useState<string | null>(null);
   // one of the owner's own devices (the daemon's own test, so the phone counts); an older daemon says only `owner`
@@ -252,7 +258,11 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
               void copyToClipboard(text);
               toast({ title: 'Copied', duration: 1200 });
             }}
-            onOpenAttachment={(a) => a.url && window.open(a.url, '_blank')}
+            onOpenAttachment={(a) => {
+              const i = attachmentIndex(attachments, a);
+              if (i >= 0 && viewableAttachments(attachments).some((v) => v.index === i)) setViewing(i);
+              else shareAttachment(a, toast);
+            }}
             onLinkPress={(url) => void window.open(url, '_blank')}
             header={
               !thread.hasOlder && messages.length ? (
@@ -269,6 +279,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
           />
         </View>
       )}
+      <MediaViewer open={viewing !== null} items={attachments} index={viewing ?? 0} onIndexChange={setViewing} onClose={() => setViewing(null)} onShare={(a) => shareAttachment(a, toast)} />
       {tab === 'chat' ? (
         <View className="gap-1 px-3" style={composerStyle}>
           {/* the status line only when there is something to say: otherwise the messages run right down to the field */}

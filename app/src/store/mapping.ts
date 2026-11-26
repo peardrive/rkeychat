@@ -6,13 +6,28 @@ import { askFoldLine, askStatus, type FoldedAsk } from 'pearkit/asks';
 import type { Attachment, Reactions, Rec } from '../types';
 import { autoWords, runLine } from './seatSettings';
 
-export function attachmentOf(a: Attachment): NonNullable<ChatMessage['attachments']>[number] {
+/** Where the daemon serves an attachment: a shared file by its hash (fetched from the room on demand), a voice memo as a blob. */
+export function attachmentUrl(a: Attachment, topic: string | null | undefined): string {
+  if (a.url) return a.url;
+  const room = topic ? `room=${encodeURIComponent(topic)}` : '';
+  if (a.kind === 'file') return `/api/file/${a.hash.slice(0, 16)}/${encodeURIComponent(a.name ?? 'file')}${room ? `?${room}` : ''}`;
+  return `/api/blob/${a.hash}?${[room, a.mime ? `mime=${encodeURIComponent(a.mime)}` : ''].filter(Boolean).join('&')}`;
+}
+
+export function attachmentOf(a: Attachment, topic?: string | null): NonNullable<ChatMessage['attachments']>[number] {
   const audio = a.kind !== 'file';
+  const url = attachmentUrl(a, topic);
+  const kind = audio ? 'audio' : a.mime?.startsWith('image/') ? 'image' : a.mime?.startsWith('video/') ? 'video' : undefined;
   return {
+    id: a.hash,
     name: a.name ?? (audio ? 'Voice memo' : 'File'),
     size: a.size,
-    kind: audio ? 'audio' : a.mime?.startsWith('image/') ? 'image' : 'file',
-    url: `/api/blob/${a.hash}`,
+    kind,
+    mime: a.mime,
+    url,
+    thumbnail: kind === 'image' ? url : undefined,
+    width: a.w,
+    height: a.h,
   };
 }
 
@@ -50,7 +65,7 @@ export function controlLine(rec: Rec): string {
 }
 
 /** A message, an activity record, an ask or a control as the chat list shows it. */
-export function toChatMessage(rec: Rec, opts: { me?: string | null; reactions?: Reactions } = {}): ChatMessage {
+export function toChatMessage(rec: Rec, opts: { me?: string | null; reactions?: Reactions; topic?: string | null } = {}): ChatMessage {
   const system = rec.kind === 'activity' || rec.kind === 'control' || rec.kind === 'fold';
   const ask = rec.kind === 'ask';
   return {
@@ -61,7 +76,7 @@ export function toChatMessage(rec: Rec, opts: { me?: string | null; reactions?: 
     text: rec.kind === 'activity' ? `${rec.name}: ${rec.text ?? ''}` : rec.kind === 'fold' ? `${rec.name} ${rec.text ?? ''}` : rec.kind === 'control' ? controlLine(rec) : ask ? `asks for ${rec.tool ?? 'a tool'}: ${rec.what ?? ''}` : rec.text ?? '',
     re: rec.re?.length ? rec.re : undefined,
     reactions: system ? undefined : reactionsOf(opts.reactions, rec.id, opts.me ?? null),
-    attachments: rec.att?.length ? rec.att.map(attachmentOf) : undefined,
+    attachments: rec.att?.length ? rec.att.map((a) => attachmentOf(a, opts.topic)) : undefined,
     pending: rec.pending || undefined,
     redacted: rec.redacted ? true : undefined,
     system: system || undefined,

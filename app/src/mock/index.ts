@@ -185,11 +185,38 @@ const summary = (r: MockRoom): RoomSummary => ({
   app: r.app,
   convs: [...r.convs.values()].map(({ conv, title, archived, last, count }) => ({ conv, title, archived, last, count })),
 });
+// a picture with real bytes for the tiles and the viewer: a small PNG drawn on a canvas (react-native-web's image
+// loader does not take an SVG data URL)
+const PIC = (hue: number, w = 640, h = 480): string => {
+  if (typeof document === 'undefined') return '';
+  const c = document.createElement('canvas');
+  c.width = Math.round(w / 4);
+  c.height = Math.round(h / 4);
+  const g = c.getContext('2d');
+  if (!g) return '';
+  g.fillStyle = `hsl(${hue} 45% 38%)`;
+  g.fillRect(0, 0, c.width, c.height);
+  g.fillStyle = `hsl(${hue + 40} 70% 72%)`;
+  g.beginPath();
+  g.arc(c.width / 2, c.height / 2, Math.min(c.width, c.height) / 4, 0, Math.PI * 2);
+  g.fill();
+  return c.toDataURL('image/png');
+};
 peardrive.files = [
-  { hash: 'a1f9c2d4e5b6a7c8d9e0f1a2b3c4d5e6', kind: 'file', name: 'share-row.png', mime: 'image/png', size: 184320, by: 'rkeychat', ts: min(294), local: true, providers: 2 },
+  { hash: 'a1f9c2d4e5b6a7c8d9e0f1a2b3c4d5e6', kind: 'file', name: 'share-row.png', mime: 'image/png', size: 184320, by: 'rkeychat', ts: min(294), local: true, providers: 2, w: 1280, h: 800, url: PIC(90, 1280, 800) },
   { hash: 'b2e8d3c5f6a7b8c9d0e1f2a3b4c5d6e7', kind: 'file', name: 'sync-trace.log', mime: 'text/plain', size: 52311, by: 'jeffrey', ts: min(138), local: false, providers: 1 },
 ];
-peardrive.log[6].att = [{ hash: 'a1f9c2d4e5b6a7c8d9e0f1a2b3c4d5e6', kind: 'file', name: 'share-row.png', mime: 'image/png', size: 184320 }];
+// the message that shared a picture, found by its words (an index moved once when the ask was added, and the picture
+// landed on an activity line nobody could see, 2026-11-25)
+const shared = peardrive.log.find((r) => r.kind === 'msg' && r.text?.startsWith('Done: 1 file changed'))!;
+shared.att = [{ hash: 'a1f9c2d4e5b6a7c8d9e0f1a2b3c4d5e6', kind: 'file', name: 'share-row.png', mime: 'image/png', size: 184320, w: 1280, h: 800, url: PIC(90, 1280, 800) }];
+// three pictures and a file in one message, right after it: the gallery
+peardrive.log.splice(peardrive.log.indexOf(shared) + 1, 0, msg('rkeychat', 'Three looks for the row, and the measurements.', shared.ts + 30_000, shared.conv ?? 'main', { att: [
+  { hash: 'c3e1a2b4d5f60718293a4b5c6d7e8f90', kind: 'file', name: 'row-a.png', mime: 'image/png', size: 120_000, w: 800, h: 600, url: PIC(20, 800, 600) },
+  { hash: 'd4f2b3c5e6071829304b5c6d7e8f9a01', kind: 'file', name: 'row-b.png', mime: 'image/png', size: 130_000, w: 800, h: 600, url: PIC(200, 800, 600) },
+  { hash: 'e5a3c4d6f708192a3b4c5d6e7f8a9b12', kind: 'file', name: 'row-c.png', mime: 'image/png', size: 110_000, w: 600, h: 800, url: PIC(300, 600, 800) },
+  { hash: 'f6b4d5e708192a3b4c5d6e7f8a9b0c23', kind: 'file', name: 'measurements.pdf', mime: 'application/pdf', size: 48_000, url: 'data:application/pdf;base64,JVBERi0=' },
+] }));
 
 const PAGE = 40;
 function page(r: MockRoom, conv: string, opts: { limit?: number; before?: string } = {}) {
