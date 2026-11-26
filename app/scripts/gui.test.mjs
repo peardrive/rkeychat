@@ -502,6 +502,11 @@ test('attachments: a picture drops into the conversation as a tile, three as a g
     await page.getByLabel(/^Viewing row-a\.png/).waitFor();
     await page.keyboard.press('Escape');
     await page.getByLabel(/^Viewing/).waitFor({ state: 'hidden' });
+    // a long press on a picture opens the message's actions: reactions and reply, even for a picture-only post
+    await page.getByRole('button', { name: 'Open row-b.png' }).click({ delay: 700 });
+    await page.getByRole('toolbar').first().waitFor();
+    assert.equal(await page.getByLabel(/^Viewing/).count(), 0, 'a long press does not open the viewer');
+    await page.keyboard.press('Escape');
     await page.getByLabel('Files').click();
     await page.getByText('sync-trace.log').waitFor();
     await page.getByRole('button', { name: 'Open' }).first().click();
