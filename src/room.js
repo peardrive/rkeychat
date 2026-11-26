@@ -32,6 +32,7 @@ export const TURN_WINDOW = 45_000 // how long the next agent in line waits befor
 export const MAX_BLOB = 8 * 1024 * 1024 // one pearcore message; ~40 min of voice
 const FILE_LIMIT = 60 * 60_000 // the most a fetch may take
 const FILE_STALL = 90_000 // a fetch with nothing arriving for this long is given up and said so
+const FILE_LIST_WAIT = 20_000 // how long a fetch waits for the space's listing to show the file
 const RECENT = 48 * 3600_000 // history sync compares ids within this window
 
 export class Room extends EventEmitter {
@@ -975,8 +976,15 @@ export class Room extends EventEmitter {
     if (this.fetching.has(att.hash)) return this.fetching.get(att.hash)
     const job = (async () => {
       const browser = await this.#browser()
-      const entry = await browser.getFile(att.path)
-      if (!entry || !entry.exists) throw new Error('nobody online has this file right now')
+      // the listing can lag the message by a few seconds on a device that just connected (the phone, 2026-11-25:
+      // its first request for a picture came before the entry and the page gave up): wait a little for it
+      let entry = await browser.getFile(att.path)
+      const until = Date.now() + FILE_LIST_WAIT
+      while (!(entry && entry.exists) && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 1000))
+        entry = await browser.getFile(att.path)
+      }
+      if (!entry || !entry.exists) throw new Error(`nobody online has this file right now (${this.connections().length} peer(s) connected)`)
       const dir = this.store.filePath(att.hash)
       fsSync.mkdirSync(dir, { recursive: true })
       const dest = `${dir}/${att.name}`
