@@ -24,7 +24,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell, systemPreferences 
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { readFileSync, mkdirSync, writeFileSync, createWriteStream } from 'node:fs'
 import { loadConfig, migrate, newConfig, addParticipant, saveConfig, dataDir } from '../src/config.js'
 // the swap and the way back are pearkit's (pearkit/electron), the same for every Anjou desktop app
 import { installUpdate, installedAt, previousAt, revertUpdate } from 'pearkit/electron'
@@ -122,7 +122,24 @@ function allowMicrophone () {
 
 // 2: boot the daemon here. A native module built for plain Node throws on import with
 // NODE_MODULE_VERSION in the message — that is the signal to fall back to 3.
+// The installed app runs the daemon inside itself, and its console went nowhere: what the engine said about a file
+// a phone could not fetch was lost (2026-11-25). Everything it prints also goes to ~/.rkeychat/daemon.log, the file
+// `rkeychat start --background` writes, with a stamp, so the two read the same.
+function teeDaemonLog () {
+  try {
+    mkdirSync(dataDir(), { recursive: true })
+    const out = createWriteStream(path.join(dataDir(), 'daemon.log'), { flags: 'a' })
+    const wrap = (orig) => (...args) => {
+      orig(...args)
+      try { out.write(`${new Date().toISOString()} ${args.map((a) => (typeof a === 'string' ? a : a instanceof Error ? a.stack || a.message : JSON.stringify(a))).join(' ')}\n`) } catch {}
+    }
+    console.log = wrap(console.log.bind(console)); console.error = wrap(console.error.bind(console)); console.warn = wrap(console.warn.bind(console))
+    console.log(`[desktop] rKeyChat ${RUNNING_VERSION()} started; the daemon runs in-process`)
+  } catch (err) { console.warn('[desktop] no daemon.log:', err.message) }
+}
+
 async function bootInProcess (cfg) {
+  teeDaemonLog()
   const { bootDaemon } = await import('../src/daemon.js')
   const d = await bootDaemon()
   owned = { kind: 'inproc', stop: d.stop }

@@ -878,7 +878,7 @@ export function serve ({ app }) {
     if (!att) { res.writeHead(404); return res.end() }
     if (r.room.blocked().hashes.has(att.hash)) { res.writeHead(410); return res.end('removed from this room') }
     let path
-    try { path = await r.room.fetchFile(att) } catch (err) { res.writeHead(404); return res.end(err.message) }
+    try { path = await r.room.fetchFile(att) } catch (err) { console.error(`[files] ${att.name} for the page: ${err.message}`); res.writeHead(404); return res.end(err.message) }
     const { statSync, createReadStream } = await import('node:fs')
     const size = statSync(path).size
     const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '')
