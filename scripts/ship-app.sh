@@ -24,6 +24,14 @@ for a in "$@"; do case "$a" in --build-only) BUILD_ONLY=1 ;; --no-bump) BUMP=0 ;
 APP_ID="rkeychat-desktop"
 DELIVERIES="$HOME/Anjou/_deliveries/rkeychat-desktop"
 
+# ONE BUILD KEPT (~/Anjou/_publishing/disk.md, Guy 2026-11-26): a build needs room, and every ship ends by removing the
+# versions it replaced. Refuse to start with less than 15 GB free: a Mac build and its copies take about 3 GB, and a
+# ship that runs out of disk halfway leaves no app at all (lesson disk-filled-after-the-app-was-quit).
+FREE_KB="$(df -k "$HOME" | tail -1 | awk '{print $4}')"
+if (( FREE_KB < 15 * 1024 * 1024 )); then
+  echo "ABORT: only $(( FREE_KB / 1024 / 1024 )) GB free; a build needs 15. See what can go: node "$HOME/Anjou/_publishing/lessons/tools/tidy-disk/tidy-disk.mjs"" >&2; exit 1
+fi
+
 # 0. the lessons check: every FAIL is a build stopped before it is made
 if [[ -f "$HOME/Anjou/_publishing/lessons/check.mjs" ]]; then
   node "$HOME/Anjou/_publishing/lessons/check.mjs" rKeyChat --release || { echo "ABORT: the lessons check failed (above); nothing was built" >&2; exit 1; }
@@ -60,8 +68,10 @@ npm run app:build
 bash scripts/build-app.sh mac
 BUILT="release/mac-arm64/rKeyChat.app"
 [[ -d "$BUILT" ]] || { echo "ABORT: $BUILT was not produced" >&2; exit 1; }
+# the versions this one replaces, and electron-builder's copies in release/ (the deliverables are in _deliveries)
+tidy() { [[ -f "$HOME/Anjou/_publishing/lessons/tools/tidy-disk/tidy-disk.mjs" ]] && node "$HOME/Anjou/_publishing/lessons/tools/tidy-disk/tidy-disk.mjs" --app rkeychat-desktop --apply | tail -1 || true; rm -rf "${HERE:?}/release"; }
 if (( BUILD_ONLY )); then
-  rm -rf "$BUILT" # the dmg and zip are the deliverables; the unpacked bundle would be a second rKeyChat in Spotlight (lessons: stray-app-copies)
+  tidy
   echo "built, not installed: rKeyChat $VERSION (build $BUILD) is in $DELIVERIES"
   echo "publish it: npm run release -- --notes 'what changed'"
   exit 0
@@ -91,8 +101,8 @@ if [[ -x "$VERIFY" ]]; then
   VOUT="$("$VERIFY" "$DEST" $NOTARIZED 2>&1)" || { echo "$VOUT" >&2; echo "ABORT: the app installed in /Applications is not signed as it was built (see the FAIL line above)" >&2; exit 1; }
   echo "installed copy: signed by the publisher${NOTARIZED:+, notarized}, $(grep -c '^PASS' <<<"$VOUT") checks pass"
 fi
-# the build output is not a second app on this Mac (lessons: stray-app-copies)
-rm -rf "$BUILT"
+# the build output is not a second app on this Mac (lessons: stray-app-copies), and older versions go
+tidy
 
 # 6. the machine ledger (~/.anjou/versions.json, one entry per app id; AGENTS.md §7)
 mkdir -p "$HOME/.anjou"

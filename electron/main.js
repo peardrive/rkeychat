@@ -24,7 +24,7 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell, systemPreferences 
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, mkdirSync, writeFileSync, createWriteStream } from 'node:fs'
+import { readFileSync, mkdirSync, writeFileSync, createWriteStream, statSync, rmSync } from 'node:fs'
 import { loadConfig, migrate, newConfig, addParticipant, saveConfig, dataDir } from '../src/config.js'
 // the swap and the way back are pearkit's (pearkit/electron), the same for every Anjou desktop app
 import { installUpdate, installedAt, previousAt, revertUpdate } from 'pearkit/electron'
@@ -143,6 +143,12 @@ async function bootInProcess (cfg) {
   const { bootDaemon } = await import('../src/daemon.js')
   const d = await bootDaemon()
   owned = { kind: 'inproc', stop: d.stop }
+  // one build kept (~/Anjou/_publishing/disk.md): the copy the last update replaced is the way back from a build that
+  // does not start; once this one has been starting for three days it goes (1 GB)
+  try {
+    const prev = previousAt(installedAt(), process.platform, UPDATES_DIR())
+    if (prev && Date.now() - statSync(prev).mtimeMs > 3 * 864e5) { rmSync(prev, { recursive: true, force: true }); console.log('[updates] removed the previous version kept for the way back') }
+  } catch {}
   // in-app updates (src/updates.js): the daemon fetched and checked the new build; put it in place and relaunch.
   // The previous bundle is kept under ~/.rkeychat/updates/previous.noindex (out of Spotlight's sight), the new
   // build is asked to load its native modules first, and a build that cannot is refused, not installed.
