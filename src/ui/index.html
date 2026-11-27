@@ -1481,7 +1481,7 @@ document.addEventListener('pointerdown', (e) => {
   holdTimer = setTimeout(() => { held = true; openWho(chip.dataset.reactToggle, chip); navigator.vibrate?.(10) }, 450)
 })
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) document.addEventListener(ev, () => clearTimeout(holdTimer))
-const QUICK = ['👍', '❤️', '😂', '🔥', '🎉', '👀', '🤔', '💯', '✅', '🙏']
+const QUICK = ['👍', '❤️', '😂', '🔥', '🎉', '👀', '🤔', '💯', '✅', '🙏'] // emoji-ok: reactions a person sends
 function openPicker (id, anchor) {
   closePicker()
   const r = anchor.getBoundingClientRect()
@@ -2509,7 +2509,7 @@ const navStack = [] // places to return to after a jump, newest last: { id, top 
 function summary (id) {
   const r = (cur()?.log ?? []).find((x) => x.id === id)
   if (!r) return null
-  const text = r.redacted ? '(removed)' : r.text || (r.att?.some((a) => a.kind === 'file') ? `📎 ${r.att.find((a) => a.kind === 'file').name}` : r.att?.length ? 'Voice memo' : '')
+  const text = r.redacted ? '(removed)' : r.text || (r.att?.some((a) => a.kind === 'file') ? `File: ${r.att.find((a) => a.kind === 'file').name}` : r.att?.length ? 'Voice memo' : '')
   return { id, name: r.name, text: text.slice(0, 160) }
 }
 function quoteHTML (r, prev) {

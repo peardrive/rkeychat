@@ -164,6 +164,8 @@ export function serve ({ app }) {
     const pushConvs = () => pushSoon(`convs:${t}`, 'convs', () => ({ topic: t, convs: room.conversations() }))
     room.on('record', (rec) => { if (rec.kind === 'msg' || (rec.kind === 'control' && (rec.action === 'conv' || rec.action === 'app'))) pushConvs() })
     room.on('changed', pushConvs)
+    // records that came in a catch-up batch: the page reloads the threads it holds for this room
+    room.on('caught-up', ({ added }) => push('resync', { topic: t, added }))
     room.on('agent-state', (e) => { push('agent-state', { topic: t, ...e }); pushConvs() })
     room.on('chain', () => { pushRoom(); pushRooms() })
     room.on('presence', () => { pushSoon(`participants:${t}`, 'participants', () => ({ topic: t, participants: room.participantsList() })); pushRooms() })

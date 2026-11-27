@@ -340,7 +340,7 @@ export class Room extends EventEmitter {
       const c = ensure(this.store.convOf(r), r.ts)
       c.count++
       const v = this.view(r)
-      c.last = { ts: r.ts, name: v.name, text: r.text || (r.att?.some((a) => a.kind === 'file') ? `📎 ${r.att.find((a) => a.kind === 'file').name}` : r.att?.length ? 'Voice memo' : '') }
+      c.last = { ts: r.ts, name: v.name, text: r.text || (r.att?.some((a) => a.kind === 'file') ? `File: ${r.att.find((a) => a.kind === 'file').name}` : r.att?.length ? 'Voice memo' : '') }
     }
     for (const [name, conv] of this.agentConv) if (out.has(conv) && this.agentState.get(name) === 'thinking') out.get(conv).busy.push(name)
     return [...out.values()]
@@ -407,7 +407,7 @@ export class Room extends EventEmitter {
     if (!r) return v
     const q = this.view(r)
     const file = q.att?.find((a) => a.kind === 'file')
-    const text = ids.has(r.id) ? '(removed)' : q.text || (file ? `📎 ${file.name}` : q.att?.length ? 'Voice memo' : '')
+    const text = ids.has(r.id) ? '(removed)' : q.text || (file ? `File: ${file.name}` : q.att?.length ? 'Voice memo' : '')
     return { ...v, q: { id: r.id, name: q.name, text: text.slice(0, 160) } }
   }
 
@@ -478,9 +478,17 @@ export class Room extends EventEmitter {
     switch (content.type) {
       case 'rec':
         return this.#ingest(content.rec)
-      case 'hist-res':
-        for (const r of content.records ?? []) this.#ingest(r, { quiet: true })
+      case 'hist-res': {
+        // a catch-up batch (after a reconnect, a restart, a suspended phone): stored quietly (no wake-ups, no
+        // per-record pushes), then one 'caught-up' so a page holding this room's threads loads them again
+        let added = 0
+        for (const r of content.records ?? []) if (this.#ingest(r, { quiet: true })) added++
+        if (added) {
+          if (DEBUG) console.error(`[${this.cfg.name}] caught up ${added} record(s)`)
+          this.emit('caught-up', { added })
+        }
         return this.emit('changed')
+      }
       case 'hist-req': {
         const have = new Set(Array.isArray(content.have) ? content.have : [])
         const records = this.store.since(Number(content.since) || 0, Infinity).filter((r) => !have.has(r.id)).slice(0, 1000)
