@@ -15,7 +15,7 @@ export interface EventSink {
   readonly connected: boolean;
 }
 
-export const EVENT_NAMES: EventName[] = ['record', 'convs', 'room', 'rooms', 'participants', 'activity', 'reactions', 'login-ask', 'agent-state', 'agent-error', 'claude', 'setup', 'updates'];
+export const EVENT_NAMES: EventName[] = ['record', 'convs', 'room', 'rooms', 'participants', 'activity', 'reactions', 'login-ask', 'agent-state', 'agent-error', 'claude', 'setup', 'updates', 'resync'];
 
 /** Pluggable source: the real EventSource, or the mock bus. */
 export type EventSourceFactory = (handlers: EventHandlers) => EventSink;
@@ -34,6 +34,7 @@ function sseFactory(handlers: EventHandlers): EventSink {
   let closed = false;
   let connected = false;
   let attempts = 0;
+  let opened = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const open = () => {
@@ -41,7 +42,10 @@ function sseFactory(handlers: EventHandlers): EventSink {
     es = new EventSource('/api/events');
     es.onopen = () => {
       connected = true;
-      const reconnect = attempts > 0;
+      // EventSource reconnects by itself after a drop (the phone's backend restarted, wifi came back): that is a
+      // reconnect too, and whatever was pushed meanwhile was lost, so the caller has to load state again
+      const reconnect = opened || attempts > 0;
+      opened = true;
       attempts = 0;
       handlers.onOpen?.(reconnect);
     };

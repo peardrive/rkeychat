@@ -174,7 +174,7 @@ const noteSavedAt = new Map<string, number>(); // when a note was saved here (th
 const MAC_KEY = '0431eed5ea51a96bb00eb76482a30f0a050c5625fd98bc6fc73fa15f61bfa3da';
 const following: string[] = [];
 const rooms = new Map<string, MockRoom>([peardrive, pearcast, notes, family].map((r) => [r.topic, r]));
-peardrive.reactions[peardrive.log[6].id] = { '👍': [ME] };
+peardrive.reactions[peardrive.log[6].id] = { '👍': [ME] }; // emoji-ok: a reaction
 
 const summary = (r: MockRoom): RoomSummary => ({
   name: r.name,

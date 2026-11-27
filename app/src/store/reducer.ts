@@ -6,7 +6,8 @@ import { mentions, pushFeed, type FeedItem } from './feed';
 
 export const convKey = (topic: string, conv: string) => `${topic}/${conv}`;
 
-export type Thread = { items: Rec[]; hasOlder: boolean; loaded: boolean; loadingOlder?: boolean };
+/** `stale`: records may have arrived that this copy never saw (a catch-up batch, a dropped stream); fetch it again when opened. */
+export type Thread = { items: Rec[]; hasOlder: boolean; loaded: boolean; loadingOlder?: boolean; stale?: boolean };
 
 /** A project asked of another device: shown as a "waiting on …" row until a room answers it (`topic`). */
 export type PendingEntry = { id: string; name: string; asked: string; topic?: string; online?: boolean; via?: string; ts?: number };
@@ -88,6 +89,7 @@ export type Action =
   | { type: 'budget'; topic: string; budget: Budget | null }
   | { type: 'log'; topic: string; conv: string; log: Rec[]; hasOlder: boolean; mode: 'replace' | 'older' }
   | { type: 'loadingOlder'; topic: string; conv: string; value: boolean }
+  | { type: 'stale'; topic?: string }
   | { type: 'activity'; topic: string; rec: Rec }
   | { type: 'agentState'; topic: string; name: string; conv: string; state: AgentState }
   | { type: 'participants'; topic: string; participants: Participant[] }
@@ -287,6 +289,12 @@ export function reducer(state: State, action: Action): State {
       // Replace, but keep optimistic sends that have not been confirmed yet.
       const pending = prev?.items.filter((x) => x.pending && !incoming.some((y) => y.id === x.id)) ?? [];
       return { ...state, threads: { ...state.threads, [key]: { items: [...incoming, ...pending], hasOlder: action.hasOlder, loaded: true, loadingOlder: false } } };
+    }
+    case 'stale': {
+      // every thread of one room (or of all rooms) is to be fetched again the next time it is opened
+      const threads: Record<string, Thread> = {};
+      for (const [key, t] of Object.entries(state.threads)) threads[key] = !action.topic || key.startsWith(`${action.topic}/`) ? { ...t, stale: true } : t;
+      return { ...state, threads };
     }
     case 'loadingOlder': {
       const key = convKey(action.topic, action.conv);

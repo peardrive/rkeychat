@@ -29,6 +29,14 @@ Started 2026-11-24 from the `projects` branch; the ideas below were carried from
 
 ## Done
 
+- **Every message reaches the open chat after a reconnect** (2026-11-27, Guy: "We need to make sure that the space syncs
+  every single item in the conversation the second a reconnect happens… There's a whole message in the conversation
+  that is missing"). The Memo by Anjou agent's 17:11 reply was on the phone (its log held it, fetched in the catch-up
+  batch when iOS restarted the backend) but never drawn: catch-up records were stored quietly and the page was never
+  told, and a stream the browser reopened by itself did not count as a reconnect. Now the room says `caught-up`, the
+  server pushes `resync`, the page reloads that room's threads, and any reopen reloads everything (lesson
+  `caught-up-messages-never-reached-the-open-chat`). Open: the phone has no wake for a message while it is closed
+  (push notifications), so it catches up only when opened.
 - **Files in the conversation** (2026-11-25, Guy: "I should have a minimal small view where the images drop right into
   the conversation… a PearKit item for this with variations for multiple images or files… show up in the files list…
   and I need to be able to view it"). Shipped: PearKit `Attachments` (one picture keeps its shape, two side by side,

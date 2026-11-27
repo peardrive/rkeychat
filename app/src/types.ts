@@ -322,6 +322,8 @@ export type Events = {
   setup: SetupInfo;
   /** The update channel moved: a version arrived, a download progressed, the swap began. */
   updates: UpdatesState;
+  /** Records came into a room in a catch-up batch (after a reconnect or a restart): its threads are to be loaded again. */
+  resync: { topic: string; added: number };
 };
 
 export type EventName = keyof Events;

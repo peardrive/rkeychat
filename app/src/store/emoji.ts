@@ -1,7 +1,7 @@
 /**
  * The person's most-used emoji, counted on every reaction they send and kept in localStorage.
  */
-export const DEFAULT_EMOJI = ['👍', '❤️', '😂', '🎉', '🤔', '👀'];
+export const DEFAULT_EMOJI = ['👍', '❤️', '😂', '🎉', '🤔', '👀']; // emoji-ok: reactions a person sends
 const KEY = 'rkc.app.emoji-use';
 
 export type EmojiCounts = Record<string, number>;

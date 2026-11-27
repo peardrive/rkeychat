@@ -186,3 +186,20 @@ describe('pending projects', () => {
     expect(s.devices).toHaveLength(1);
   });
 });
+
+describe('catching up (Guy, 2026-11-27: a reply stored on the phone never showed in the open chat)', () => {
+  it('marks one room\'s threads stale, or every thread, and a fresh page of the conversation clears it', () => {
+    const other = run([{ type: 'log', topic: 'topic-b', conv: 'main', log: [], hasOlder: false, mode: 'replace' }], booted);
+    const one = reducer(other, { type: 'stale', topic: T });
+    expect(one.threads[convKey(T, 'main')].stale).toBe(true);
+    expect(one.threads[convKey(T, 'c2')].stale).toBe(true);
+    expect(one.threads[convKey('topic-b', 'main')].stale).toBeUndefined();
+    const all = reducer(other, { type: 'stale' });
+    expect(all.threads[convKey('topic-b', 'main')].stale).toBe(true);
+
+    const snap = { topic: T, log: [msg('m1', 'main'), msg('late', 'main', 'memo-by-anjou', 1500)], hasOlder: false } as unknown as RoomSnapshot;
+    const fresh = reducer(one, { type: 'room', snapshot: snap, conv: 'main' });
+    expect(fresh.threads[convKey(T, 'main')].stale).toBeUndefined();
+    expect(fresh.threads[convKey(T, 'main')].items.map((x) => x.id)).toEqual(['m1', 'late']);
+  });
+});

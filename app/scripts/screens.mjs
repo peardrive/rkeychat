@@ -54,7 +54,7 @@ await shot('desktop-message-actions', {
     await openRedesign(page);
     await page.getByRole('button', { name: /Actions$/ }).last().click();
     await page.waitForTimeout(300);
-    await must(page, page.getByRole('button', { name: 'React 👍' }), 'the emoji row on a tapped message');
+    await must(page, page.getByRole('button', { name: 'React 👍' }), 'the emoji row on a tapped message'); // emoji-ok: a reaction
   },
 });
 await shot('desktop-files', {

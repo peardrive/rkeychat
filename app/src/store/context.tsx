@@ -127,7 +127,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!topic || !conv) return;
         const s = stateRef.current;
         const thread = s.threads[convKey(topic, conv)];
-        if (!s.details[topic] || !thread?.loaded) await openThread(topic, conv);
+        if (!s.details[topic] || !thread?.loaded || thread.stale) await openThread(topic, conv);
       },
       async loadOlder(topic, conv) {
         const key = convKey(topic, conv);
@@ -332,7 +332,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const sink = connectEvents({
       onOpen: (reconnect) => {
         dispatch({ type: 'connected', value: true });
-        if (reconnect) void actions.reload();
+        if (reconnect) {
+          dispatch({ type: 'stale' });
+          void actions.reload();
+        }
+      },
+      // records arrived in a catch-up batch: the open thread loads again now, the room's others when opened
+      resync: ({ topic }) => {
+        dispatch({ type: 'stale', topic });
+        const sel = stateRef.current.selected;
+        if (sel.topic === topic && sel.conv) void actions.select(topic, sel.conv);
       },
       onDrop: () => dispatch({ type: 'connected', value: false }),
       record: ({ topic, rec, budget }) => {
