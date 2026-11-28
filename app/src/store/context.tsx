@@ -7,6 +7,7 @@ import { getApi } from '../api';
 import { connectEvents } from '../events';
 import type { AgentRule, AutoLimit, Conversation, Device, PendingProject, RoomSummary, SeatChange } from '../types';
 import { convKey, initialState, reducer, type Action, type State } from './reducer';
+import { catchUp, HIDDEN_GAP_MS } from './gap';
 import type { Seat } from '../types';
 
 const SELECTED_KEY = 'rkc.app.selected';
@@ -333,15 +334,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       onOpen: (reconnect) => {
         dispatch({ type: 'connected', value: true });
         if (reconnect) {
-          dispatch({ type: 'stale' });
+          // pushes were lost while the stream was down: the open thread loads again too, not only the room list
+          catchUp(stateRef.current.selected, dispatch, actions.select);
           void actions.reload();
         }
       },
       // records arrived in a catch-up batch: the open thread loads again now, the room's others when opened
       resync: ({ topic }) => {
-        dispatch({ type: 'stale', topic });
-        const sel = stateRef.current.selected;
-        if (sel.topic === topic && sel.conv) void actions.select(topic, sel.conv);
+        catchUp(stateRef.current.selected, dispatch, actions.select, topic);
       },
       onDrop: () => dispatch({ type: 'connected', value: false }),
       record: ({ topic, rec, budget }) => {
@@ -376,9 +376,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         console.warn('[agent-error]', name, error);
       },
     });
+    // Back from the background (the phone slept, the window was hidden): the page was frozen and the stream may
+    // look open while what was pushed meanwhile never reached it. Load the open thread and the rooms again.
+    let hiddenAt = 0;
+    const onVisible = () => {
+      if (typeof document === 'undefined') return;
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      if (hiddenAt && Date.now() - hiddenAt >= HIDDEN_GAP_MS) {
+        catchUp(stateRef.current.selected, dispatch, actions.select);
+        void actions.reload();
+      }
+      hiddenAt = 0;
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     return () => {
       alive = false;
       sink.close();
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     };
   }, [actions]);
 

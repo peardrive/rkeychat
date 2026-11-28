@@ -28,6 +28,11 @@ Started 2026-11-24 from the `projects` branch; the ideas below were carried from
 
 ## Done
 
+- **Nothing missed while the phone slept** (2026-11-28; Guy's debug note 2026-11-27T22-19-20: a reply "never came in,
+  but it is sitting on the desktop version"). The phone had the record; the screen did not. After a reconnect, a
+  catch-up batch or a return from the background, the open conversation now loads again (`app/src/store/gap.ts`).
+  Debug notes from the phone now reach Claude by themselves: the `rkeychat-debug-notes` watcher in
+  `~/Anjou/pear-watchers` transcribes each new note and wakes @claude in rKeyChat Lab.
 - **Permissions the owner grants from the chat** (2026-11-28; Guy, 2026-11-27: "permissions inside this app and for
   access on the macbook that is approved by me safely but within the chat session"; carries the old Next item
   "`allow_always` persistence"). Four pieces: (1) "Folders this project can see" in the project pane, signed
