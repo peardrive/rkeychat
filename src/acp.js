@@ -18,7 +18,8 @@
 //
 // What the tool list does not settle is asked of a person (2026-11-22, Guy's memo): the ask goes into the
 // conversation as a signed record, one of the owner's own devices answers it (an account-gated control), and the
-// answer comes back here as the agent's choice. Nobody answering within ASK_TIMEOUT_MS is a refusal.
+// answer comes back here as the agent's choice. An ask waits (2026-11-27: a day by default, not ten minutes); only then is it
+// set aside as a refusal. "Allow for this project" answers stand as grants (src/grants.js, room.grants()).
 import { spawn } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { createRequire } from 'node:module'
@@ -26,12 +27,13 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { client, ndJsonStream } from '@agentclientprotocol/sdk'
 import { resolveTools } from './tools.js'
+import { grantFor, holdsForbidden, isForbidden, lex, readOnlyCommand } from './grants.js'
 import { agentSession, sessionKeyOf } from './config.js'
 import { MAIN } from './proto.js'
 import { autoState } from './seat-settings.js'
 
 const IDLE_MS = 30 * 60_000
-export const ASK_TIMEOUT_MS = 10 * 60_000 // the default; the runner's askMinutes() says what applies
+export const ASK_TIMEOUT_MS = 24 * 60 * 60_000 // the default; the runner's askMinutes() says what applies
 const TURN_TIMEOUT_MS = 20 * 60_000
 const require = createRequire(import.meta.url)
 
@@ -294,7 +296,11 @@ export class AcpProcess {
     const what = summarize(input) || toolCall?.title || tool
     const pick = (kinds) => options?.find((o) => kinds.includes(o.kind)) ?? null
     const answer = (choice) => choice ? { outcome: { outcome: 'selected', optionId: choice.optionId } } : { outcome: { outcome: 'cancelled' } }
-    let v = verdict(this.rules, tool, input, this.bridge.dir)
+    // the seat's list plus what the owner granted this project (signed controls and asks answered "for this project")
+    const rules = { allow: [...this.rules.allow, ...(this.room.grants?.(this.bridge.dir) ?? []).map((g) => g.rule)], deny: this.rules.deny }
+    const j = judge(rules, tool, input, this.bridge.dir)
+    let v = j.verdict
+    if (j.forbidden) this.onActivity(`refused ${tool}: ${what} (a place no agent reads: keys, the business folders)`)
     if (v === 'ask' && this.#autoAllows()) {
       this.onActivity(`allowed (auto) ${tool}: ${what}`)
       return answer(pick(['allow_once', 'allow_always']))
@@ -307,7 +313,8 @@ export class AcpProcess {
       if (pend?.timer) clearTimeout(pend.timer)
       try {
         this.asking = true
-        a = await this.onAsk({ tool, what, input: summarizeFull(input), options: (options ?? []).map((o) => ({ id: o.optionId, kind: o.kind, name: o.name })) })
+        const g = j.noAlways ? null : grantFor(tool, input, this.bridge.dir, j)
+        a = await this.onAsk({ tool, what, input: summarizeFull(input), options: (options ?? []).map((o) => ({ id: o.optionId, kind: o.kind, name: o.name })), rule: g?.rule, ruleLabel: g?.label })
       } catch (err) { this.onActivity(`could not ask: ${err?.message ?? err}`) } finally {
         this.asking = false
         if (pend && this.pending === pend) pend.timer = setTimeout(() => this.stop('turn timed out'), TURN_TIMEOUT_MS)
@@ -317,28 +324,69 @@ export class AcpProcess {
         this.onActivity(`${a.choice.startsWith('allow') ? 'allowed' : 'refused'} by ${a.by ?? 'the owner'}${a.device ? ` (${a.device})` : ''}${a.choice.endsWith('always') ? ', always' : ''}: ${tool}: ${what}`)
         return answer(chosen)
       }
-      this.onActivity(`nobody answered in ${this.askMinutes()} minutes: refused ${tool}: ${what}`)
+      this.onActivity(`nobody answered in ${waitWords(this.askMinutes())}: set aside ${tool}: ${what}`)
       v = 'deny'
     }
     const allowed = v === 'allow'
-    if (v !== 'ask') this.onActivity(`${allowed ? 'allowed' : 'refused'} ${tool}: ${what}`)
+    if (v !== 'ask' && !j.forbidden) this.onActivity(`${allowed ? 'allowed' : 'refused'} ${tool}: ${what}`)
     else this.onActivity(`refused ${tool}: ${what} (nobody to ask)`)
     return answer(allowed ? pick(['allow_once', 'allow_always']) : pick(['reject_once', 'reject_always']))
   }
 }
 
-// What the seat's tool list says about one call: 'allow' (an allow rule covers it, no deny rule hits), 'deny' (a
-// deny rule hits, or an empty command), or 'ask' (nothing in the list speaks to it: a person decides).
-export function verdict ({ allow = [], deny = [] } = {}, tool, input = {}, dir = process.cwd()) {
-  if (!tool) return 'deny'
+// What the seat's tool list (and the project's grants, merged into `allow`) says about one call: 'allow' (an allow
+// rule covers it, no deny rule hits), 'deny' (a deny rule hits, a forbidden place is named, or an empty command), or
+// 'ask' (nothing in the list speaks to it: a person decides).
+export function verdict (rules, tool, input = {}, dir = process.cwd()) {
+  return judge(rules, tool, input, dir).verdict
+}
+
+// The same, with what an ask needs: `unreadable` (the paths a read named that nothing opens) and `blockers` (the
+// parts of a command no rule allows), from which the card's "Allow for this project" rule is made (src/grants.js);
+// `noAlways` when no standing rule should be offered (a walk through a folder that holds a forbidden one).
+export function judge ({ allow = [], deny = [] } = {}, tool, input = {}, dir = process.cwd()) {
+  const ask = (extra = {}) => ({ verdict: 'ask', ...extra })
+  if (!tool) return { verdict: 'deny' }
   const paths = pathsOf(input, dir)
-  if (deny.some((r) => ruleHits(r, tool, input, paths, dir))) return 'deny'
-  if (tool === 'Bash') {
-    const parts = String(input.command ?? '').split(/\s*(?:&&|\|\||;|\|)\s*/).map((s) => s.trim()).filter(Boolean)
-    if (!parts.length) return 'deny'
-    return parts.every((part) => allow.some((r) => ruleHits(r, tool, { command: part }, [], dir))) ? 'allow' : 'ask'
+  if (paths.some((p) => isForbidden(p, dir))) return { verdict: 'deny', forbidden: true }
+  if (deny.some((r) => ruleHits(r, tool, input, paths, dir))) return { verdict: 'deny' }
+  // readable: inside the project (the agent's own folder), or under a Read rule (a bare `Read` in an explicit list
+  // means anywhere; the lab preset names its folders instead)
+  const readable = (p) => p === dir || p.startsWith(dir + '/') || (allow.some((r) => /^(Read|Edit)\b/.test(r) && ruleHits(r, 'Read', {}, [p], dir)) && !deny.some((r) => ruleHits(r, 'Read', {}, [p], dir)))
+  if (['Read', 'Grep', 'Glob', 'LS'].includes(tool)) {
+    if (!paths.length) return { verdict: 'allow' } // the project folder
+    if (tool !== 'Read' && paths.some((p) => holdsForbidden(p, dir))) return ask({ noAlways: true })
+    const unreadable = paths.filter((p) => !readable(p))
+    return unreadable.length ? ask({ unreadable }) : { verdict: 'allow' }
   }
-  return allow.some((r) => ruleHits(r, tool, input, paths, dir)) ? 'allow' : 'ask'
+  if (tool === 'Bash') {
+    const cmd = String(input.command ?? '')
+    const ro = readOnlyCommand(cmd, dir)
+    if (ro) {
+      if (ro.paths.some((p) => isForbidden(p, dir))) return { verdict: 'deny', forbidden: true }
+      if (ro.walks.some((p) => holdsForbidden(p, dir))) return ask({ noAlways: true })
+      const unreadable = [...new Set(ro.paths.filter((p) => !readable(p)))]
+      return unreadable.length ? ask({ unreadable }) : { verdict: 'allow' }
+    }
+    // not a plain read: still never one that names a forbidden place
+    const ws = lex(cmd)?.filter((w) => typeof w === 'string') ?? cmd.split(/\s+/)
+    for (const w of ws) {
+      const v = w.replace(/^--?[A-Za-z-]+=/, '')
+      if ((v.includes('/') || v.startsWith('~')) && isForbidden(expandPath(v, dir), dir)) return { verdict: 'deny', forbidden: true }
+    }
+    const parts = cmd.split(/\s*(?:&&|\|\||;|\||\n)\s*/).map((x) => x.trim()).filter(Boolean)
+    if (!parts.length) return { verdict: 'deny' }
+    const blockers = parts.filter((part) => !allow.some((r) => ruleHits(r, tool, { command: part }, [], dir)))
+    return blockers.length ? ask({ blockers }) : { verdict: 'allow' }
+  }
+  return allow.some((r) => ruleHits(r, tool, input, paths, dir)) ? { verdict: 'allow' } : ask()
+}
+
+function expandPath (p, dir) {
+  if (p === '~') return homedir()
+  if (p.startsWith('~/')) return join(homedir(), p.slice(2))
+  if (p.startsWith('$HOME/')) return join(homedir(), p.slice(6))
+  return resolve(dir, p)
 }
 
 // ---- the seat's tool list, applied to one tool call ----
@@ -348,16 +396,8 @@ export function verdict ({ allow = [], deny = [] } = {}, tool, input = {}, dir =
 // path matches; `//x` is absolute, `~/x` is under home, `/x` is under the project folder,
 // anything else is relative to it). A command joined with && || ; | must have every part
 // allowed. Deny rules win.
-export function permitted ({ allow = [], deny = [] } = {}, tool, input = {}, dir = process.cwd()) {
-  if (!tool) return false
-  const paths = pathsOf(input, dir)
-  if (deny.some((r) => ruleHits(r, tool, input, paths, dir))) return false
-  if (tool === 'Bash') {
-    const parts = String(input.command ?? '').split(/\s*(?:&&|\|\||;|\|)\s*/).map((s) => s.trim()).filter(Boolean)
-    if (!parts.length) return false
-    return parts.every((part) => allow.some((r) => ruleHits(r, tool, { command: part }, [], dir)))
-  }
-  return allow.some((r) => ruleHits(r, tool, input, paths, dir))
+export function permitted (rules, tool, input = {}, dir = process.cwd()) {
+  return judge(rules, tool, input, dir).verdict === 'allow'
 }
 
 // As in Claude Code: a `Read` rule covers every built-in tool that reads files, an `Edit`
@@ -388,7 +428,13 @@ function rulePath (arg, dir) {
 
 function pathsOf (input, dir) {
   const out = []
-  for (const k of ['file_path', 'path', 'notebook_path', 'directory']) if (typeof input?.[k] === 'string') out.push(resolve(dir, input[k]))
+  for (const k of ['file_path', 'path', 'notebook_path', 'directory']) if (typeof input?.[k] === 'string') out.push(expandPath(input[k], dir))
+  // a Glob pattern that starts outside the project reads from where its fixed part ends
+  const pat = input?.pattern
+  if (typeof pat === 'string' && /^(\/|~\/|\$HOME\/)/.test(pat) && input.path === undefined) {
+    const g = pat.search(/[*?[{]/)
+    out.push(dirname(expandPath(g < 0 ? pat : pat.slice(0, g) + 'x', dir)))
+  }
   return out
 }
 
@@ -408,6 +454,8 @@ function globRe (glob) {
   }
   return new RegExp(`^${s}$`)
 }
+
+const waitWords = (min) => min >= 120 ? `${Math.round(min / 60)} hours` : `${min} minutes`
 
 function summarize (input) {
   if (!input || typeof input !== 'object') return ''

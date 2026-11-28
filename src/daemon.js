@@ -220,10 +220,10 @@ export class App extends EventEmitter {
   }
 
   // How long an agent's ask waits for a person: per seat (its bridge), else the device default (config.json
-  // askMinutes), else ten minutes. Live: the runners read it on the next ask.
+  // askMinutes), else a day. Live: the runners read it on the next ask.
   setAskMinutes (name, minutes, { quiet = false } = {}) {
     const n = Number(minutes)
-    if (!(n >= 1 && n <= 120)) throw new Error('ask minutes must be between 1 and 120')
+    if (!(n >= 1 && n <= 1440)) throw new Error('ask minutes must be between 1 and 1440 (a day)')
     if (name) {
       const raw = this.cfg.participants[name]
       if (!raw) throw new Error(`no agent ${name} on this device`)

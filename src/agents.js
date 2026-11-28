@@ -32,9 +32,9 @@ import { providerEnv, autoState } from './seat-settings.js'
 // which is the lesser problem. A person's new message preempts regardless (poke),
 // so this never delays anyone.
 const REOFFER = 10 * 60_000
-// How long an agent's ask waits for a person before it counts as refused: the device default (config.json
+// How long an agent's ask waits for a person before it is set aside: the device default (config.json
 // askMinutes, set at boot and by `rkeychat agent ask-minutes all N`); a seat's bridge.askMinutes overrides it.
-export const askSettings = { minutes: 10 }
+export const askSettings = { minutes: 24 * 60 } // a day: an unanswered ask waits for the owner, it is not a no (2026-11-27)
 export const askMinutesOf = (bridge) => (Number(bridge?.askMinutes) >= 1 ? Number(bridge.askMinutes) : askSettings.minutes)
 
 const PASS = /^\s*PASS\s*$/i

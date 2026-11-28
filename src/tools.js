@@ -47,7 +47,9 @@ export function resolveTools (spec = 'lab', dir = null) {
   // the business folders: by ~/Anjou/ORGANIZATION.md those start with `_` (_keys,
   // _deliveries, …) and hold things no agent should read on its own.
   const beside = dirname(dir)
-  return { allow: [...LAB, `Read(/${beside}/**)`], deny: [`Read(/${beside}/_*/**)`] }
+  // A bare `Read` would mean any file on the Mac: with a folder, reads are the project (always) and what is beside it.
+  const allow = [...LAB.filter((r) => !['Read', 'Grep', 'Glob'].includes(r)), `Read(/${beside}/**)`]
+  return { allow, deny: [`Read(/${beside}/_*/**)`] }
 }
 
 // One line for `rkeychat agent list`.
