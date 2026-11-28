@@ -11,6 +11,9 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 IPHONE="${IPHONE:-00008150-00164C4226D2401C}"
 OUT="$HERE/mobile/ios/build/device"
+# the shell the phone shows is rKeyChat/app/dist: build it now, or the phone gets whatever the last Mac ship left there
+# (2026-11-28: the menu fix was committed after the ship and missed the first phone build)
+npm --prefix "$HERE/../rKeyChat/app" run build 2>&1 | tail -1
 cd "$HERE/mobile"
 npm run bundle 2>&1 | tail -1
 cd ios
