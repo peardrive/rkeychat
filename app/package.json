@@ -1,7 +1,7 @@
 {
   "name": "rkeychat-app",
   "private": true,
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "The rKeyChat shell: projects and their conversations, on PearKit. Served by the daemon at /app/.",
   "type": "module",
   "scripts": {
