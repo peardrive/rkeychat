@@ -121,6 +121,23 @@ await shot('desktop-debug-note', {
 const dockTo = async (page, name) => { await page.getByRole('tab', { name }).tap(); await page.waitForTimeout(600); };
 await shot('phone-home', { ...phone, before: async (page) => { await must(page, page.getByText('Needs you'), 'the Needs-you block'); await must(page, page.getByText('wants to log in'), 'the approval in Needs you'); await must(page, page.getByRole('tab', { name: 'Projects' }), 'the dock'); } });
 await shot('phone-activity', { ...phone, before: async (page) => { await dockTo(page, 'Activity'); await must(page, page.getByText('mentioned you'), 'the mention in Activity'); } });
+await shot('phone-project-menu', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    const btn = page.getByRole('button', { name: 'PearDrive actions' }).first();
+    const b = await btn.boundingBox();
+    await btn.tap();
+    await page.waitForTimeout(400);
+    const first = page.getByRole('menuitem').first();
+    const m = await first.boundingBox();
+    if (!b || !m) throw new Error('missing: the project menu');
+    // it hangs from the button (2026-11-28: it opened in the top-left corner, its first row under the status bar)
+    const below = m.y >= b.y + b.height - 4 && m.y <= b.y + b.height + 30;
+    const above = m.y < b.y; // flipped up when the list would run off the bottom
+    if ((!below && !above) || m.x + m.width < b.x || m.y < 40) throw new Error(`the menu opened at ${Math.round(m.x)},${Math.round(m.y)}, away from its button at ${Math.round(b.x)},${Math.round(b.y)}`);
+  },
+});
 await shot('phone-projects', {
   ...phone,
   before: async (page) => {

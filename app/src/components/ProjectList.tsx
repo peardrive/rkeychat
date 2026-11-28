@@ -35,11 +35,25 @@ export interface ProjectListProps {
   emptyText?: string;
 }
 
+/**
+ * Where a press happened, for the menu to hang from it: under the pressed button when the page can say where that
+ * is, else the finger's point. Undefined lets the menu open in the middle (it once opened in the top corner, under
+ * the phone's status bar: Guy, 2026-11-28).
+ */
+function pressPoint(e: unknown): { x: number; y: number } | undefined {
+  const ev = e as { currentTarget?: { getBoundingClientRect?: () => DOMRect }; nativeEvent?: { pageX?: number; pageY?: number } } | undefined;
+  const r = ev?.currentTarget?.getBoundingClientRect?.();
+  if (r && r.width) return { x: r.right, y: r.bottom + 4 };
+  const n = ev?.nativeEvent;
+  if (typeof n?.pageX === 'number' && typeof n?.pageY === 'number') return { x: n.pageX, y: n.pageY + 8 };
+  return undefined;
+}
+
 export function ProjectList({ rooms, query = '', grouped = true, phone, onNavigate, onProjectAction, emptyText }: ProjectListProps) {
   const { state, actions } = useStore();
   const { toast } = useToast();
   const [open, setOpen] = useState<Record<string, boolean>>(readOpen);
-  const [rowMenu, setRowMenu] = useState<{ topic: string } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ topic: string; at?: { x: number; y: number } } | null>(null);
   const touch = isTouch();
   const q = query.trim().toLowerCase();
 
@@ -97,11 +111,11 @@ export function ProjectList({ rooms, query = '', grouped = true, phone, onNaviga
             if (phone || !expanded || selectedHere) toggle(r.topic);
             else select(r.topic, 'main');
           }}
-          onLongPress={() => setRowMenu({ topic: r.topic })}
+          onLongPress={(e?: unknown) => setRowMenu({ topic: r.topic, at: pressPoint(e) })}
           trailing={
             <View className="flex-row items-center">
               <IconButton icon="add" size="xs" hitSlop={6} tooltip={touch ? undefined : 'New conversation'} accessibilityLabel={`New conversation in ${r.name}`} onPress={() => void newConversation(r.topic)} />
-              <IconButton icon="more" size="xs" hitSlop={6} tooltip={touch ? undefined : 'Project'} accessibilityLabel={`${r.name} actions`} onPress={() => setRowMenu({ topic: r.topic })} />
+              <IconButton icon="more" size="xs" hitSlop={6} tooltip={touch ? undefined : 'Project'} accessibilityLabel={`${r.name} actions`} onPress={(e?: unknown) => setRowMenu({ topic: r.topic, at: pressPoint(e) })} />
             </View>
           }
         />
@@ -174,7 +188,7 @@ export function ProjectList({ rooms, query = '', grouped = true, phone, onNaviga
           ))}
         </>
       )}
-      <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} items={rowItems} align="right" />
+      <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} items={rowItems} align="right" anchor={rowMenu?.at} />
     </View>
   );
 }
