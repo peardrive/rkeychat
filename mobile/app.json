@@ -2,7 +2,7 @@
   "expo": {
     "name": "rKeyChat",
     "slug": "rkeychat",
-    "version": "0.3.9",
+    "version": "0.3.11",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -17,7 +17,7 @@
         },
         "NSCameraUsageDescription": "rKeyChat uses the camera to scan login codes and room invites."
       },
-      "buildNumber": "6"
+      "buildNumber": "7"
     },
     "android": {
       "adaptiveIcon": {
@@ -27,7 +27,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.bitcoinaudible.rkeychat",
-      "versionCode": 6,
+      "versionCode": 7,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.RECORD_AUDIO",
