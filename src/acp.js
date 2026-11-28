@@ -209,8 +209,15 @@ export class AcpProcess {
 
   // A person spoke while a turn was running: stop the turn now. The prompt resolves with
   // cancelled: true and the runner renders a new turn that carries both messages.
+  //
+  // Not while the turn waits on a person's answer to an ask: the agent cannot stop until that answer comes, and the
+  // person who spoke is most likely answering the agent; the message is taken up by the next turn. And once per turn:
+  // the runner pokes on every change in the room, and this line is itself a change (2026-11-27: a reply written
+  // while an ask was open cancelled the same turn 2,000 times a second and the Mac app stopped answering).
   cancel () {
     if (!this.pending || !this.cx || !this.sessionId) return false
+    if (this.asking || this.pending.cancelled) return false
+    this.pending.cancelled = true
     this.cx.notify('session/cancel', { sessionId: this.sessionId }).catch(() => {})
     this.onActivity('interrupted: a person spoke; answering the newer message instead')
     return true
@@ -299,8 +306,10 @@ export class AcpProcess {
       const pend = this.pending
       if (pend?.timer) clearTimeout(pend.timer)
       try {
+        this.asking = true
         a = await this.onAsk({ tool, what, input: summarizeFull(input), options: (options ?? []).map((o) => ({ id: o.optionId, kind: o.kind, name: o.name })) })
       } catch (err) { this.onActivity(`could not ask: ${err?.message ?? err}`) } finally {
+        this.asking = false
         if (pend && this.pending === pend) pend.timer = setTimeout(() => this.stop('turn timed out'), TURN_TIMEOUT_MS)
       }
       if (a?.choice) {
