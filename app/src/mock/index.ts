@@ -4,7 +4,7 @@
  */
 import { ApiError, type Api } from '../api';
 import type { EventHandlers, EventSink } from '../events';
-import type { AgentRule, AutoLimit, Budget, ClaudeLoginState, ClaudeStatus, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, ProviderPreset, Rec, ReleaseInfo, RoomSnapshot, RoomSummary, Seat, SetupInfo, StateResponse, UpdateJob, UpdateVersionInfo, UpdatesState } from '../types';
+import type { Grant, AgentRule, AutoLimit, Budget, ClaudeLoginState, ClaudeStatus, Conversation, DebugNoteSync, Device, EventName, OpenAsk, Events, FileEntry, PendingRequest, Provider, ProviderPreset, Rec, ReleaseInfo, RoomSnapshot, RoomSummary, Seat, SetupInfo, StateResponse, UpdateJob, UpdateVersionInfo, UpdatesState } from '../types';
 
 const LATENCY = 180;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -31,6 +31,7 @@ type MockRoom = {
 
 const freshBudget = (): Budget => ({ paused: false, unlimited: false, until: null, rounds: 3, limit: 3, remaining: 3, agents: { paused: [], limits: {}, posts: {} } });
 
+const mockGrants = new Map<string, Grant[]>();
 const ME = 'guy';
 const DEVICE = 'studio';
 const HERE = 'rkey:studio';
@@ -107,7 +108,7 @@ const peardrive = room({
     msg(ME, 'Project is up. @rkeychat you are on PearDrive now.', min(4990), 'main'),
     msg('rkeychat', 'Reading the folder. 212 files, the shell is in `src/renderer`, tests under `test/`. Ready.', min(4988), 'main'),
     // the seat asking for a permission its tool list does not settle: open, nine minutes left
-    { id: 'ask0000000000000001', kind: 'ask', ts: min(1), name: 'rkeychat', human: false, text: '', conv: 'main', tool: 'Bash', what: 'npm run release -- --tag 0.4.0', input: 'npm run release -- --tag 0.4.0 && git push origin v0.4.0', options: [{ id: 'o1', kind: 'allow_once' }, { id: 'o2', kind: 'allow_always' }, { id: 'o3', kind: 'reject_once' }], expires: Date.now() + 9 * 60_000 },
+    { id: 'ask0000000000000001', kind: 'ask', ts: min(1), name: 'rkeychat', human: false, text: '', conv: 'main', tool: 'Bash', what: 'npm run release -- --tag 0.4.0', input: 'npm run release -- --tag 0.4.0 && git push origin v0.4.0', rule: 'Bash(npm:*)', ruleLabel: 'run npm commands', options: [{ id: 'o1', kind: 'allow_once' }, { id: 'o2', kind: 'allow_always' }, { id: 'o3', kind: 'reject_once' }], expires: Date.now() + 9 * 60_000 },
     msg(ME, 'Can we make the share row match the Figma: thumbnail, name, meta line, status pill on the right?', min(299), 'a1b2c3d4e5f60718'),
     msg('rkeychat', 'Yes. PearKit already has `ShareRow` with exactly that layout. I will replace the custom row in `ShareList.tsx` and delete the old styles.\n\n- `ShareRow` takes `name`, `meta`, `thumbnail`, `status`, `progress`\n- the favourite star becomes `onFavorite`', min(297), 'a1b2c3d4e5f60718'),
     act('rkeychat', 'edited src/renderer/ShareList.tsx', min(296), 'a1b2c3d4e5f60718'),
@@ -513,6 +514,25 @@ export const mockApi: Api = {
     r.log.push(rec);
     setTimeout(() => emit('record', { topic: r.topic, rec }), 60);
     return rec;
+  },
+  async grants(key) {
+    await sleep(LATENCY);
+    const r = find(key);
+    const g = mockGrants.get(r.topic) ?? [];
+    return { folder: r.folder ?? null, beside: r.folder ? r.folder.replace(/\/[^/]+$/, '') : null, home: '/Users/guy', grants: g, owner: true };
+  },
+  async grant({ room: key, folder, rule, revoke }) {
+    await sleep(LATENCY);
+    const r = find(key);
+    const home = '/Users/guy';
+    const f = folder ? folder.replace(/^~(?=\/|$)/, home) : null;
+    if (f && (f === home || /\/_[^/]*(\/|$)/.test(f) || /\/\.ssh(\/|$)/.test(f))) throw new Error(`${folder}: not a folder a grant can open`);
+    const ruleOf = rule ?? `Read(/${f}/**)`;
+    const list = (mockGrants.get(r.topic) ?? []).filter((g) => g.rule !== ruleOf);
+    if (!revoke) list.push({ rule: ruleOf, label: f ? `read anything in ${f.replace(home, '~')}` : ruleOf, by: ME, ts: Date.now(), from: 'settings' });
+    mockGrants.set(r.topic, list);
+    const rec: Rec = { id: id(), kind: 'control', action: 'grant', ts: Date.now(), name: ME, device: DEVICE, human: true, text: '', conv: 'main', rule: ruleOf, revoke: revoke || undefined };
+    return { ...rec, grants: list };
   },
   async loginAsks() {
     await sleep(LATENCY);

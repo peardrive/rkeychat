@@ -50,6 +50,7 @@ test('rule paths: // is absolute, / and bare are under the project, ~/ is home',
   assert.equal(permitted(rules, 'Read', { file_path: `${DIR}/src/a/b.js` }, DIR), true)
   assert.equal(permitted(rules, 'Read', { file_path: '/src/a.js' }, DIR), false, 'the rule is project-relative, the path is not under it')
   assert.equal(permitted(rules, 'Read', { file_path: 'docs/x.md' }, DIR), true, 'a relative path resolves against the project')
-  assert.equal(permitted(rules, 'Read', { file_path: `${DIR}/docs/sub/x.md` }, DIR), false)
+  assert.equal(permitted(rules, 'Read', { file_path: `${DIR}/docs/sub/x.md` }, DIR), true, 'inside the project every read is the agent\'s own (2026-11-27)')
+  assert.equal(permitted(rules, 'Read', { file_path: '/var/x' }, DIR), false)
   assert.equal(permitted(rules, 'Edit', { file_path: `${process.env.HOME}/notes/a.txt` }, DIR), true)
 })

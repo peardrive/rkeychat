@@ -121,7 +121,7 @@ in the chat. I need that gated by my key." Over ACP, what the seat's tool list d
    asked) or `ask`. On `ask` the process hands the runner `{ tool, what, input, options }`.
 2. The runner (src/agents.js `#ask`) writes a signed **`ask` record** into the conversation, by the agent's own
    key: tool, one line of what it would do, the whole input, the agent's four options, and when it lapses (ten
-   minutes). The seat shows as *waiting*. Agents never read asks (renderTurn takes messages only).
+   a day). The seat shows as *waiting*. Agents never read asks (renderTurn takes messages only).
 3. One of the owner's own devices answers with an **`answer` control** `{ ask, choice }`, choice one of
    `allow_once | allow_always | reject_once | reject_always`. The control is **account-gated** (`ACCOUNT_GATED` in
    src/room.js): only the account root or a key enrolled directly under it (the owner's Mac, phone, Mini) is
@@ -129,10 +129,11 @@ in the chat. I need that gated by my key." Over ACP, what the seat's tool list d
    their key is refused on every device, theirs included. The first admitted answer wins; later ones change
    nothing. An answer must name an ask the room holds.
 4. The runner, waiting on `room.awaitAnswer(id)`, passes the choice back; the process picks the agent's matching
-   option and logs `allowed by guy (iphone): Bash: brew install jq` in the activity feed. No answer in ten
-   minutes: refused, and the activity line says so.
+   option and logs `allowed by guy (iphone): Bash: brew install jq` in the activity feed. An unanswered ask waits
+   for its person (a day by default since 2026-11-27; it was ten minutes, and a lapse read as a refusal to Guy);
+   only then is it set aside.
 
-In the shell the ask is PearKit's `AskCard` where it happened in the conversation (Allow once · Always · Deny for
+In the shell the ask is PearKit's `AskCard` where it happened in the conversation (Allow once · Allow for this project · Refuse for
 the owner's devices, a lock line for everyone else, then "allowed once by guy (macbook)" as the record), and a
 Needs-you item on Home and Activity with the same three answers in a dialog. The CLI: `rkeychat asks` lists what
 agents wait on; `rkeychat answer ASK allow|deny [--always]`. API: `GET /api/asks`, `POST /api/asks/answer`.
@@ -141,9 +142,9 @@ Tests: `test/asks.test.js` (the gate: jeff's forged answer is refused with `scop
 ends the wait with null; `verdict`), `app/src/store/asks.test.ts` (the card and Needs you follow the records),
 PearKit `askLogic.test.ts`, and the GUI test "an agent asks for a permission" in a real browser.
 
-**How long an ask waits.** Ten minutes by default. `rkeychat agent ask-minutes NAME 30` sets one seat's wait
+**How long an ask waits.** A day by default (1440 minutes). `rkeychat agent ask-minutes NAME 30` sets one seat's wait
 (its `bridge.askMinutes`); `rkeychat agent ask-minutes all 30` sets this device's default (`askMinutes` in
-config.json); 1 to 120 minutes, live for the next ask. The turn's own 20-minute clock stops while a person is
+config.json); 1 to 1440 minutes, live for the next ask. The turn's own 20-minute clock stops while a person is
 asked, so a long wait does not time the turn out. API: `POST /api/agents/ask-minutes { name?, minutes }`.
 
 **Who may answer, as the shell sees it.** The room snapshot's `ownerDevice` is the daemon's own test
@@ -151,8 +152,34 @@ asked, so a long wait does not time the turn out. API: `POST /api/agents/ask-min
 means "this device holds the root key" and is false on a phone, which is why the first phone build showed the
 lock line to Guy himself (2026-11-22).
 
-Not yet: `allow_always` is the agent's own memory (Claude Code stops asking for that rule within the session);
-the seat's tool list on disk is not widened.
+### Grants: what the owner lets a project's agents do without asking (2026-11-27)
+
+Guy: "the agent says it doesn't have permission to read ~/Anjou. How can we deal with permissions inside this app
+and for access on the macbook that is approved by me safely but within the chat session?" (src/grants.js)
+
+- **Never opened**, whatever the rules or grants say: `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.rkeychat` (secret keys),
+  `~/.anjou`, `~/.config/gh`, the Mac's keychains, cookies and mail, and the `_` business folders (one level under
+  a folder in home, `~/Anjou/_keys`, or beside the project). A command that names one is refused, not asked.
+- **Read-only shell commands are reads.** `cat`, `head`, `sed -n`, `grep`, `find`, a `for` loop over files…
+  (`READERS`, with the flags that would write refused: `sed -i`, `find -delete`, `sort -o`, a `>` redirect, `$(…)`)
+  are judged by the paths they name: inside the project or a readable folder, allowed; elsewhere, asked. Before
+  this, `Bash(cat:*)` let an agent `cat` any file on the Mac, keys included. A walk (`grep -r`, `find`, a glob)
+  through a folder that holds a forbidden one is asked, with no standing yes offered.
+- **What is readable**: the project folder, the folders beside it (the lab preset, minus `_` ones), and the grants.
+  The lab preset no longer carries a bare `Read` (which meant the whole Mac).
+- **"Allow for this project"** on an ask grants the rule the ask carried (`rule`, `ruleLabel`, signed by the agent,
+  shown on the card as "For this project: read anything in ~/Anjou/pearkit"): a folder (two levels under home at
+  most) for a read, `Bash(prog:*)` for one program, a tool name for another tool. Never offered for a shell, `rm`,
+  `sudo`, `mv`, `chmod` and the like, nor for home itself. The answer `allow_always` is the grant.
+- **Grants are signed records of the room**: a `grant` control `{ rule, revoke? }` (account-gated: the owner's own
+  devices only) or an ask answered `allow_always`; `room.grants(dir)` folds them in order, a withdrawal winning.
+  Every seat of the project reads them on its next permission question (`judge()` in src/acp.js merges them into
+  `allow`). They reach every device with the room, so the phone can grant and withdraw.
+- **In the shell**: Project › "Folders this project can see" (`ProjectAccess`, PearKit `AccessList`): the folder,
+  what is beside it, each grant with where it came from and a remove button, and a field to add a folder (on the
+  device that holds the project). API: `GET /api/grants?room=`, `POST /api/grants { room, folder | rule, revoke? }`.
+
+Tests: `test/grants.test.js`, `app/src/store/access.test.ts`, PearKit `accessLogic.test.ts`.
 
 ### The bot's settings: mode, model, provider (2026-11-22, the rest of the same memo)
 

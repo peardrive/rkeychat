@@ -21,7 +21,7 @@ export type FeedItem = {
   unread: boolean;
   ask?: LoginAsk;
   /** An agent's ask for a permission: where the card is, and the ask's id (answered with /api/asks/answer). */
-  permission?: { topic: string; conv: string; id: string; tool: string; what: string; expires: number };
+  permission?: { topic: string; conv: string; id: string; tool: string; what: string; expires: number; always?: string | null };
 };
 
 export const FEED_MAX = 200;

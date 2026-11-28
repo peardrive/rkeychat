@@ -40,7 +40,7 @@ export function reactionsOf(reactions: Reactions | undefined, id: string, me: st
   return out.length ? out : undefined;
 }
 
-const CHOICE_WORDS: Record<string, string> = { allow_once: 'allowed once', allow_always: 'allowed always', reject_once: 'refused', reject_always: 'refused always' };
+const CHOICE_WORDS: Record<string, string> = { allow_once: 'allowed once', allow_always: 'allowed for this project', reject_once: 'refused', reject_always: 'refused always' };
 
 /** A control as one muted line: an answer to an ask, a rename, a budget change. */
 export function controlLine(rec: Rec): string {

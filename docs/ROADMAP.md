@@ -16,7 +16,6 @@ Started 2026-11-24 from the `projects` branch; the ideas below were carried from
 - **Owner devices exchange their notes links through a room** (2026-11-23, Guy: the Mac should follow the phone's
   notes without a link pasted by hand). Today: Settings › Debug has a "Follow" field for a pasted link (shipped
   2026-11-24, 96688cb). Wanted: an owner's devices post their notes link as a signed control and follow each other.
-- **`allow_always` persistence** for an agent's permission answers, per room; today each session asks again.
 - **Seat rename**, and **one runtime per conversation** chosen from the conversation's menu (today per seat).
 
 ## Later
@@ -28,6 +27,13 @@ Started 2026-11-24 from the `projects` branch; the ideas below were carried from
 - **TASKS.md** per project folder, written by the agent, read by the room.
 
 ## Done
+
+- **Permissions the owner grants from the chat** (2026-11-28; Guy, 2026-11-27: "permissions inside this app and for
+  access on the macbook that is approved by me safely but within the chat session"; carries the old Next item
+  "`allow_always` persistence"). Four pieces: (1) "Folders this project can see" in the project pane, signed
+  owner-only grants; (2) "Allow for this project" on an ask, granting the folder or program it names; (3) an
+  unanswered ask waits a day instead of being refused after ten minutes; (4) read-only shell commands are judged as
+  reads, and keys and `_` folders are never opened (docs/project-agents.md "Grants").
 
 - **Every message reaches the open chat after a reconnect** (2026-11-27, Guy: "We need to make sure that the space syncs
   every single item in the conversation the second a reconnect happens… There's a whole message in the conversation

@@ -12,6 +12,7 @@ import { archivedConvs, convTitle, homeOf, orgOf, selectedRoom, thinkingIn } fro
 import { roundsLine } from '../store/budget';
 import type { AgentState, Seat } from '../types';
 import type { ProjectAction } from './ProjectList';
+import { ProjectAccess } from './ProjectAccess';
 
 export interface ProjectPaneProps {
   width?: number;
@@ -202,6 +203,9 @@ export function ProjectPane({ width, phone, onClose, onChangeFolder, onProjectAc
           </Text>
           {home.here || !home.name ? <Button label={room.folder ? 'Change…' : 'Bind a folder…'} variant="subtle" size="sm" onPress={onChangeFolder} /> : null}
         </View>
+
+        {/* What the agents read without asking */}
+        <ProjectAccess topic={room.topic} canAdd={!!room.folder} />
 
         {/* Seats */}
         <SectionLabel label="Seats" count={seats.length || undefined} inset="none" className="pb-1 pt-4" />

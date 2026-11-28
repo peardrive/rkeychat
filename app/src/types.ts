@@ -212,6 +212,11 @@ export type Rec = {
   input?: string;
   options?: { id: string; kind: string; name?: string }[];
   expires?: number;
+  /** An ask's standing yes ("Allow for this project"): the rule it would grant and how the card words it. A `grant`
+   * control's rule, with `revoke` when it withdraws one. */
+  rule?: string;
+  ruleLabel?: string;
+  revoke?: boolean;
   /** An `answer` control: which ask, and the choice (allow_once | allow_always | reject_once | reject_always). */
   ask?: string;
   choice?: string;
@@ -225,6 +230,11 @@ export type Rec = {
   /** Local only (a `fold` record the shell makes): the asks of one stretch of work, folded into one block. */
   fold?: { asks: FoldedAsk[]; steps: number };
 };
+
+/** One thing the owner let a project's agents do without asking (`GET /api/grants`). */
+export type Grant = { rule: string; label: string; by: string; ts: number; from: 'ask' | 'settings' };
+/** `GET /api/grants`: the project's folder, the folder beside it (readable by the preset), and the grants. */
+export type GrantsInfo = { folder: string | null; beside: string | null; home?: string; grants: Grant[]; owner: boolean };
 
 /** `GET /api/asks`: an open ask, with its room. */
 export type OpenAsk = Rec & { topic: string; room: string; tool: string; what: string; expires: number };

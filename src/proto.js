@@ -121,7 +121,7 @@ function cleanAuto (auto, { grant = false } = {}) {
   return out
 }
 
-export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, seat, auto, ts = Date.now() }) {
+export async function makeControl (signer, { room, action, n, until, agent, style, text, order, agents, name, conv, archived, runtime, app, role, icon, home, org, request, ask, choice, seat, auto, rule, revoke, ts = Date.now() }) {
   return signBody('rkeychat-control', signer, {
     kind: 'control', id: newId(), room, ts, action, n, until, agent, style,
     text: text === undefined ? undefined : String(text).slice(0, 8000),
@@ -147,21 +147,27 @@ export async function makeControl (signer, { room, action, n, until, agent, styl
     // a 'seat' control (`agent` names the seat): the settings asked for, or how it now runs (seat-settings.js)
     seat: cleanSeat(seat),
     // an 'auto' control: the room's cap on Auto grants
-    auto: auto === undefined ? undefined : cleanAuto(auto)
+    auto: auto === undefined ? undefined : cleanAuto(auto),
+    // a 'grant' control: a rule the project's agents may use without asking (src/grants.js), or its withdrawal
+    rule: rule === undefined ? undefined : String(rule).slice(0, 600),
+    revoke: revoke ? true : undefined
   })
 }
 
 // An agent asks a person for a permission its seat's tool list does not settle (src/acp.js): which tool, what it
 // would do (one line), the input in full (trimmed), the choices the agent offered, and when the question lapses.
 // Signed by the agent; shown in the conversation; answered by an 'answer' control from the owner's keys.
-export async function makeAsk (signer, { room, conv, tool, what, input, options = [], expires, ts = Date.now() }) {
+export async function makeAsk (signer, { room, conv, tool, what, input, options = [], expires, rule, ruleLabel, ts = Date.now() }) {
   return signBody('rkeychat-ask', signer, {
     kind: 'ask', id: newId(), room, ts, conv: convField(conv),
     tool: String(tool ?? '').slice(0, 40),
     what: String(what ?? '').replace(/\s+/g, ' ').slice(0, 200),
     input: input === undefined ? undefined : String(input).slice(0, 2000),
     options: (Array.isArray(options) ? options : []).slice(0, 8).map((o) => ({ id: String(o.id ?? o.optionId ?? '').slice(0, 64), kind: String(o.kind ?? '').slice(0, 16), name: o.name === undefined ? undefined : String(o.name).slice(0, 80) })),
-    expires: Number(expires) || ts + 10 * 60_000
+    expires: Number(expires) || ts + 10 * 60_000,
+    // what "Allow for this project" would grant (src/grants.js grantFor): the rule, and how the card words it
+    rule: rule ? String(rule).slice(0, 600) : undefined,
+    ruleLabel: rule && ruleLabel ? String(ruleLabel).slice(0, 200) : undefined
   })
 }
 

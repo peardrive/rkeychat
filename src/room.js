@@ -14,12 +14,13 @@ import { budget, addressedTo, replyDepth } from './turns.js'
 import { windowOf } from './feed-window.js'
 import { RoomSearch } from './search.js'
 import { imageSize } from './image-size.js'
+import { cleanGrantRule, describeRule } from './grants.js'
 
 // record kinds the chat feed never shows as lines of their own (reactions and removals are applied to the
 // messages they point at; invites are addressed to one device)
 export const FEED_SKIP = ['react', 'redact', 'invite']
 // controls only the owner's own keys may write (see #admits); 'close' ends the room for everyone
-export const ACCOUNT_GATED = ['project', 'home', 'seat', 'auto', 'watch', 'close', 'answer']
+export const ACCOUNT_GATED = ['project', 'home', 'seat', 'auto', 'watch', 'close', 'answer', 'grant']
 
 const edRef = (hex) => `ed25519:${hex}`
 const PRESENCE_EVERY = 20_000
@@ -1117,10 +1118,10 @@ export class Room extends EventEmitter {
 
   // An agent asks: a signed 'ask' record in the conversation. Returns the record, or null when the agent cannot
   // post here (no chat scope).
-  async ask (name, { conv, tool, what, input, options, expires } = {}) {
+  async ask (name, { conv, tool, what, input, options, expires, rule, ruleLabel } = {}) {
     const p = this.local[name]
     if (!p || p.role !== 'agent' || !this.state?.can(p.signer.ref, SCOPES.chat)) return null
-    const rec = await makeAsk(p.signer, { room: this.topic, conv, tool, what, input, options, expires })
+    const rec = await makeAsk(p.signer, { room: this.topic, conv, tool, what, input, options, expires, rule, ruleLabel })
     if (!this.#ingest(rec)) return null
     await this.#send('rec', { rec })
     return rec
@@ -1137,6 +1138,40 @@ export class Room extends EventEmitter {
     if (!p || p.role !== 'human') throw new Error('answers need a local human participant')
     if (!this.isOwnerKey(p.signer.ref)) throw new Error('only the owner\'s own devices may answer an agent\'s ask')
     return this.control(name, 'answer', { ask: askId, choice })
+  }
+
+  // What the owner let this project's agents do without asking (src/grants.js): every 'grant' control and every ask
+  // answered "for this project" (allow_always on an ask that carried a rule), in order, a later withdrawal winning.
+  // Each: { rule, label, by, ts, from: 'ask' | 'settings' }. `dir` is the project folder on this device: a rule that
+  // would open a forbidden place there is dropped.
+  grants (dir = null) {
+    const out = new Map()
+    const asks = new Map()
+    for (const r of this.store.ordered) {
+      if (r.kind === 'ask' && r.rule) asks.set(r.id, r)
+      if (r.kind !== 'control') continue
+      if (r.action === 'grant' && r.rule) {
+        const rule = cleanGrantRule(r.rule, dir)
+        if (!rule) continue
+        if (r.revoke) out.delete(rule)
+        else out.set(rule, { rule, label: describeRule(rule), by: this.view(r).name, ts: r.ts, from: 'settings' })
+      } else if (r.action === 'answer' && r.choice === 'allow_always' && asks.has(r.ask)) {
+        if (this.answerOf(r.ask)?.id !== r.id) continue // only the first answer counts
+        const rule = cleanGrantRule(asks.get(r.ask).rule, dir)
+        if (rule) out.set(rule, { rule, label: describeRule(rule), by: this.view(r).name, ts: r.ts, from: 'ask' })
+      }
+    }
+    return [...out.values()]
+  }
+
+  // The owner grants a rule, or withdraws one (a signed, account-gated 'grant' control).
+  async grant (name, rule, { revoke = false, dir = null } = {}) {
+    const clean = cleanGrantRule(rule, dir)
+    if (!clean) throw new Error('that cannot be granted (a folder no agent reads, the home folder, or a shell)')
+    const p = this.local[name]
+    if (!p || p.role !== 'human') throw new Error('grants need a local human participant')
+    if (!this.isOwnerKey(p.signer.ref)) throw new Error("only the owner's own devices may grant")
+    return this.control(name, 'grant', { rule: clean, revoke })
   }
 
   // The first admitted answer to an ask (viewed: name and device of who answered), or null.

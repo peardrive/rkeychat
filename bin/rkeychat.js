@@ -61,7 +61,7 @@ agents
   rkeychat notes follow LINK               keep fetching that device's notes whenever it is heard from (pull follows too)
   rkeychat notes unfollow DEVICE           stop following a device's notes
   rkeychat asks [--room R]                 what agents wait on a person for; answer: rkeychat answer ASK allow|deny [--always]
-  rkeychat agent ask-minutes NAME|all N    how long an ask waits for a person (1–120 min; default 10)
+  rkeychat agent ask-minutes NAME|all N    how long an ask waits for a person (1–1440 min; default 1440, a day)
   rkeychat agent mode NAME default|acceptEdits|plan|auto [--minutes N] [--turns N]   default = ask; auto = this device says yes (deny rules still refuse), for N minutes / turns or until switched; never bypass; live
   rkeychat agent model NAME MODEL|default [--provider P|claude]   which model answers, and from where (the login, or a provider below)
   rkeychat provider [list]                 providers on this device (an Anthropic-shaped API bought elsewhere: PPQ, a gateway)
@@ -226,7 +226,7 @@ switch (cmd) {
     if (sub === 'ask-minutes') {
       // how long an ask waits for a person: one seat, or `all` for this device's default
       const [, name, n] = pos
-      if (!name || !(Number(n) >= 1)) die('usage: rkeychat agent ask-minutes NAME|all MINUTES   (1–120; default 10)')
+      if (!name || !(Number(n) >= 1)) die('usage: rkeychat agent ask-minutes NAME|all MINUTES   (1–1440; default 1440)')
       const r = await api('POST', '/api/agents/ask-minutes', { name: name === 'all' ? undefined : name, minutes: Number(n) })
       console.log(`${r.name ? `@${r.name}` : 'every seat on this device'}: an ask waits ${r.minutes} min${r.name ? ` (device default ${r.default})` : ''}`)
       break

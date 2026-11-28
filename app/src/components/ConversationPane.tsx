@@ -239,7 +239,7 @@ export function ConversationPane({ phone, projectOpen, onToggleProject, onBack, 
               if (f?.fold) return <AskFold agent={f.name} asks={f.fold.asks} steps={f.fold.steps} className="my-0.5" />;
               const a = asks.get(m.id);
               if (!a) return undefined;
-              return <AskCard agent={a.rec.name} tool={a.rec.tool ?? ''} what={a.rec.what ?? ''} detail={a.rec.input} ts={a.rec.ts} expires={a.rec.expires ?? 0} answer={a.answer} canAnswer={canAnswer} lockHint="Only the owner's own devices can answer" busy={answering === m.id} onAnswer={(c) => void answerAsk(m.id, c)} className="my-1" />;
+              return <AskCard agent={a.rec.name} tool={a.rec.tool ?? ''} what={a.rec.what ?? ''} detail={a.rec.input} ts={a.rec.ts} expires={a.rec.expires ?? 0} always={a.rec.rule ? (a.rec.ruleLabel ?? a.rec.rule) : null} answer={a.answer} canAnswer={canAnswer} lockHint="Only the owner's own devices can answer" busy={answering === m.id} onAnswer={(c) => void answerAsk(m.id, c)} className="my-1" />;
             }}
             onReact={react}
             quickReactions={favourites}

@@ -25,6 +25,8 @@ import { FEED_PAGE } from './feed-window.js'
 import { DebugNotes } from './debug-notes.js'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
+import { homedir } from 'node:os'
+import { folderFor } from './grants.js'
 
 // A bundled app has no src/ui on disk: it writes the UI out at boot and points here.
 const UI = process.env.RKEYCHAT_UI || join(dirname(fileURLToPath(import.meta.url)), 'ui', 'index.html')
@@ -341,7 +343,7 @@ export function serve ({ app }) {
       return app.addAgent({ name, dir, permissionMode, tools, model, via })
     },
     // how the daemon drives a project agent's Claude Code: cli (claude -p) or acp
-    // how long an agent's ask waits for a person (minutes, 1–120): one seat, or every seat on this device with name
+    // how long an agent's ask waits for a person (minutes, 1–1440): one seat, or every seat on this device with name
     // omitted (the device default, in config.json askMinutes)
     'POST /api/agents/ask-minutes': async (req) => {
       const { name, minutes } = await body(req)
@@ -491,6 +493,29 @@ export function serve ({ app }) {
       need(ask, 'which ask?')
       const rec = await room.answer(localHuman(), ask, choice)
       return { ...room.view(rec), roomName: room.cfg.name }
+    },
+
+    // What this project's agents may read and run without asking (src/grants.js): the folder itself, the folders
+    // beside it (the seat's lab preset), and what the owner granted, each a signed record. POST adds a folder (or a
+    // rule) or withdraws one; only the owner's own devices may.
+    'GET /api/grants': (req, res, url) => {
+      const { room } = pick(url.searchParams.get('room'))
+      const dir = room.cfg.folder ?? null
+      return { folder: dir, beside: dir ? dirname(dir) : null, home: homedir(), grants: room.grants(dir), owner: room.isOwnerKey(room.local[localHuman()]?.signer?.ref) }
+    },
+    'POST /api/grants': async (req) => {
+      const { room: key, folder, rule, revoke } = await body(req)
+      const { room } = pick(key)
+      const dir = room.cfg.folder ?? null
+      let r = rule
+      if (!r && folder) {
+        const f = resolvePath(String(folder).replace(/^~(?=\/|$)/, homedir()))
+        need(folderFor(f, dir) === f, `${folder}: not a folder a grant can open (home itself, a key or business folder, or the project or above it)`)
+        r = `Read(/${f}/**)`
+      }
+      need(r, 'which folder?')
+      const rec = await room.grant(localHuman(), r, { revoke: !!revoke, dir })
+      return { ...room.view(rec), grants: room.grants(dir) }
     },
 
     // what each agent in this room has spent in the last day, measured

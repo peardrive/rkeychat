@@ -4,7 +4,8 @@ import { parseTools, resolveTools, describeTools, LAB } from '../src/tools.js'
 
 test('the default is the lab preset, with the folders beside the project readable except the _ ones', () => {
   const { allow, deny } = resolveTools(undefined, '/Users/guy/Anjou/peardrive')
-  for (const r of LAB) assert.ok(allow.includes(r), r)
+  for (const r of LAB) if (!['Read', 'Grep', 'Glob'].includes(r)) assert.ok(allow.includes(r), r)
+  assert.ok(!allow.includes('Read'), 'a bare Read would open the whole Mac; the folders are named instead')
   assert.ok(allow.includes('Read(//Users/guy/Anjou/**)'))
   assert.deepEqual(deny, ['Read(//Users/guy/Anjou/_*/**)'])
   assert.ok(allow.includes('Bash(git:*)'))

@@ -2,7 +2,7 @@
  * Typed client for every route in docs/projects-api.md. With VITE_MOCK=1 the same interface is
  * served from an in-memory fixture (mock/), so the app runs without a daemon.
  */
-import type { AgentInfo, AutoLimit, Charter, ClaudeLoginState, ClaudeStatus, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, ProviderPreset, Rec, ReleaseInfo, RoomSummary, SearchHit, Seat, SeatChange, SetupInfo, StateResponse, UpdatesState } from './types';
+import type { Grant, GrantsInfo, AgentInfo, AutoLimit, Charter, ClaudeLoginState, ClaudeStatus, DebugNoteInfo, DebugSpaceInfo, DebugSyncInfo, OpenAsk, Conversation, Device, FileEntry, LogPage, LoginAsk, PendingProject, PendingRequest, Person, Provider, ProviderPreset, Rec, ReleaseInfo, RoomSummary, SearchHit, Seat, SeatChange, SetupInfo, StateResponse, UpdatesState } from './types';
 
 export interface Api {
   state(room?: string | null, conv?: string | null): Promise<StateResponse>;
@@ -34,6 +34,9 @@ export interface Api {
   asks(): Promise<{ asks: OpenAsk[] }>;
   /** Answer one: a signed control only the owner's own devices may write. */
   answerAsk(body: { room: string; ask: string; choice: string }): Promise<Rec>;
+  /** What a project's agents may read and run without asking, and the owner's changes to it (signed grants). */
+  grants(room: string): Promise<GrantsInfo>;
+  grant(body: { room: string; folder?: string; rule?: string; revoke?: boolean }): Promise<Rec & { grants: Grant[] }>;
   loginGrant(topic: string): Promise<unknown>;
   loginDeny(topic: string): Promise<unknown>;
   debugNotes(): Promise<DebugSpaceInfo & { notes: DebugNoteInfo[] }>;
@@ -163,6 +166,8 @@ export const httpApi: Api = {
   loginAsks: () => get('login/pending'),
   asks: () => get('asks'),
   answerAsk: (b) => post('asks/answer', b),
+  grants: (room) => get('grants', { room }),
+  grant: (b) => post('grants', b),
   loginGrant: (topic) => post('login/grant', { topic }),
   loginDeny: (topic) => post('login/deny', { topic }),
   debugNotes: () => get('debug/notes'),

@@ -408,6 +408,6 @@ function askFeedItem(state: State, topic: string, rec: Rec): FeedItem {
     topic,
     conv: rec.conv,
     unread: true,
-    permission: { topic, conv: rec.conv ?? 'main', id: rec.id, tool: rec.tool ?? '', what: rec.what ?? '', expires: rec.expires ?? 0 },
+    permission: { topic, conv: rec.conv ?? 'main', id: rec.id, tool: rec.tool ?? '', what: rec.what ?? '', expires: rec.expires ?? 0, always: rec.rule ? (rec.ruleLabel ?? rec.rule) : null },
   };
 }

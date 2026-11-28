@@ -100,7 +100,7 @@ await shot('desktop-profile', {
 await shot('desktop-settings', {
   ...desktop,
   before: async (page) => {
-    await page.getByRole('radio', { name: 'Settings' }).click();
+    await page.getByText('Settings', { exact: true }).last().click();
     await page.waitForTimeout(700);
     await must(page, page.getByText('Workspace folder'), 'the settings page');
   },
@@ -137,6 +137,8 @@ await shot('phone-ask', {
     await dockTo(page, 'Projects');
     await page.getByText(/Reading the folder/).first().tap();
     await must(page, page.locator('[data-ask-state="open"]'), 'the agent\'s ask in the conversation');
+    await must(page, page.getByText('Allow for this project'), 'the standing yes, named for the project');
+    await must(page, page.getByText(/For this project: run npm commands/), 'what the standing yes would open');
   },
 });
 await shot('phone-bot', {
@@ -193,6 +195,21 @@ await shot('phone-project', {
     await page.getByRole('button', { name: 'Project' }).first().tap();
     await page.waitForTimeout(500);
     await must(page, page.getByRole('button', { name: 'Back' }), 'a back control on the project sheet');
+  },
+});
+await shot('phone-project-access', {
+  ...phone,
+  before: async (page) => {
+    await dockTo(page, 'Projects');
+    await openRedesign(page, true);
+    await page.getByRole('button', { name: 'Project' }).first().tap();
+    await page.waitForTimeout(500);
+    await must(page, page.getByText('Folders this project can see'), 'the folder list');
+    await page.getByRole('textbox', { name: 'Folder to add' }).fill('~/Anjou/pearkit');
+    await page.getByRole('button', { name: 'Add', exact: true }).tap();
+    await page.waitForTimeout(500);
+    await must(page, page.getByText('~/Anjou/pearkit'), 'the added folder in the list');
+    await page.getByText('Folders this project can see').scrollIntoViewIfNeeded();
   },
 });
 await shot('phone-new-project', {

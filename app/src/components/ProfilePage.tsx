@@ -235,13 +235,13 @@ export function ProfilePage({ topic, name, phone, onBack }: ProfilePageProps) {
                     : []),
                   {
                     label: 'An ask waits',
-                    hint: 'minutes before an unanswered question counts as no (1–120; empty is the device default)',
+                    hint: 'minutes an unanswered question waits before it is set aside (1–1440; empty is the device default, a day)',
                     control: (
                       <TextField
                         value={askMin}
                         onChangeText={(t) => setAskMin(t.replace(/[^\d]/g, ''))}
-                        onBlur={() => { const n = Number(askMin); if (n >= 1 && n <= 120 && n !== (seat?.askMinutes ?? 0)) void change('ask', { askMinutes: n }); }}
-                        placeholder="10"
+                        onBlur={() => { const n = Number(askMin); if (n >= 1 && n <= 1440 && n !== (seat?.askMinutes ?? 0)) void change('ask', { askMinutes: n }); }}
+                        placeholder="1440"
                         keyboardType="numeric"
                         size="sm"
                         disabled={!canRun}

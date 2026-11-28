@@ -34,8 +34,8 @@ export function ApprovalDialog({ item, onClose, onGrant, onDeny, onAnswer }: { i
         description="Only your own devices can answer. The answer is signed with this device's key and goes into the conversation."
         actions={
           <>
-            <Button label="Deny" variant="danger" onPress={() => say('reject_once')} />
-            <Button label="Always" variant="secondary" onPress={() => say('allow_always')} />
+            <Button label="Refuse" variant="danger" onPress={() => say('reject_once')} />
+            {perm.always ? <Button label="Allow for this project" variant="secondary" onPress={() => say('allow_always')} /> : null}
             <Button label="Allow once" variant="primary" onPress={() => say('allow_once')} />
           </>
         }
@@ -43,6 +43,11 @@ export function ApprovalDialog({ item, onClose, onGrant, onDeny, onAnswer }: { i
         <Text variant="body-sm" style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
           {perm.what}
         </Text>
+        {perm.always ? (
+          <Text variant="caption" tone="muted" className="pt-2">
+            For this project: {perm.always}
+          </Text>
+        ) : null}
       </Dialog>
     );
   }

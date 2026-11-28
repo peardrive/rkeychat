@@ -8,6 +8,7 @@
  * Dock, OrgTabs and the Home blocks came with cfe787f. Still stand-ins: the two-line sidebar rows and the file rows.
  */
 export {
+  AccessList,
   ActivityFeed,
   AppWindow,
   AskCard,
@@ -99,7 +100,7 @@ export {
   useToast,
   withAlpha,
 } from 'pearkit';
-export type { ActivityItem, ActivityKind, AskAnswer, AskChoice, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, NetworkState, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, SyncState, ToastOptions, UpdateChannelState, UpdateRelease, UpdateVersion, UpdatesStatus } from 'pearkit';
+export type { AccessItem, ActivityItem, ActivityKind, AskAnswer, AskChoice, ChatAttachment, ChatMessage, ColorToken, DockItem, DroppedItem, IconName, IconSource, MenuItem, NetworkState, OrgTabItem, PaneHeaderAction, PresencePerson, ProfileSection, StatusTone, SyncState, ToastOptions, UpdateChannelState, UpdateRelease, UpdateVersion, UpdatesStatus } from 'pearkit';
 
 // Pending in PearKit: the file rows of a project (projects-home-and-sync.md §3).
 export { FileList, FileRow } from './pending-pearkit/FileList';
